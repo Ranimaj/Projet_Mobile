@@ -1,0 +1,86 @@
+rules_version = '2';
+
+// Règles de sécurité Firestore — CampusConnect
+// Principe : lecture publique (y compris visiteur non connecté) sur le
+// contenu des 4 modules, écriture réservée aux utilisateurs authentifiés
+// propriétaires de leur contenu, modération réservée aux admins.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function userRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && userRole() == 'admin';
+    }
+
+    function isRecruiter() {
+      return isSignedIn() && userRole() == 'recruiter';
+    }
+
+    // --- Gestion Utilisateurs ---
+    match /users/{userId} {
+      allow read: if true; // profils publics (nom, filière) visibles par tous
+      allow create: if isOwner(userId);
+      allow update: if isOwner(userId) || isAdmin();
+      allow delete: if isOwner(userId);
+    }
+
+    // --- Gestion Vente & Don ---
+    match /articles/{articleId} {
+      allow read: if true; // visible par le visiteur non connecté
+      allow create: if isSignedIn() && request.resource.data.ownerId == request.auth.uid;
+      allow update, delete: if isSignedIn() &&
+        (resource.data.ownerId == request.auth.uid || isAdmin());
+    }
+
+    // --- Gestion Annonces ---
+    match /annonces/{annonceId} {
+      allow read: if true;
+      allow create: if isSignedIn() &&
+        request.resource.data.authorId == request.auth.uid &&
+        (request.resource.data.category != 'Officielle' || isAdmin());
+      allow update: if isAdmin(); // épinglage / modération réservés à l'admin
+      allow delete: if isSignedIn() &&
+        (resource.data.authorId == request.auth.uid || isAdmin());
+    }
+
+    // --- Gestion Événements ---
+    match /events/{eventId} {
+      allow read: if true;
+      allow create: if isSignedIn() && request.resource.data.organizerId == request.auth.uid;
+      allow update: if isSignedIn(); // inscription/désinscription par tout utilisateur connecté
+      allow delete: if isSignedIn() &&
+        (resource.data.organizerId == request.auth.uid || isAdmin());
+    }
+
+    // --- Gestion Stage & Emploi ---
+    match /job_offers/{offerId} {
+      allow read: if true;
+      allow create: if isRecruiter() && request.resource.data.recruiterId == request.auth.uid;
+      allow update, delete: if isSignedIn() &&
+        (resource.data.recruiterId == request.auth.uid || isAdmin());
+    }
+
+    match /applications/{applicationId} {
+      // une candidature n'est visible que par son auteur, le recruteur
+      // concerné, ou un admin — jamais par le grand public ni le visiteur.
+      allow read: if isSignedIn() &&
+        (resource.data.candidateId == request.auth.uid || isRecruiter() || isAdmin());
+      allow create: if isSignedIn() && request.resource.data.candidateId == request.auth.uid;
+      allow update: if isSignedIn() && (isRecruiter() || isAdmin()); // changement de statut
+      allow delete: if isSignedIn() &&
+        (resource.data.candidateId == request.auth.uid || isAdmin());
+    }
+  }
+}

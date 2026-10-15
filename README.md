@@ -1,0 +1,145 @@
+# CampusConnect 📱
+
+Application mobile Flutter pour étudiants — plateforme tout-en-un du campus,
+**offline-first**, construite autour de 5 gestions réparties équitablement
+entre les 5 membres de l'équipe :
+
+| Module | Responsable | CRUD | Fonctionnalités avancées | API dédiée |
+|---|---|---|---|---|
+| Gestion Utilisateurs | Membre 1 | Profil, inscription, rôles | Authentification biométrique (`local_auth`) + Connexion Google | Firebase Authentication + Google ML Kit |
+| Gestion Vente & Don | Membre 2 | Articles (créer/lire/modifier/supprimer, réserver, terminer) | Upload multi-images compressées + recherche/filtres avancés | Cloud Firestore + Firebase Storage |
+| Gestion Annonces | Membre 3 | Annonces (créer/lire/modifier/supprimer) | Notifications push ciblées par filière/année + épinglage auto des annonces officielles | Firebase Cloud Messaging |
+| Gestion Événements | Membre 4 | Événements (créer/lire/modifier/supprimer, inscription) | Synchronisation calendrier natif + vue par date | Intégration calendrier (add_2_calendar) |
+| Gestion Stage & Emploi | Membre 5 | Offres + candidatures (créer/lire/modifier/supprimer) | Matching intelligent par compétences + suivi de statut en temps réel | Firestore (candidatures en temps réel) |
+
+Toute l'application fonctionne **hors-ligne** : consultation depuis le cache
+local (Hive), actions mises en file d'attente puis synchronisées
+automatiquement au retour du réseau (voir [Architecture offline](#architecture-offline-first)).
+
+---
+
+## 1. Prérequis
+
+- Flutter SDK ≥ 3.22 (Dart ≥ 3.3) — `flutter --version`
+- Un compte Firebase (gratuit) et le CLI FlutterFire
+- Android Studio / Xcode pour les émulateurs, ou un téléphone physique
+
+```bash
+dart pub global activate flutterfire_cli
+npm install -g firebase-tools   # ou: curl -sL https://firebase.tools | bash
+firebase login
+```
+
+## 2. Installation
+
+```bash
+flutter pub get
+```
+
+## 3. Configuration Firebase
+
+Le fichier `lib/firebase_options.dart` fourni est un **placeholder** — il doit
+être régénéré pour votre propre projet Firebase :
+
+```bash
+firebase projects:create campusconnect-esprit   # ou utilisez un projet existant
+flutterfire configure
+```
+
+Suivez les invites (sélection du projet, des plateformes Android/iOS/Web).
+Cela remplace automatiquement `lib/firebase_options.dart` par vos vraies clés.
+
+Dans la [console Firebase](https://console.firebase.google.com/), activez :
+
+1. **Authentication** → méthodes "E-mail/mot de passe" et "Google"
+2. **Cloud Firestore** → créer la base en mode production
+3. **Storage** → créer le bucket par défaut
+4. **Cloud Messaging** → aucune activation manuelle nécessaire
+
+### Règles de sécurité Firestore
+
+Déployez le fichier `firestore.rules` fourni à la racine du projet :
+
+```bash
+firebase deploy --only firestore:rules
+```
+
+Logique résumée : lecture publique sur les articles/annonces/événements/offres
+(mode visiteur), écriture réservée aux auteurs authentifiés, modération et
+épinglage réservés au rôle `admin`, candidatures visibles uniquement par leur
+auteur, le recruteur concerné et les admins.
+
+### Index Firestore recommandés
+
+Pour les requêtes triées (annonces épinglées, événements à venir), Firestore
+vous proposera automatiquement un lien de création d'index composite dans les
+logs au premier lancement — cliquez-le, ou créez-les manuellement dans
+Firestore → Index.
+
+## 4. Lancer l'application
+
+```bash
+flutter run
+```
+
+Au premier lancement, l'app démarre en **mode visiteur** (lecture seule avec
+aperçus des 4 modules) — créez un compte ou connectez-vous pour débloquer la
+publication, les favoris, les inscriptions et les candidatures.
+
+Pour créer un compte **admin** (modération des annonces) ou **recruteur**
+(publication d'offres), modifiez manuellement le champ `role` du document
+utilisateur correspondant dans la console Firestore (`student` → `admin` /
+`recruiter`).
+
+## 5. Architecture offline-first
+
+- **Hive** (`lib/core/utils/local_cache_service.dart`) met en cache chaque
+  collection lue depuis Firestore, pour un affichage instantané hors-ligne.
+- **File d'attente** (`lib/core/utils/offline_queue_service.dart`) : toute
+  création/modification/suppression faite hors-ligne est enregistrée
+  localement et rejouée automatiquement dès la reconnexion
+  (`ConnectivityProvider._syncPendingActions()`).
+- **`FirestoreRepository<T>`** (`lib/services/firestore_repository.dart`) est
+  le cœur générique réutilisé par les 4 providers de modules (articles,
+  annonces, événements, offres) : il centralise la logique
+  Firestore ↔ cache ↔ file d'attente pour éviter toute duplication de code.
+- Un bandeau orange (`OfflineBanner`) informe l'utilisateur du mode
+  hors-ligne et du nombre d'actions en attente de synchronisation.
+
+## 6. Structure du projet
+
+```
+lib/
+├── core/            # thème (couleurs/typographie), constantes, services utilitaires
+├── models/          # modèles de données (User, Article, Annonce, Event, JobOffer...)
+├── services/        # Auth, Storage, Notifications, FirestoreRepository générique
+├── providers/        # état applicatif (Provider/ChangeNotifier) par module
+├── widgets/         # composants partagés (boutons, badges, bandeau offline...)
+└── screens/
+    ├── auth/        # connexion, inscription
+    ├── visitor/     # accueil visiteur non connecté
+    ├── home/        # coquille de navigation + accueil connecté
+    ├── profile/     # profil, RGPD, sécurité
+    ├── vente_don/   # Gestion Vente & Don
+    ├── annonces/    # Gestion Annonces
+    ├── evenements/  # Gestion Événements
+    └── stages_emploi/ # Gestion Stage & Emploi
+```
+
+## 7. Design system
+
+Polices **Outfit** (titres) et **Inter** (texte courant) via `google_fonts`,
+palette indigo/violet/orange définie dans `lib/core/theme/app_colors.dart`,
+cartes arrondies (16 px) avec ombres douces — cohérent avec les maquettes
+validées du projet.
+
+## 8. Builder pour la remise (APK de démonstration)
+
+```bash
+flutter build apk --release
+# L'APK se trouve dans build/app/outputs/flutter-apk/app-release.apk
+```
+
+---
+
+Projet réalisé dans le cadre du module **Développement Mobile** — ESPRIT.
