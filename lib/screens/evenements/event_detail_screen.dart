@@ -17,6 +17,10 @@ class EventDetailScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // On relit l'événement dans le provider à chaque rebuild : après une
+    // inscription, le provider recharge et l'écran affiche la nouvelle version.
+    // Repli sur l'objet reçu si l'événement n'est plus dans la liste.
+    final event = context.watch<EventProvider>().findById(this.event.id) ?? this.event;
     final auth = context.watch<AuthProvider>();
     final isGuest = auth.status != AuthStatus.authenticated;
     final isOwner = auth.currentUser?.id == event.organizerId;

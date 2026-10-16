@@ -39,6 +39,14 @@ class EventProvider extends ChangeNotifier {
 
   List<EventModel> get publicPreview => upcoming.take(5).toList();
 
+  /// Version la plus récente d'un événement (null s'il n'est plus chargé).
+  EventModel? findById(String id) {
+    for (final e in _all) {
+      if (e.id == id) return e;
+    }
+    return null;
+  }
+
   Future<void> load() async {
     isLoading = true;
     notifyListeners();
