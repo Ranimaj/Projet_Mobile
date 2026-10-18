@@ -1,0 +1,36 @@
+rules_version = '2';
+
+// Règles Storage — CampusConnect
+// Lecture publique des médias de contenu, écriture réservée aux utilisateurs
+// connectés ; la photo de profil n'est modifiable que par son propriétaire.
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isSmallImage() {
+      return request.resource.contentType.matches('image/.*')
+        && request.resource.size < 2 * 1024 * 1024;
+    }
+
+    // Photo de profil (Gestion des Utilisateurs)
+    match /avatars/{userId}/{file} {
+      allow read: if true;
+      allow write: if isSignedIn() && request.auth.uid == userId
+        && (request.resource == null || isSmallImage()); // null = suppression
+    }
+
+    // Images d'articles (Vente & Don)
+    match /articles/{file=**} {
+      allow read: if true;
+      allow write: if isSignedIn();
+    }
+
+    // CV et lettres de motivation (Stage & Emploi) — jamais publics
+    match /cv/{file=**} {
+      allow read, write: if isSignedIn();
+    }
+  }
+}
