@@ -24,7 +24,9 @@ class EventDetailScreen extends StatelessWidget {
     final auth = context.watch<AuthProvider>();
     final isGuest = auth.status != AuthStatus.authenticated;
     final isOwner = auth.currentUser?.id == event.organizerId;
-    final isRegistered = auth.currentUser != null && event.isUserRegistered(auth.currentUser!.id);
+    final userId = auth.currentUser?.id;
+    final isRegistered = userId != null && event.isUserRegistered(userId);
+    final isBusy = context.watch<EventProvider>().isRegistrationBusy(event.id);
 
     return Scaffold(
       appBar: AppBar(
@@ -87,13 +89,13 @@ class EventDetailScreen extends StatelessWidget {
               label: const Text('Ajouter à mon calendrier'),
             ),
             const SizedBox(height: 12),
-            if (!isGuest)
+            if (!isGuest && userId != null)
               PrimaryButton(
                 label: isRegistered ? "Annuler l'inscription" : "S'inscrire à l'événement",
                 icon: isRegistered ? Icons.close_rounded : Icons.check_circle_outline_rounded,
                 gradient: isRegistered ? AppColors.accentGradient : AppColors.primaryGradient,
-                onPressed: () =>
-                    context.read<EventProvider>().toggleRegistration(event, auth.currentUser!.id),
+                isLoading: isBusy, // le bouton ignore les taps pendant l'envoi
+                onPressed: () => _toggleRegistration(context, event, userId),
               )
             else
               Text('Connectez-vous pour vous inscrire à cet événement.',
@@ -102,6 +104,28 @@ class EventDetailScreen extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  /// Envoie l'inscription et affiche le résultat (ou l'erreur avec « Réessayer »).
+  Future<void> _toggleRegistration(BuildContext context, EventModel event, String userId) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final registered = await context.read<EventProvider>().toggleRegistration(event, userId);
+      if (registered == null) return; // tap ignoré, une requête est déjà en cours
+      messenger.showSnackBar(SnackBar(
+        content: Text(registered ? 'Inscription confirmée !' : 'Désinscription effectuée.'),
+      ));
+    } on EventActionException catch (e) {
+      messenger.showSnackBar(SnackBar(
+        content: Text(e.message),
+        action: SnackBarAction(
+          label: 'Réessayer',
+          onPressed: () {
+            if (context.mounted) _toggleRegistration(context, event, userId);
+          },
+        ),
+      ));
+    }
   }
 }
 
