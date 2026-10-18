@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'package:provider/provider.dart';
 
 import 'core/constants/app_constants.dart';
@@ -18,6 +19,9 @@ import 'firebase_options.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Charge les noms de jours/mois en français, requis par DateFormat(..., 'fr_FR').
+  await initializeDateFormatting('fr_FR');
 
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
