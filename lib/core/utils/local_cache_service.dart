@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
 /// Cache local générique (Hive) : conserve la dernière copie connue de
@@ -6,6 +7,11 @@ import 'package:hive_flutter/hive_flutter.dart';
 ///
 /// Chaque document est stocké sous forme de Map<String,dynamic> indexé
 /// par son id, dans la box dont le nom est passé en paramètre.
+///
+/// Hive ne sait écrire que des types primitifs : les valeurs Firestore
+/// (`Timestamp`, `GeoPoint`, `DocumentReference`) sont converties avant
+/// stockage. Les modèles relisent indifféremment un `Timestamp` ou une date
+/// ISO 8601, donc le cache reste lisible tel quel.
 class LocalCacheService {
   Box _box(String boxName) => Hive.box(boxName);
 
@@ -17,13 +23,15 @@ class LocalCacheService {
   ) async {
     final box = _box(boxName);
     await box.clear();
-    await box.putAll(documentsById);
+    await box.putAll({
+      for (final e in documentsById.entries) e.key: sanitize(e.value),
+    });
   }
 
   /// Met à jour / insère un seul document dans le cache (après une
   /// création ou modification locale, en attendant la synchro).
   Future<void> upsert(String boxName, String id, Map<String, dynamic> data) async {
-    await _box(boxName).put(id, data);
+    await _box(boxName).put(id, sanitize(data));
   }
 
   Future<void> removeFromCache(String boxName, String id) async {
@@ -38,5 +46,18 @@ class LocalCacheService {
       for (final key in box.keys)
         key.toString(): Map<String, dynamic>.from(box.get(key) as Map),
     };
+  }
+
+  /// Rend une valeur Firestore stockable par Hive, récursivement.
+  static dynamic sanitize(dynamic value) {
+    if (value is Timestamp) return value.toDate().toUtc().toIso8601String();
+    if (value is DateTime) return value.toUtc().toIso8601String();
+    if (value is GeoPoint) return {'latitude': value.latitude, 'longitude': value.longitude};
+    if (value is DocumentReference) return value.path;
+    if (value is Map) {
+      return <String, dynamic>{for (final e in value.entries) e.key.toString(): sanitize(e.value)};
+    }
+    if (value is Iterable) return value.map(sanitize).toList();
+    return value;
   }
 }

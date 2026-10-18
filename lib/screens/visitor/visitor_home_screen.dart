@@ -1,30 +1,56 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import '../../core/constants/app_constants.dart';
+import '../../core/constants/layout.dart';
 import '../../core/theme/app_colors.dart';
-import '../../providers/article_provider.dart';
+import '../../models/annonce_model.dart';
+import '../../models/article_model.dart';
+import '../../models/event_model.dart';
+import '../../models/job_offer_model.dart';
 import '../../providers/annonce_provider.dart';
+import '../../providers/article_provider.dart';
 import '../../providers/event_provider.dart';
 import '../../providers/job_provider.dart';
-
 import '../auth/login_screen.dart';
 import '../auth/register_screen.dart';
 
-/// Accueil Visiteur (non connecté) — BF3 : donne un avant-goût réel de
-/// chaque gestion (échantillons) pour donner envie de créer un compte,
-/// sans exposer les actions qui nécessitent une authentification.
+/// Accueil Visiteur (non connecté) — BF3, fidèle à la maquette du cahier des
+/// charges (section 7) : héro dégradé avec pastille et pastilles de chiffres,
+/// puis un rail horizontal de cartes par gestion (Vente & Don, Annonces,
+/// Événements, Stage & Emploi) avec « Voir tout », et l'appel à l'inscription
+/// en pied d'écran. Les chiffres sont réels (jamais inventés).
 class VisitorHomeScreen extends StatefulWidget {
-  const VisitorHomeScreen({super.key});
+  /// Nombre d'étudiants inscrits (pastille du héro). Injectable dans les tests ;
+  /// par défaut, comptage Firestore de la collection `users`.
+  final Future<int> Function()? studentsCount;
+
+  const VisitorHomeScreen({super.key, this.studentsCount});
 
   @override
   State<VisitorHomeScreen> createState() => _VisitorHomeScreenState();
 }
 
 class _VisitorHomeScreenState extends State<VisitorHomeScreen> {
+  late final Future<int> _students = (widget.studentsCount ?? _countStudents)();
+
+  static Future<int> _countStudents() async {
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection(AppConstants.usersCollection)
+          .count()
+          .get();
+      return snap.count ?? 0;
+    } catch (_) {
+      return 0;
+    }
+  }
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       context.read<ArticleProvider>().load();
       context.read<AnnonceProvider>().load();
       context.read<EventProvider>().load();
@@ -32,103 +58,603 @@ class _VisitorHomeScreenState extends State<VisitorHomeScreen> {
     });
   }
 
+  void _openRegister() => Navigator.of(context)
+      .push(MaterialPageRoute(builder: (_) => const RegisterScreen()));
+
+  void _openLogin() => Navigator.of(context)
+      .push(MaterialPageRoute(builder: (_) => const LoginScreen()));
+
   @override
   Widget build(BuildContext context) {
+    final articles = context.watch<ArticleProvider>();
+    final annonces = context.watch<AnnonceProvider>();
+    final events = context.watch<EventProvider>();
+    final jobs = context.watch<JobProvider>();
+
+    final forSale = articles.items.take(5).toList();
+    final notices = annonces.publicPreview;
+    final upcoming = events.publicPreview;
+    final offers = jobs.offers.take(5).toList();
+    final companies = jobs.offers
+        .map((o) => o.companyName.trim().toLowerCase())
+        .where((c) => c.isNotEmpty)
+        .toSet();
+
     return Scaffold(
-      body: SafeArea(
-        child: Column(
-          children: [
-            _buildHero(context),
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(vertical: 20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildArticlesRow(context),
-                    const SizedBox(height: 22),
-                    _buildAnnoncesRow(context),
-                    const SizedBox(height: 22),
-                    _buildEventsRow(context),
-                    const SizedBox(height: 22),
-                    _buildJobsRow(context),
-                    const SizedBox(height: 16),
-                    _buildInfoBox(context),
-                  ],
-                ),
+      backgroundColor: AppColors.background,
+      body: Column(
+        children: [
+          Expanded(
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _Hero(
+                    students: _students,
+                    notices: annonces.items.length,
+                    companies: companies.length,
+                  ),
+                  const SizedBox(height: kSectionGap - 8),
+                  _Section(
+                    title: 'Vente & Don',
+                    onSeeAll: _openLogin,
+                    child: _Rail(
+                      height: 150,
+                      loading: articles.isLoading && forSale.isEmpty,
+                      skeleton: const _Skeleton(width: 128, height: 150),
+                      emptyText: 'Aucun objet proposé pour l\'instant.',
+                      children: [
+                        for (var i = 0; i < forSale.length; i++)
+                          _ArticleCard(article: forSale[i], index: i)
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: kSectionGap - 8),
+                  _Section(
+                    title: 'Annonces du campus',
+                    onSeeAll: _openLogin,
+                    child: _Rail(
+                      height: 92,
+                      loading: annonces.isLoading && notices.isEmpty,
+                      skeleton: const _Skeleton(width: 220, height: 84),
+                      emptyText: 'Aucune annonce publiée pour l\'instant.',
+                      children: [
+                        for (final n in notices) _NoticeCard(notice: n)
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: kSectionGap - 8),
+                  _Section(
+                    title: 'Événements à venir',
+                    onSeeAll: _openLogin,
+                    child: _Rail(
+                      height: 72,
+                      loading: events.isLoading && upcoming.isEmpty,
+                      skeleton: const _Skeleton(width: 160, height: 70),
+                      emptyText: 'Aucun événement annoncé pour l\'instant.',
+                      children: [
+                        for (var i = 0; i < upcoming.length; i++)
+                          _EventCard(event: upcoming[i], index: i)
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: kSectionGap - 8),
+                  _Section(
+                    title: 'Stage & Emploi',
+                    onSeeAll: _openLogin,
+                    child: _Rail(
+                      height: 68,
+                      loading: jobs.isLoading && offers.isEmpty,
+                      skeleton: const _Skeleton(width: 200, height: 66),
+                      emptyText: 'Aucune offre publiée pour l\'instant.',
+                      children: [for (final j in offers) _OfferCard(offer: j)],
+                    ),
+                  ),
+                  const SizedBox(height: kSectionGap - 8),
+                  const _InfoBox(),
+                  const SizedBox(height: kSectionGap - 8),
+                ],
               ),
             ),
-            _buildBottomCta(context),
-          ],
-        ),
+          ),
+          _BottomCta(onRegister: _openRegister, onLogin: _openLogin),
+        ],
       ),
     );
   }
+}
 
-  Widget _buildHero(BuildContext context) {
+// --- Héro --------------------------------------------------------------------------
+
+class _Hero extends StatelessWidget {
+  final Future<int> students;
+  final int notices;
+  final int companies;
+  const _Hero(
+      {required this.students, required this.notices, required this.companies});
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    const onHero = Colors.white;
+
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(22, 10, 22, 26),
-      decoration: const BoxDecoration(gradient: AppColors.heroGradient),
+      padding: EdgeInsets.fromLTRB(kPagePadding,
+          MediaQuery.paddingOf(context).top + 12, kPagePadding, 24),
+      decoration: const BoxDecoration(
+        gradient: AppColors.brandGradient,
+        borderRadius: BorderRadius.vertical(bottom: Radius.circular(24)),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(children: [
             Container(
-              width: 42,
-              height: 42,
+              width: 40,
+              height: 40,
               decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.16),
+                color: onHero.withValues(alpha: 0.16),
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.white.withValues(alpha: 0.25)),
+                border: Border.all(color: onHero.withValues(alpha: 0.25)),
               ),
-              child: const Icon(Icons.home_rounded, color: Colors.white),
+              child: const Icon(Icons.home_rounded, color: onHero, size: 22),
             ),
             const SizedBox(width: 10),
-            const Text('CampusConnect',
-                style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700)),
+            Text('CampusConnect',
+                style: text.titleLarge?.copyWith(color: onHero, fontSize: 18)),
           ]),
-          const SizedBox(height: 16),
-          const Text(
+          const SizedBox(height: 18),
+          Text(
             'Tout ton campus,\ndans une seule app',
-            style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w800, height: 1.25),
+            style: text.displayMedium?.copyWith(
+                color: onHero,
+                fontSize: 26,
+                height: 1.2,
+                fontWeight: FontWeight.w800),
           ),
           const SizedBox(height: 10),
           Text(
-            "Échange, informe-toi, participe aux événements et trouve ton futur stage — avec les étudiants de ton école",
-            style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 13, height: 1.4),
+            'Échange, informe-toi, participe aux événements et trouve ton futur stage, avec les étudiants de ton école.',
+            style: text.bodyMedium?.copyWith(
+                color: onHero.withValues(alpha: 0.85),
+                fontSize: 13.5,
+                height: 1.4),
+          ),
+          const SizedBox(height: 16),
+          FutureBuilder<int>(
+            future: students,
+            builder: (context, snap) {
+              final n = snap.data;
+              return Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _StatPill(
+                      value: n == null ? '…' : '$n',
+                      label: n == 1 ? 'étudiant' : 'étudiants'),
+                  _StatPill(
+                      value: '$notices',
+                      label: notices == 1 ? 'annonce' : 'annonces'),
+                  _StatPill(
+                      value: '$companies',
+                      label: companies == 1 ? 'entreprise' : 'entreprises'),
+                ],
+              );
+            },
           ),
         ],
       ),
     );
   }
+}
 
-  Widget _buildInfoBox(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Container(
-        padding: const EdgeInsets.all(13),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          border: Border.all(color: AppColors.border),
-          borderRadius: BorderRadius.circular(14),
+/// Pastille translucide « 12 annonces » du héro.
+class _StatPill extends StatelessWidget {
+  final String value;
+  final String label;
+  const _StatPill({required this.value, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: RichText(
+        text: TextSpan(
+          style: const TextStyle(color: Colors.white, fontSize: 13),
+          children: [
+            TextSpan(
+                text: '$value ',
+                style:
+                    const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+            TextSpan(
+                text: label,
+                style: TextStyle(color: Colors.white.withValues(alpha: 0.85))),
+          ],
         ),
+      ),
+    );
+  }
+}
+
+// --- Sections et rails -----------------------------------------------------------
+
+class _Section extends StatelessWidget {
+  final String title;
+  final VoidCallback onSeeAll;
+  final Widget child;
+  const _Section(
+      {required this.title, required this.onSeeAll, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: kPagePadding),
+          child: Row(
+            children: [
+              Expanded(child: Text(title, style: text.titleLarge)),
+              TextButton(
+                onPressed: onSeeAll,
+                style: TextButton.styleFrom(
+                  foregroundColor: AppColors.brandPrimary,
+                  minimumSize: const Size(48, 40),
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  textStyle: text.labelLarge?.copyWith(fontSize: 13),
+                ),
+                child: const Text('Voir tout'),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 4),
+        child,
+      ],
+    );
+  }
+}
+
+/// Rail horizontal de cartes : squelettes pendant le chargement, texte sobre
+/// quand il n'y a rien, cartes sinon.
+class _Rail extends StatelessWidget {
+  final double height;
+  final bool loading;
+  final Widget skeleton;
+  final String emptyText;
+  final List<Widget> children;
+
+  const _Rail({
+    required this.height,
+    required this.loading,
+    required this.skeleton,
+    required this.emptyText,
+    required this.children,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (!loading && children.isEmpty) {
+      return Padding(
+        padding:
+            const EdgeInsets.symmetric(horizontal: kPagePadding, vertical: 8),
+        child: Text(emptyText, style: Theme.of(context).textTheme.bodyMedium),
+      );
+    }
+    final items = loading ? List<Widget>.filled(3, skeleton) : children;
+    return SizedBox(
+      height: height + 8,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.fromLTRB(kPagePadding, 4, kPagePadding, 4),
+        itemCount: items.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 12),
+        itemBuilder: (context, i) => items[i],
+      ),
+    );
+  }
+}
+
+class _Skeleton extends StatelessWidget {
+  final double width;
+  final double height;
+  const _Skeleton({required this.width, required this.height});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: width,
+      height: height,
+      decoration: BoxDecoration(
+        color: AppColors.surfaceTone,
+        borderRadius: BorderRadius.circular(16),
+      ),
+    );
+  }
+}
+
+BoxDecoration _card({Color color = Colors.white, Color? border}) =>
+    BoxDecoration(
+      color: color,
+      borderRadius: BorderRadius.circular(16),
+      border: border == null ? null : Border.all(color: border),
+      boxShadow: const [AppColors.cardShadow],
+    );
+
+// --- Cartes ---------------------------------------------------------------------------
+
+class _ArticleCard extends StatelessWidget {
+  final ArticleModel article;
+  final int index;
+  const _ArticleCard({required this.article, required this.index});
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    return Container(
+      width: 128,
+      decoration: _card(),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Container(
+              color: AppColors
+                  .categoryTints[index % AppColors.categoryTints.length],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(article.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: text.titleSmall?.copyWith(fontSize: 13)),
+                const SizedBox(height: 4),
+                if (article.isFree)
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                        color: AppColors.successTint,
+                        borderRadius: BorderRadius.circular(8)),
+                    child: const Text('Gratuit',
+                        style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.successInk)),
+                  )
+                else
+                  Text('${article.price!.toStringAsFixed(0)} DT',
+                      style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.brandPrimary)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NoticeCard extends StatelessWidget {
+  final AnnonceModel notice;
+  const _NoticeCard({required this.notice});
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final official = notice.category == 'Officielle';
+    final label = [
+      if (notice.isPinned) 'Épinglé',
+      official ? 'Officiel' : notice.category
+    ].join(' · ');
+    return Container(
+      width: 220,
+      padding: const EdgeInsets.all(12),
+      decoration: _card(
+        color: official ? AppColors.officialTint : Colors.white,
+        border: official ? AppColors.officialBorder : null,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            if (notice.isPinned) ...[
+              Icon(Icons.push_pin_rounded,
+                  size: 13,
+                  color: official ? AppColors.accent2 : AppColors.brandPrimary),
+              const SizedBox(width: 4),
+            ],
+            Expanded(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: official ? AppColors.accent2 : AppColors.brandPrimary,
+                ),
+              ),
+            ),
+          ]),
+          const SizedBox(height: 4),
+          Text(notice.title,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: text.titleSmall?.copyWith(
+                  fontSize: 13,
+                  height: 1.3,
+                  color: official ? AppColors.officialInk : null)),
+        ],
+      ),
+    );
+  }
+}
+
+class _EventCard extends StatelessWidget {
+  final EventModel event;
+  final int index;
+  const _EventCard({required this.event, required this.index});
+
+  static const _months = [
+    'JANV',
+    'FÉVR',
+    'MARS',
+    'AVR',
+    'MAI',
+    'JUIN',
+    'JUIL',
+    'AOÛT',
+    'SEPT',
+    'OCT',
+    'NOV',
+    'DÉC'
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final tile =
+        index.isEven ? AppColors.accentGradient : AppColors.brandGradient;
+    return Container(
+      width: 184,
+      decoration: _card(),
+      clipBehavior: Clip.antiAlias,
+      child: Row(
+        children: [
+          Container(
+            width: 52,
+            decoration: BoxDecoration(gradient: tile),
+            alignment: Alignment.center,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(_months[event.startDate.month - 1],
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600)),
+                Text('${event.startDate.day}',
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        height: 1.1)),
+              ],
+            ),
+          ),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.all(10),
+              child: Text(event.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: text.titleSmall?.copyWith(fontSize: 13, height: 1.3)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _OfferCard extends StatelessWidget {
+  final JobOfferModel offer;
+  const _OfferCard({required this.offer});
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    return Container(
+      width: 200,
+      padding: const EdgeInsets.all(10),
+      decoration: _card(),
+      child: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+                gradient: AppColors.brandGradient,
+                borderRadius: BorderRadius.circular(10)),
+            alignment: Alignment.center,
+            child: Text(
+                offer.companyName.isNotEmpty
+                    ? offer.companyName[0].toUpperCase()
+                    : '?',
+                style: const TextStyle(
+                    color: Colors.white, fontWeight: FontWeight.w700)),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(offer.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: text.titleSmall?.copyWith(fontSize: 13)),
+                Text(
+                    '${offer.companyName} · ${offer.type == JobType.stage ? 'Stage' : 'Emploi'}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: text.bodyMedium?.copyWith(fontSize: 13)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// --- Encart d'information et appel à l'inscription ------------------------------------
+
+class _InfoBox extends StatelessWidget {
+  const _InfoBox();
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: kPagePadding),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: _card(),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Icon(Icons.info_outline_rounded, size: 17, color: AppColors.primary),
+            const Icon(Icons.info_outline_rounded,
+                size: 18, color: AppColors.brandPrimary),
             const SizedBox(width: 10),
             Expanded(
-              child: RichText(
-                text: const TextSpan(
-                  style: TextStyle(fontSize: 11.5, color: AppColors.textSecondary, height: 1.5),
-                  children: [
+              child: Text.rich(
+                TextSpan(
+                  style: text.bodyMedium?.copyWith(fontSize: 13, height: 1.5),
+                  children: const [
                     TextSpan(text: "Ceci n'est qu'un aperçu. "),
                     TextSpan(
                       text: 'Crée ton compte étudiant',
-                      style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w700),
+                      style: TextStyle(
+                          color: AppColors.textPrimary,
+                          fontWeight: FontWeight.w700),
                     ),
-                    TextSpan(text: " pour publier, postuler, discuter et profiter de l'app hors-ligne."),
+                    TextSpan(
+                        text:
+                            " pour publier, postuler, discuter et profiter de l'app hors-ligne."),
                   ],
                 ),
               ),
@@ -138,310 +664,71 @@ class _VisitorHomeScreenState extends State<VisitorHomeScreen> {
       ),
     );
   }
+}
 
-  Widget _sectionHeader(BuildContext context, String title) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(title, style: Theme.of(context).textTheme.titleMedium),
-          const Text('Voir tout', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.primary)),
-        ],
-      ),
-    );
-  }
+class _BottomCta extends StatelessWidget {
+  final VoidCallback onRegister;
+  final VoidCallback onLogin;
+  const _BottomCta({required this.onRegister, required this.onLogin});
 
-  Widget _buildArticlesRow(BuildContext context) {
-    final articles = context.watch<ArticleProvider>().items.take(5).toList();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _sectionHeader(context, 'Vente & Don'),
-        const SizedBox(height: 10),
-        SizedBox(
-          height: 150,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            itemCount: articles.isEmpty ? 3 : articles.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 12),
-            itemBuilder: (context, i) {
-              if (articles.isEmpty) {
-                return _skeletonCard();
-              }
-              final a = articles[i];
-              return Container(
-                width: 128,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  border: Border.all(color: AppColors.border),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                clipBehavior: Clip.antiAlias,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      height: 84,
-                      color: AppColors.categoryTints[i % AppColors.categoryTints.length],
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.all(9),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(a.title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-                          const SizedBox(height: 3),
-                          Text(
-                            a.isFree ? 'Gratuit' : '${a.price!.toStringAsFixed(0)} DT',
-                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.primary),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildAnnoncesRow(BuildContext context) {
-    final annonces = context.watch<AnnonceProvider>().publicPreview;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _sectionHeader(context, 'Annonces du campus'),
-        const SizedBox(height: 10),
-        SizedBox(
-          height: 90,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            itemCount: annonces.isEmpty ? 2 : annonces.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 12),
-            itemBuilder: (context, i) {
-              if (annonces.isEmpty) return _skeletonCard(width: 220, height: 80);
-              final a = annonces[i];
-              final isOfficial = a.category == 'Officielle';
-              return Container(
-                width: 220,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: isOfficial ? const Color(0xFFFFF7ED) : Colors.white,
-                  border: Border.all(color: isOfficial ? const Color(0xFFFED7AA) : AppColors.border),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      a.isPinned ? 'ÉPINGLÉ · ${a.category.toUpperCase()}' : a.category.toUpperCase(),
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        color: isOfficial ? AppColors.accent2 : AppColors.primary,
-                      ),
-                    ),
-                    const SizedBox(height: 5),
-                    Text(a.title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, height: 1.4)),
-                  ],
-                ),
-              );
-            },
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildEventsRow(BuildContext context) {
-    final events = context.watch<EventProvider>().publicPreview;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _sectionHeader(context, 'Événements à venir'),
-        const SizedBox(height: 10),
-        SizedBox(
-          height: 70,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            itemCount: events.isEmpty ? 2 : events.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 12),
-            itemBuilder: (context, i) {
-              if (events.isEmpty) return _skeletonCard(width: 160, height: 70);
-              final e = events[i];
-              return Container(
-                width: 160,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  border: Border.all(color: AppColors.border),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                clipBehavior: Clip.antiAlias,
-                child: Row(
-                  children: [
-                    Container(
-                      width: 52,
-                      color: i.isEven ? AppColors.accent2 : AppColors.primary,
-                      alignment: Alignment.center,
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(DateFormat('MMM', 'fr_FR').format(e.startDate).toUpperCase(),
-                              style: const TextStyle(color: Colors.white, fontSize: 10)),
-                          Text(DateFormat('d').format(e.startDate),
-                              style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w700)),
-                        ],
-                      ),
-                    ),
-                    Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.all(10),
-                        child: Text(e.title,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, height: 1.3)),
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildJobsRow(BuildContext context) {
-    final jobs = context.watch<JobProvider>().offers.take(5).toList();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _sectionHeader(context, 'Stage & Emploi'),
-        const SizedBox(height: 10),
-        SizedBox(
-          height: 66,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            itemCount: jobs.isEmpty ? 2 : jobs.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 12),
-            itemBuilder: (context, i) {
-              if (jobs.isEmpty) return _skeletonCard(width: 200, height: 66);
-              final j = jobs[i];
-              return Container(
-                width: 200,
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  border: Border.all(color: AppColors.border),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 34,
-                      height: 34,
-                      decoration: BoxDecoration(
-                        gradient: AppColors.primaryGradient,
-                        borderRadius: BorderRadius.circular(9),
-                      ),
-                      alignment: Alignment.center,
-                      child: Text(j.companyName.isNotEmpty ? j.companyName[0] : '?',
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(j.title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-                          Text('${j.companyName} · ${j.type.name == 'stage' ? 'Stage' : 'Emploi'}',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(fontSize: 10, color: AppColors.textSecondary)),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _skeletonCard({double width = 128, double height = 150}) {
+  @override
+  Widget build(BuildContext context) {
     return Container(
-      width: width,
-      height: height,
-      decoration: BoxDecoration(
-        color: AppColors.border.withValues(alpha: 0.4),
-        borderRadius: BorderRadius.circular(14),
-      ),
-    );
-  }
-
-  Widget _buildBottomCta(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(20, 14, 20, 18),
+      padding: EdgeInsets.fromLTRB(kPagePadding, 12, kPagePadding,
+          12 + MediaQuery.paddingOf(context).bottom),
       decoration: const BoxDecoration(
         color: Colors.white,
-        boxShadow: [BoxShadow(color: Color(0x14000000), blurRadius: 16, offset: Offset(0, -4))],
+        boxShadow: [
+          BoxShadow(
+              color: Color(0x14000000), blurRadius: 16, offset: Offset(0, -4))
+        ],
       ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
           SizedBox(
             width: double.infinity,
-            child: Container(
+            height: 50,
+            child: DecoratedBox(
               decoration: BoxDecoration(
-                gradient: AppColors.primaryGradient,
-                borderRadius: BorderRadius.circular(12),
-              ),
+                  gradient: AppColors.brandGradient,
+                  borderRadius: BorderRadius.circular(14)),
               child: Material(
                 color: Colors.transparent,
                 child: InkWell(
-                  borderRadius: BorderRadius.circular(12),
-                  onTap: () => Navigator.of(context)
-                      .push(MaterialPageRoute(builder: (_) => const RegisterScreen())),
-                  child: const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 14),
-                    child: Center(
-                      child: Text('Créer un compte étudiant',
-                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 14)),
-                    ),
+                  borderRadius: BorderRadius.circular(14),
+                  onTap: onRegister,
+                  child: const Center(
+                    child: Text('Créer un compte étudiant',
+                        style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 15)),
                   ),
                 ),
               ),
             ),
           ),
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+          const SizedBox(height: 4),
+          Wrap(
+            alignment: WrapAlignment.center,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              const Text('Déjà inscrit ?', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+              Text('Déjà inscrit ?',
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodyMedium
+                      ?.copyWith(fontSize: 13)),
               TextButton(
-                onPressed: () => Navigator.of(context)
-                    .push(MaterialPageRoute(builder: (_) => const LoginScreen())),
-                child: const Text('Se connecter', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                onPressed: onLogin,
+                style: TextButton.styleFrom(
+                  foregroundColor: AppColors.brandPrimary,
+                  minimumSize: const Size(48, 44),
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                ),
+                child: const Text('Se connecter',
+                    style:
+                        TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
               ),
             ],
           ),

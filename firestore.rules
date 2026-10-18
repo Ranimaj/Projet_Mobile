@@ -29,11 +29,43 @@ service cloud.firestore {
     }
 
     // --- Gestion Utilisateurs ---
+    // Clés modifiées par la requête courante (update uniquement).
+    function changedKeys() {
+      return request.resource.data.diff(resource.data).affectedKeys();
+    }
+
+    // Champs du profil qu'un utilisateur ne peut jamais fixer lui-même.
+    function touchesProtectedUserFields() {
+      return changedKeys().hasAny([
+        'role', 'isVerifiedStudent', 'email', 'createdAt', 'ratingAverage', 'ratingCount'
+      ]);
+    }
+
+    // Le téléphone n'est inscrit dans le profil que s'il correspond au numéro
+    // réellement vérifié (présent dans le jeton Firebase après liaison OTP).
+    function phoneChangeIsVerified() {
+      return !changedKeys().hasAny(['isPhoneVerified', 'phoneNumber'])
+        || (('phone_number' in request.auth.token)
+            && request.resource.data.phoneNumber == request.auth.token.phone_number
+            && request.resource.data.isPhoneVerified == true);
+    }
+
     match /users/{userId} {
       allow read: if true; // profils publics (nom, filière) visibles par tous
-      allow create: if isOwner(userId);
-      allow update: if isOwner(userId) || isAdmin();
-      allow delete: if isOwner(userId);
+
+      // Un utilisateur ne crée que son propre profil, avec les valeurs par
+      // défaut : rôle et statuts de vérification ne se décrètent pas.
+      allow create: if isOwner(userId)
+        && request.resource.data.role == 'student'
+        && request.resource.data.isVerifiedStudent == false
+        && request.resource.data.isPhoneVerified == false
+        && request.resource.data.ratingAverage == 0
+        && request.resource.data.ratingCount == 0;
+
+      allow update: if isAdmin()
+        || (isOwner(userId) && !touchesProtectedUserFields() && phoneChangeIsVerified());
+
+      allow delete: if isOwner(userId) || isAdmin();
     }
 
     // --- Gestion Vente & Don ---
