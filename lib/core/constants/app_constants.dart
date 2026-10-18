@@ -20,6 +20,12 @@ class AppConstants {
   static const String hiveUserBox = 'user_box';
   static const String hiveOfflineQueueBox = 'offline_queue_box';
 
+  /// Petites préférences locales (email mémorisé sur l'écran de connexion…).
+  static const String hivePrefsBox = 'prefs_box';
+
+  /// Domaine des emails académiques, proposé en complétion à la connexion.
+  static const String academicEmailDomain = 'esprit.tn';
+
   // --- Catégories Vente & Don ---
   static const List<String> articleCategories = [
     'Livres',
@@ -45,6 +51,17 @@ class AppConstants {
     'Culture',
     'Associatif',
   ];
+
+  // --- Profil étudiant ---
+  static const List<String> studyYears = [
+    '1ère année',
+    '2ème année',
+    '3ème année',
+    '4ème année',
+    '5ème année',
+    'Alumni',
+  ];
+  static const int maxSkills = 10;
 
   // --- Types d'offres Stage & Emploi ---
   static const List<String> jobTypes = ['Stage', 'Emploi'];
