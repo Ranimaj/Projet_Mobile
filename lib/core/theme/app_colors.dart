@@ -4,10 +4,10 @@ import 'package:flutter/material.dart';
 class AppColors {
   AppColors._();
 
-  // Palette de la maquette : indigo profond, bleu vif et lavande.
-  static const Color primary = Color(0xFF2B32B2);
-  static const Color primary2 = Color(0xFF1483CA);
-  static const Color lavender = Color(0xFF7C81CE);
+  // Palette du cahier des charges (section 6) : violet primaire et son dégradé.
+  static const Color primary = Color(0xFF4F46E5);
+  static const Color primary2 = Color(0xFF7C3AED);
+  static const Color lavender = Color(0xFFA78BFA);
   static const Color accent = Color(0xFFFB923C);
   static const Color accent2 = Color(0xFFF97316);
   static const Color success = Color(0xFF10B981);
@@ -44,16 +44,17 @@ class AppColors {
   static const Color surfaceTone = Color(0xFFE8EBF7);
 
   // --- Écrans d'authentification (connexion, inscription, OTP, mot de passe) --
-  /// Champ de couleur plein écran : un seul bleu uni, encre blanche.
-  static const Color authField = Color(0xFF3D7DD3);
+  /// Fond des écrans d'authentification (encre blanche) : le violet primaire ;
+  /// le dégradé [brandGradient] est appliqué par défaut.
+  static const Color authField = Color(0xFF4F46E5);
 
   /// Conservés pour compatibilité : l'ancien dégradé n'est plus appliqué par
   /// défaut (règle « pas de dégradé » du guide de style).
-  static const Color authGradientTop = Color(0xFF6EE0D9);
+  static const Color authGradientTop = Color(0xFF7C3AED);
   static const Color authGradientBottom = authField;
 
   /// Texte du bouton pilule blanc posé sur le dégradé.
-  static const Color authPillText = Color(0xFF2A3F9D);
+  static const Color authPillText = Color(0xFF4F46E5);
 
   /// Messages d'erreur lisibles sur le dégradé.
   static const Color authErrorOnGradient = Color(0xFFFFE0E0);

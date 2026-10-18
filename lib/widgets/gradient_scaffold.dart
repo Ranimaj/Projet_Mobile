@@ -23,7 +23,7 @@ class GradientScaffold extends StatelessWidget {
   /// Couleur unie du fond (par défaut [AppColors.authField]).
   final Color color;
 
-  /// Dégradé optionnel ; `null` (défaut) = couleur unie [color].
+  /// Dégradé du fond (maquette : violet #4F46E5 → #7C3AED). `null` = [color] uni.
   final Gradient? gradient;
 
   const GradientScaffold({
@@ -34,7 +34,7 @@ class GradientScaffold extends StatelessWidget {
     this.icon = Icons.school_rounded,
     this.showBack = true,
     this.color = AppColors.authField,
-    this.gradient,
+    this.gradient = AppColors.brandGradient,
   });
 
   @override

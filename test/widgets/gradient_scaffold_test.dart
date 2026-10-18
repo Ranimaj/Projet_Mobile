@@ -41,22 +41,20 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('paints one flat full-screen colour field: no gradient, no circles, no shadow', (tester) async {
+  testWidgets('paints one full-screen purple gradient (maquette), no circles, no shadow', (tester) async {
     await pump(tester);
 
     final fields = tester.widgetList<DecoratedBox>(find.byType(DecoratedBox)).where((b) {
       final d = b.decoration;
-      return d is BoxDecoration && d.color == AppColors.authField;
+      return d is BoxDecoration && d.gradient == AppColors.brandGradient;
     });
     expect(fields, hasLength(1));
-    final field = fields.single.decoration as BoxDecoration;
-    expect(field.gradient, isNull);
-    expect(field.boxShadow, isNull);
-    expect(AppColors.authField, const Color(0xFF3D7DD3));
+    expect((fields.single.decoration as BoxDecoration).boxShadow, isNull);
+    expect(AppColors.brandGradient.colors, [const Color(0xFF4F46E5), const Color(0xFF7C3AED)]);
 
     // Le fond couvre tout l'écran même quand le contenu est court.
     final box = find.byWidgetPredicate(
-        (w) => w is DecoratedBox && (w.decoration as BoxDecoration).color == AppColors.authField);
+        (w) => w is DecoratedBox && (w.decoration as BoxDecoration).gradient == AppColors.brandGradient);
     expect(tester.getSize(box), const Size(420, 900));
     expect(circles, findsNothing);
   });
