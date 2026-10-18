@@ -66,6 +66,27 @@ class AppColors {
 
   // Les accents par module vivent dans theme/module_colors.dart.
 
+  // --- Palette du cahier des charges (section 6) -------------------------------
+  static const Color brandPrimary = Color(0xFF4F46E5);
+  static const Color brandViolet = Color(0xFF7C3AED);
+  static const LinearGradient brandGradient = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [brandPrimary, brandViolet],
+  );
+
+  /// Annonce officielle (fond et bordure orangés de la maquette).
+  static const Color officialTint = Color(0xFFFFF7ED);
+  static const Color officialBorder = Color(0xFFFED7AA);
+  static const Color officialInk = Color(0xFF9A3412);
+
+  /// Puce « Gratuit » / statut positif.
+  static const Color successTint = Color(0xFFD1FAE5);
+  static const Color successInk = Color(0xFF065F46);
+
+  /// Ombre douce des cartes (maquette : cartes arrondies 16–18 px).
+  static const BoxShadow cardShadow = BoxShadow(color: Color(0x14000000), blurRadius: 16, offset: Offset(0, 4));
+
   /// Héro de l'accueil visiteur : dégradé diagonal indigo → bleu.
   static const Color heroStart = Color(0xFF2E3BB0);
   static const Color heroEnd = Color(0xFF3D7DD3);
