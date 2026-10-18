@@ -33,6 +33,15 @@ class AuthService {
 
   static const String passwordProviderId = 'password';
   static const String googleProviderId = 'google.com';
+  static const String phoneProviderId = 'phone';
+
+  /// Client OAuth « Web » du projet Firebase, requis par Google Sign-In sur
+  /// Android quand le plugin Gradle google-services n'est pas appliqué.
+  /// Fourni au build : `--dart-define=GOOGLE_WEB_CLIENT_ID=xxx.apps.googleusercontent.com`.
+  static const String googleWebClientId = String.fromEnvironment('GOOGLE_WEB_CLIENT_ID');
+
+  static GoogleSignIn _defaultGoogleSignIn() =>
+      GoogleSignIn(serverClientId: googleWebClientId.isEmpty ? null : googleWebClientId);
 
   AuthService({
     FirebaseAuth? auth,
@@ -41,7 +50,7 @@ class AuthService {
     LocalAuthentication Function()? localAuthFactory,
   })  : _auth = auth ?? FirebaseAuth.instance,
         _firestore = firestore ?? FirebaseFirestore.instance,
-        _googleFactory = googleFactory ?? GoogleSignIn.new,
+        _googleFactory = googleFactory ?? _defaultGoogleSignIn,
         _localAuthFactory = localAuthFactory ?? LocalAuthentication.new;
 
   GoogleSignIn get _googleSignIn => _google ??= _googleFactory();
@@ -319,9 +328,16 @@ class AuthService {
         _pendingPhone = null;
       });
 
+  /// Associe le numéro vérifié au compte : première association par
+  /// `linkWithCredential`, changement de numéro par `updatePhoneNumber`
+  /// (Firebase refuse un second `link` du fournisseur téléphone).
   Future<void> _linkPhone(PhoneAuthCredential credential, String phone) async {
     final user = _requireUser();
-    await user.linkWithCredential(credential);
+    if (user.providerData.any((p) => p.providerId == phoneProviderId)) {
+      await user.updatePhoneNumber(credential);
+    } else {
+      await user.linkWithCredential(credential);
+    }
     await _userDoc(user.uid).set({
       'isPhoneVerified': true,
       'phoneNumber': phone,

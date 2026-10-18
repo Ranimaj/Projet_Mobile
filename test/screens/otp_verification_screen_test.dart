@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:campusconnect/core/utils/auth_failure.dart';
 import 'package:campusconnect/providers/auth_provider.dart';
 import 'package:campusconnect/screens/auth/otp_verification_screen.dart';
@@ -156,5 +157,18 @@ void main() {
       const OtpVerificationScreen(phone: '20123456', allowSkip: false),
     );
     expect(find.textContaining('Dernière étape'), findsNothing);
+  });
+
+  testWidgets('the code field takes focus by itself once the code is sent', (tester) async {
+    // Avant le correctif, `autofocus` était ignoré : le champ est désactivé
+    // tant que le code n'est pas parti, donc le clavier ne s'ouvrait jamais seul.
+    await pumpAuthScreen(
+        tester, provider, const OtpVerificationScreen(phone: '92755660', resendDelay: Duration(seconds: 1)));
+    await tester.pump(const Duration(seconds: 2));
+
+    final field = tester.widget<EditableText>(
+        find.descendant(of: find.byKey(const Key('otp-field')), matching: find.byType(EditableText)));
+    expect(find.textContaining('Code envoyé au'), findsOneWidget); // le mock renvoie toujours +21620123456
+    expect(field.focusNode.hasFocus, isTrue, reason: 'le clavier doit s\'ouvrir sans taper sur les cases');
   });
 }

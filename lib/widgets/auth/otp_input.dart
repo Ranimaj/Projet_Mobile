@@ -58,6 +58,14 @@ class _OtpInputState extends State<OtpInput> with SingleTickerProviderStateMixin
       HapticFeedback.mediumImpact();
       if (!MediaQuery.of(context).disableAnimations) _shake.forward(from: 0);
     }
+    // `autofocus` est ignoré tant que le champ est désactivé (code pas encore
+    // envoyé) : on prend le focus dès qu'il devient actif, pour que le clavier
+    // s'ouvre sans que l'utilisateur ait à taper sur les cases.
+    if (widget.enabled && !oldWidget.enabled) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _focus.requestFocus();
+      });
+    }
   }
 
   @override
