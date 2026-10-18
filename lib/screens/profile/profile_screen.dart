@@ -362,19 +362,42 @@ class _EmailVerificationBanner extends StatefulWidget {
   State<_EmailVerificationBanner> createState() => _EmailVerificationBannerState();
 }
 
-class _EmailVerificationBannerState extends State<_EmailVerificationBanner> {
+class _EmailVerificationBannerState extends State<_EmailVerificationBanner> with WidgetsBindingObserver {
   Timer? _ticker;
+  Timer? _autoCheck;
+
+  /// Intervalle de re-vérification silencieuse tant que l'email n'est pas
+  /// confirmé : l'utilisateur clique sur le lien dans sa boîte mail et le
+  /// badge se met à jour tout seul, sans revenir appuyer sur « J'ai vérifié ».
+  static const Duration autoCheckEvery = Duration(seconds: 10);
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _syncTicker();
+    _autoCheck = Timer.periodic(autoCheckEvery, (_) => _silentCheck());
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _ticker?.cancel();
+    _autoCheck?.cancel();
     super.dispose();
+  }
+
+  /// Retour dans l'app (après être allé cliquer sur le lien) : on revérifie.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _silentCheck();
+  }
+
+  Future<void> _silentCheck() async {
+    if (!mounted) return;
+    final auth = context.read<AuthProvider>();
+    if (auth.isLoading || auth.emailVerified) return;
+    await auth.refreshEmailVerification(silent: true);
   }
 
   /// Rafraîchit le compte à rebours tant qu'un délai de renvoi est en cours.
@@ -441,7 +464,7 @@ class _EmailVerificationBannerState extends State<_EmailVerificationBanner> {
           ),
           const SizedBox(height: 4),
           const Text(
-            'Clique sur le lien reçu par email pour débloquer toutes les fonctionnalités.',
+            'Clique sur le lien reçu par email : ce bandeau disparaîtra tout seul.',
             style: TextStyle(fontSize: 14, height: 1.4, color: Color(0xFF9A3412)),
           ),
           // Wrap plutôt que Row : avec le compte à rebours, les deux boutons

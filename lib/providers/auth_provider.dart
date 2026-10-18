@@ -189,7 +189,22 @@ class AuthProvider extends ChangeNotifier {
 
   /// Recharge le statut de vérification depuis Firebase. Renvoie `true` si
   /// l'email est maintenant vérifié.
-  Future<bool> refreshEmailVerification() async {
+  ///
+  /// [silent] : vérification en arrière-plan (retour dans l'app, minuterie) :
+  /// ni état de chargement ni message d'erreur, juste une mise à jour du badge.
+  Future<bool> refreshEmailVerification({bool silent = false}) async {
+    if (silent) {
+      try {
+        final verified = await _authService.reloadUser();
+        if (verified != emailVerified) {
+          emailVerified = verified;
+          notifyListeners();
+        }
+        return verified;
+      } catch (_) {
+        return false;
+      }
+    }
     final ok = await _run(() async {
       emailVerified = await _authService.reloadUser();
     });

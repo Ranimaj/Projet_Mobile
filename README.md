@@ -78,6 +78,29 @@ Firestore → Index.
 
 ## 4. Lancer l'application
 
+### En une commande
+
+```bash
+tool/run.sh emu     # émulateurs Firebase locaux : aucun compte, aucun SMS réel
+tool/run.sh prod    # projet Firebase réel : Google Sign-In et vrais SMS
+```
+
+- `emu` démarre les émulateurs (Auth 9099, Firestore 8085, Storage 9199) s'ils ne tournent pas,
+  puis lance l'app dessus. Les codes SMS et les liens de vérification d'email s'affichent dans
+  l'UI des émulateurs (http://127.0.0.1:4000), rien n'est envoyé pour de vrai.
+- `prod` lit `.env.json` (copie de `.env.example.json`) pour `GOOGLE_WEB_CLIENT_ID`,
+  le client OAuth *Web* du projet (Firebase console → Authentication → Google). Ce fichier
+  n'est pas versionné.
+
+Pour Google Sign-In sur Android, l'empreinte SHA-1 de la clé de debug doit être déclarée sur
+l'app Android du projet Firebase et `android/app/google-services.json` téléchargé :
+
+```bash
+keytool -list -v -keystore ~/.android/debug.keystore -alias androiddebugkey -storepass android | grep SHA1
+```
+
+### Manuellement
+
 ```bash
 flutter run
 ```
