@@ -1,4 +1,8 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart' hide AuthProvider;
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:provider/provider.dart';
@@ -16,10 +20,22 @@ import 'screens/visitor/visitor_home_screen.dart';
 import 'screens/home/app_shell.dart';
 import 'firebase_options.dart';
 
+/// Lance l'app contre les émulateurs Firebase locaux (mode hors-ligne) :
+/// `flutter run --dart-define=USE_EMULATOR=true`
+const bool _useEmulator = bool.fromEnvironment('USE_EMULATOR');
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  if (_useEmulator) {
+    // L'émulateur Android voit la machine hôte via 10.0.2.2.
+    final host = defaultTargetPlatform == TargetPlatform.android ? '10.0.2.2' : 'localhost';
+    await FirebaseAuth.instance.useAuthEmulator(host, 9099);
+    FirebaseFirestore.instance.useFirestoreEmulator(host, 8085);
+    await FirebaseStorage.instance.useStorageEmulator(host, 9199);
+  }
 
   // Initialise Hive et ouvre toutes les boîtes utilisées pour le cache
   // local et la file d'attente hors-ligne (BNF3).
@@ -32,6 +48,7 @@ Future<void> main() async {
     Hive.openBox('applications_box'),
     Hive.openBox(AppConstants.hiveUserBox),
     Hive.openBox(AppConstants.hiveOfflineQueueBox),
+    Hive.openBox(AppConstants.hivePrefsBox),
   ]);
 
   await NotificationService().initialize();
