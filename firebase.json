@@ -1,1 +1,37 @@
-{"flutter":{"platforms":{"dart":{"lib/firebase_options.dart":{"projectId":"campusconnect-esprit","configurations":{"android":"1:902907130330:android:34b560026e5e49a0a390e3","ios":"1:902907130330:ios:52fbb1b816426dd6a390e3"}}}}}}
+{
+  "flutter": {
+    "platforms": {
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "campusconnect-esprit",
+          "configurations": {
+            "android": "1:902907130330:android:34b560026e5e49a0a390e3",
+            "ios": "1:902907130330:ios:52fbb1b816426dd6a390e3"
+          }
+        }
+      }
+    }
+  },
+  "firestore": {
+    "rules": "firestore.rules"
+  },
+  "emulators": {
+    "auth": {
+      "port": 9099
+    },
+    "firestore": {
+      "port": 8085
+    },
+    "ui": {
+      "enabled": true,
+      "port": 4000
+    },
+    "singleProjectMode": true,
+    "storage": {
+      "port": 9199
+    }
+  },
+  "storage": {
+    "rules": "storage.rules"
+  }
+}
