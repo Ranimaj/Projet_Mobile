@@ -1,7 +1,9 @@
+import 'package:campusconnect/core/theme/app_colors.dart';
 import 'package:campusconnect/models/annonce_model.dart';
 import 'package:campusconnect/models/article_model.dart';
 import 'package:campusconnect/models/event_model.dart';
 import 'package:campusconnect/models/job_offer_model.dart';
+import 'package:campusconnect/models/user_model.dart';
 import 'package:campusconnect/providers/annonce_provider.dart';
 import 'package:campusconnect/providers/article_provider.dart';
 import 'package:campusconnect/providers/auth_provider.dart';
@@ -24,9 +26,10 @@ class _MockEvents extends Mock implements EventProvider {}
 
 class _MockJobs extends Mock implements JobProvider {}
 
-final _now = DateTime(2026, 10, 18, 14, 30);
+/// Dimanche 18 octobre 2026, 20h30.
+final _now = DateTime(2026, 10, 18, 20, 30);
 
-final _offer = JobOfferModel(
+final _offerNew = JobOfferModel(
   id: 'j1',
   recruiterId: 'r',
   companyName: 'Vermeg',
@@ -35,62 +38,84 @@ final _offer = JobOfferModel(
   type: JobType.stage,
   location: 'Lac 2',
   requiredSkills: const ['Flutter'],
-  postedAt: DateTime(2026, 10, 5),
+  postedAt: DateTime(2026, 10, 16),
 );
 
-final _application = ApplicationModel(
-  id: 'ap1',
-  jobOfferId: 'j1',
-  jobTitle: 'Stage développeur Flutter',
-  companyName: 'Vermeg',
-  candidateId: 'uid-1',
-  status: ApplicationStatus.seen,
-  appliedAt: DateTime(2026, 10, 18, 9, 30),
+final _offerOld = JobOfferModel(
+  id: 'j2',
+  recruiterId: 'r2',
+  companyName: 'Sofrecom',
+  title: 'Ingénieur data junior',
+  description: '',
+  type: JobType.emploi,
+  location: 'Tunis',
+  postedAt: DateTime(2026, 9, 1),
 );
 
-final _eventTomorrow = EventModel(
+final _eventThu = EventModel(
   id: 'e1',
   organizerId: 'o',
-  organizerName: 'Club IA',
-  title: 'Conférence IA',
+  organizerName: 'Service carrières',
+  title: 'Forum Stages & Emploi',
   description: '',
-  category: 'Tech',
-  startDate: DateTime(2026, 10, 19, 14, 0),
+  category: 'Carrière',
+  startDate: DateTime(2026, 10, 22, 14, 0),
   location: 'Amphi A',
-  registeredUserIds: const ['uid-1'],
+  registeredUserIds: const ['x', 'y', 'z'],
 );
 
-final _eventNextMonth = EventModel(
+final _eventFar = EventModel(
   id: 'e2',
   organizerId: 'o',
   organizerName: 'BDE',
-  title: 'Gala',
+  title: 'Gala de fin d\'année',
   description: '',
   category: 'Culture',
-  startDate: DateTime(2026, 11, 20, 20, 0),
+  startDate: DateTime(2026, 12, 20, 20, 0),
   location: 'Hall',
+  registeredUserIds: const ['uid-1'],
 );
 
 final _official = AnnonceModel(
   id: 'n1',
   authorId: 'adm',
-  authorName: 'Scolarité',
-  title: 'Suspension des cours le 15 octobre',
+  authorName: 'Administration',
+  title: 'Bibliothèque fermée le 12 novembre',
   content: '',
   category: 'Officielle',
   isPinned: true,
-  createdAt: DateTime(2026, 10, 17, 10),
+  createdAt: DateTime(2026, 10, 16, 10),
+);
+
+final _noticeOld = AnnonceModel(
+  id: 'n2',
+  authorId: 'u',
+  authorName: 'Yassine',
+  title: 'Clés perdues',
+  content: '',
+  category: 'Perdu & Trouvé',
+  createdAt: DateTime(2026, 9, 1),
 );
 
 final _article = ArticleModel(
   id: 'a1',
   ownerId: 'u',
   ownerName: 'Amel',
-  title: 'Calculatrice TI-84',
+  title: 'Calculatrice graphique',
   description: '',
   price: 45,
   category: 'Fournitures',
   createdAt: DateTime(2026, 10, 1),
+);
+
+final _gift = ArticleModel(
+  id: 'a2',
+  ownerId: 'u',
+  ownerName: 'Amel',
+  title: 'Livres d\'algèbre L1',
+  description: '',
+  category: 'Livres',
+  createdAt: DateTime(2026, 10, 2),
 );
 
 void main() {
@@ -106,7 +131,6 @@ void main() {
     List<AnnonceModel> n = const [],
     List<EventModel> e = const [],
     List<JobOfferModel> j = const [],
-    List<ApplicationModel> apps = const [],
     List<JobOfferModel>? recommended,
   }) {
     when(() => articles.items).thenReturn(a);
@@ -116,7 +140,7 @@ void main() {
     when(() => events.upcoming).thenReturn(e);
     when(() => events.load()).thenAnswer((_) async {});
     when(() => jobs.offers).thenReturn(j);
-    when(() => jobs.myApplications).thenReturn(apps);
+    when(() => jobs.myApplications).thenReturn(const []);
     when(() => jobs.recommendedFor(any())).thenReturn(recommended ?? const []);
     when(() => jobs.load()).thenAnswer((_) async {});
     when(() => jobs.loadMyApplications(any())).thenAnswer((_) async {});
@@ -133,9 +157,13 @@ void main() {
   });
   tearDown(() => h.dispose());
 
-  Future<void> pump(WidgetTester tester, {DateTime? now}) async {
-    await h.signIn(tester);
-    tester.view.physicalSize = const Size(420, 1000);
+  Future<void> pump(WidgetTester tester,
+      {DateTime? now,
+      AppUser? user,
+      bool emailVerified = true,
+      Size size = const Size(420, 1000)}) async {
+    await h.signIn(tester, user: user, emailVerified: emailVerified);
+    tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -151,193 +179,224 @@ void main() {
           ChangeNotifierProvider<JobProvider>.value(value: jobs),
         ],
         child: MaterialApp(
-          home: HomeScreen(onNavigate: navigated.add, now: () => now ?? _now),
-        ),
+            home:
+                HomeScreen(onNavigate: navigated.add, now: () => now ?? _now)),
       ),
     );
     await tester.pumpAndSettle();
   }
 
-  group('header', () {
-    testWidgets('greets by time of day and shows the student', (tester) async {
-      await pump(tester, now: DateTime(2026, 10, 18, 9));
-      expect(find.text('Bonjour'), findsOneWidget);
-      expect(find.text('Amel Ben Salah'), findsOneWidget);
-      expect(find.text('AS'), findsOneWidget);
+  group('en-tête (maquette)', () {
+    testWidgets('first name, greeting by hour, date line and sync pill',
+        (tester) async {
+      await pump(tester);
+      expect(find.text('Bonsoir,'), findsOneWidget);
+      expect(find.text('Amel'), findsOneWidget);
+      expect(find.text('Dimanche 18 octobre'), findsOneWidget);
+      expect(find.text('À jour'), findsOneWidget);
 
-      await pump(tester, now: DateTime(2026, 10, 18, 15));
-      expect(find.text('Bon après-midi'), findsOneWidget);
-      await pump(tester, now: DateTime(2026, 10, 18, 21));
-      expect(find.text('Bonsoir'), findsOneWidget);
+      await pump(tester, now: DateTime(2026, 10, 19, 9));
+      expect(find.text('Bonjour,'), findsOneWidget);
+      expect(find.text('Lundi 19 octobre'), findsOneWidget);
     });
 
-    testWidgets('the avatar opens the profile tab', (tester) async {
+    testWidgets('the sync pill reflects the offline queue', (tester) async {
+      when(() => h.connectivity.isOnline).thenReturn(false);
+      when(() => h.connectivity.pendingActionsCount).thenReturn(2);
       await pump(tester);
+      expect(find.text('Hors-ligne · 2 en attente'), findsOneWidget);
+    });
+
+    testWidgets(
+        'the bell counts this week\'s notices and opens them; the avatar opens the profile',
+        (tester) async {
+      stub(n: [_official, _noticeOld]);
+      await pump(tester);
+      expect(find.byKey(const Key('bell-badge')), findsOneWidget);
+      expect(
+          find.descendant(
+              of: find.byKey(const Key('bell-badge')),
+              matching: find.text('1')),
+          findsOneWidget);
+
+      await tester.tap(find.byIcon(Icons.notifications_none_rounded));
+      await tester.pump();
       await tester.tap(find.text('AS'));
+      await tester.pump();
+      expect(navigated, [HomeTabs.notices, HomeTabs.profile]);
+    });
+
+    testWidgets('no badge when nothing is new', (tester) async {
+      stub(n: [_noticeOld]);
+      await pump(tester);
+      expect(find.byKey(const Key('bell-badge')), findsNothing);
+      expect(find.text('Aucune nouvelle'), findsOneWidget);
+    });
+  });
+
+  group('annonce officielle', () {
+    testWidgets(
+        'the pinned official notice is featured with its author and age',
+        (tester) async {
+      stub(n: [_noticeOld, _official]);
+      await pump(tester);
+      expect(find.text('Officiel · Épinglé'), findsOneWidget);
+      expect(find.text('Bibliothèque fermée le 12 novembre'), findsOneWidget);
+      expect(find.text('Administration · il y a 2 jours'), findsOneWidget);
+      await tester.tap(find.text('Bibliothèque fermée le 12 novembre'));
+      await tester.pump();
+      expect(navigated, [HomeTabs.notices]);
+    });
+
+    testWidgets('hidden when there is no pinned official notice',
+        (tester) async {
+      stub(n: [_noticeOld]);
+      await pump(tester);
+      expect(find.text('Officiel · Épinglé'), findsNothing);
+    });
+  });
+
+  group('accès rapide', () {
+    testWidgets('four tiles with real captions, each switching the tab',
+        (tester) async {
+      stub(
+          a: [_article, _gift],
+          n: [_official, _noticeOld],
+          e: [_eventThu, _eventFar],
+          j: [_offerNew, _offerOld]);
+      await pump(tester);
+      expect(find.text('2 objets'), findsOneWidget);
+      expect(find.text('1 nouvelle'), findsOneWidget);
+      expect(find.text('1 cette sem.'), findsOneWidget);
+      expect(find.text('2 offres'), findsOneWidget);
+      final red = tester.widget<Text>(find.text('1 nouvelle')).style!.color;
+      expect(red, AppColors.homeDanger);
+
+      for (final (label, tab) in [
+        ('Annonces', HomeTabs.notices),
+        ('Événements', HomeTabs.events),
+        ('Stages', HomeTabs.jobs)
+      ]) {
+        await tester.tap(find.text(label).first);
+        await tester.pump();
+        expect(navigated.last, tab, reason: label);
+      }
+    });
+  });
+
+  group('complétion du profil', () {
+    testWidgets('shows the percentage, what is missing, and opens the profile',
+        (tester) async {
+      // sampleUser : filière, année, compétences OK ; photo et téléphone manquants ; email vérifié → 4/6
+      await pump(tester);
+      expect(find.text('67%'), findsOneWidget);
+      expect(find.text('Complète ton profil'), findsOneWidget);
+      expect(
+          find.text(
+              'Ajoute ta photo et ton téléphone pour être visible des recruteurs.'),
+          findsOneWidget);
+      await tester.tap(find.text('Compléter'));
       await tester.pump();
       expect(navigated, [HomeTabs.profile]);
     });
 
-    testWidgets('loads the feeds and the student\'s applications once',
-        (tester) async {
-      await pump(tester);
-      verify(() => jobs.loadMyApplications('uid-1')).called(1);
-      verify(() => articles.load()).called(1);
-      verify(() => events.load()).called(1);
+    testWidgets('disappears once the profile is complete', (tester) async {
+      await pump(tester,
+          user: sampleUser.copyWith(
+              photoUrl: 'https://cdn/p.jpg', isPhoneVerified: true));
+      expect(find.text('Complète ton profil'), findsNothing);
     });
   });
 
-  group('modules', () {
-    testWidgets('each card switches the tab instead of pushing a screen',
-        (tester) async {
-      await pump(tester);
-      for (final (label, tab) in [
-        ('Mon profil', HomeTabs.profile),
-        ('Vente & Don', HomeTabs.market),
-        ('Annonces', HomeTabs.notices),
-        ('Événements', HomeTabs.events),
-        ('Stage & Emploi', HomeTabs.jobs),
-      ]) {
-        await tester.tap(find.text(label));
-        await tester.pump();
-        expect(navigated.last, tab, reason: label);
-      }
-      expect(find.byType(Navigator), findsOneWidget);
-    });
-
+  group('cette semaine', () {
     testWidgets(
-        'captions carry real counts; the notices dot appears for a pinned official notice',
+        'features the next event of the week with its date tile, time, place and count',
         (tester) async {
-      stub(
-          a: [_article],
-          n: [_official],
-          e: [_eventTomorrow, _eventNextMonth],
-          j: [_offer]);
+      stub(e: [_eventFar, _eventThu]);
       await pump(tester);
-
-      expect(find.text('1 objet'), findsOneWidget);
-      expect(find.text('1 annonce'), findsOneWidget);
-      expect(find.text('1 cette semaine'), findsOneWidget);
-      expect(find.byKey(const Key('module-dot')), findsOneWidget);
-      expect(find.text('1 offre disponible'), findsOneWidget);
-      expect(find.text('À compléter : photo'), findsOneWidget); // sampleUser a une filière et une compétence
-    });
-
-    testWidgets('the jobs card says how many offers match the profile',
-        (tester) async {
-      stub(j: [_offer], recommended: [_offer]);
-      await pump(tester);
-      expect(find.text('1 offre correspond à votre profil'), findsOneWidget);
-      verify(() => jobs.recommendedFor(['Flutter'])).called(greaterThan(0));
-    });
-
-    testWidgets('no dot and honest captions when the campus is empty',
-        (tester) async {
-      await pump(tester);
-      expect(find.byKey(const Key('module-dot')), findsNothing);
-      expect(find.text('Rien cette semaine'), findsOneWidget);
-      expect(find.text('Aucune offre pour l\'instant'), findsOneWidget);
-    });
-  });
-
-  group('activité récente', () {
-    testWidgets(
-        'lists the application status, the next registered event and the official notice',
-        (tester) async {
-      stub(
-          n: [_official],
-          e: [_eventNextMonth, _eventTomorrow],
-          apps: [_application]);
-      await pump(tester);
-
-      expect(
-          find.text('Votre candidature chez Vermeg a été vue'), findsOneWidget);
-      expect(find.text('il y a 5 h'), findsOneWidget);
-      expect(find.text('Rappel : Conférence IA'), findsOneWidget);
-      expect(find.text('demain à 14h00'), findsOneWidget);
-      expect(find.text('Suspension des cours le 15 octobre'), findsOneWidget);
-      expect(find.text('Annonce officielle · hier'), findsOneWidget);
-
-      await tester.tap(find.text('Rappel : Conférence IA'));
+      expect(find.text('JEU'), findsOneWidget);
+      expect(find.text('22'), findsOneWidget);
+      expect(find.text('OCT'), findsOneWidget);
+      expect(find.text('Forum Stages & Emploi'), findsOneWidget);
+      expect(find.text('14:00'), findsOneWidget);
+      expect(find.text('Amphi A'), findsOneWidget);
+      expect(find.text('3 inscrits'), findsOneWidget);
+      expect(find.text('Je participe'), findsOneWidget);
+      await tester.tap(find.text('Agenda'));
       await tester.pump();
       expect(navigated.last, HomeTabs.events);
     });
 
-    testWidgets(
-        'events the student is not registered to do not produce a reminder',
+    testWidgets('falls back to the next event and marks registration',
         (tester) async {
-      stub(e: [_eventNextMonth]);
+      stub(e: [_eventFar]);
       await pump(tester);
-      expect(find.textContaining('Rappel'), findsNothing);
-      expect(find.textContaining('Rien de nouveau'), findsOneWidget);
+      expect(find.text('Gala de fin d\'année'), findsOneWidget);
+      expect(find.text('Inscrit'), findsOneWidget);
     });
+  });
 
-    testWidgets('"Explorer" in the empty state opens the events tab',
+  group('stages pour toi', () {
+    testWidgets(
+        'recommended offers first, "Nouveau" within a week, count in the link',
         (tester) async {
+      stub(j: [_offerOld, _offerNew], recommended: [_offerNew]);
       await pump(tester);
-      await tester.tap(find.text('Explorer'));
+      expect(find.text('Tout voir (2)'), findsOneWidget);
+      expect(find.text('Stage développeur Flutter'), findsOneWidget);
+      expect(find.text('Nouveau'), findsOneWidget);
+      expect(find.text('Vermeg · Lac 2 · Stage'), findsOneWidget);
+      expect(find.text('Ingénieur data junior'), findsNothing,
+          reason: 'seules les recommandées quand il y en a');
+    });
+  });
+
+  group('vente & don', () {
+    testWidgets('a two-column grid with Vente/Don pill, price or Gratuit',
+        (tester) async {
+      stub(a: [_article, _gift]);
+      await pump(tester);
+      await tester.ensureVisible(find.text('Calculatrice graphique'));
+      expect(find.text('Tout voir (2)'), findsOneWidget);
+      expect(find.text('Vente'), findsOneWidget);
+      expect(find.text('Don'), findsOneWidget);
+      expect(find.text('45 DT'), findsOneWidget);
+      expect(find.text('Gratuit'), findsOneWidget);
+      await tester.tap(find.text('Calculatrice graphique'));
       await tester.pump();
-      expect(navigated, [HomeTabs.events]);
+      expect(navigated.last, HomeTabs.market);
     });
   });
 
   group('recherche', () {
-    testWidgets('searches across loaded content and opens the matching tab',
+    testWidgets('searches loaded content and opens the matching tab',
         (tester) async {
-      stub(a: [_article], j: [_offer]);
+      stub(a: [_article], j: [_offerNew]);
       await pump(tester);
-
-      await tester.tap(find.text('Rechercher sur CampusConnect…'));
+      await tester.tap(find.text('Annonces, objets, stages…'));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField), 'flutter');
       await tester.pumpAndSettle();
-
       expect(find.text('Stage développeur Flutter'), findsOneWidget);
-      expect(find.text('Calculatrice TI-84'), findsNothing);
-
       await tester.tap(find.text('Stage développeur Flutter'));
       await tester.pumpAndSettle();
       expect(navigated, [HomeTabs.jobs]);
     });
-
-    testWidgets('says when nothing matches', (tester) async {
-      stub(a: [_article]);
-      await pump(tester);
-      await tester.tap(find.text('Rechercher sur CampusConnect…'));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField), 'zzz');
-      await tester.pumpAndSettle();
-      expect(find.text('Aucun résultat pour « zzz ».'), findsOneWidget);
-    });
   });
 
-  testWidgets('no text under 13 px and no overflow at 360 px', (tester) async {
+  testWidgets(
+      'no overflow at 360 px and no text under 13 px, with everything populated',
+      (tester) async {
+    when(() => h.connectivity.isOnline).thenReturn(false);
+    when(() => h.connectivity.pendingActionsCount).thenReturn(12);
     stub(
-        a: [_article],
-        n: [_official],
-        e: [_eventTomorrow],
-        j: [_offer],
-        apps: [_application]);
-    await h.signIn(tester);
-    tester.view.physicalSize = const Size(360, 640);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-    await tester.pumpWidget(
-      MultiProvider(
-        providers: [
-          ChangeNotifierProvider<AuthProvider>.value(value: h.provider),
-          ChangeNotifierProvider<ConnectivityProvider>.value(
-              value: h.connectivity),
-          ChangeNotifierProvider<ArticleProvider>.value(value: articles),
-          ChangeNotifierProvider<AnnonceProvider>.value(value: annonces),
-          ChangeNotifierProvider<EventProvider>.value(value: events),
-          ChangeNotifierProvider<JobProvider>.value(value: jobs),
-        ],
-        child: MaterialApp(
-            home: HomeScreen(onNavigate: navigated.add, now: () => _now)),
-      ),
-    );
+        a: [_article, _gift],
+        n: [_official, _noticeOld],
+        e: [_eventThu, _eventFar],
+        j: [_offerNew, _offerOld],
+        recommended: [_offerNew]);
+    await pump(tester, size: const Size(360, 640));
+    await tester.ensureVisible(find.text('Gratuit'));
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
     for (final t in tester.widgetList<Text>(find.byType(Text))) {

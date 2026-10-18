@@ -81,6 +81,24 @@ class AppColors {
   static const Color officialBorder = Color(0xFFFED7AA);
   static const Color officialInk = Color(0xFF9A3412);
 
+  // --- Accueil connecté (maquette HTML « CampusConnect Home ») -------------------
+  static const Color homeInk = Color(0xFF1A1730);
+  static const Color homeMuted = Color(0xFF5E5A73);
+  static const Color homeHint = Color(0xFF7A7690);
+  static const Color homeBorder = Color(0xFFECEAF3);
+  static const Color homePrimary = Color(0xFF5536D6);
+  static const Color homePrimarySoft = Color(0xFFEEEAFE);
+  static const Color homeOfficialSoft = Color(0xFFFFF6E5);
+  static const Color homeOfficialEdge = Color(0xFFF3DDAE);
+  static const Color homeOfficialLabel = Color(0xFF8A4F00);
+  static const Color homeOfficialMeta = Color(0xFF6B5A3A);
+  static const Color homeSuccessSoft = Color(0xFFDDF4EA);
+  static const Color homeSuccessInk = Color(0xFF0B6B4D);
+  static const Color homeSuccessDot = Color(0xFF12A473);
+  static const Color homeWarnSoft = Color(0xFFFFE7B8);
+  static const Color homeWarnInk = Color(0xFF9A5B00);
+  static const Color homeDanger = Color(0xFFD92D20);
+
   /// Puce « Gratuit » / statut positif.
   static const Color successTint = Color(0xFFD1FAE5);
   static const Color successInk = Color(0xFF065F46);

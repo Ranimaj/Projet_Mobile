@@ -13,6 +13,16 @@ class ModuleColors {
   /// Encre des grands chiffres sur carte blanche.
   static const Color countInk = Color(0xFF1A1A2E);
 
+  // Variante « accueil connecté » (maquette HTML) : encre foncée + fond pastel.
+  static const Color marketInk = Color(0xFFC2255C);
+  static const Color marketSoft = Color(0xFFFCE7EF);
+  static const Color noticesInk = Color(0xFFB4480A);
+  static const Color noticesSoft = Color(0xFFFFEDD5);
+  static const Color eventsInk = Color(0xFF3448C5);
+  static const Color eventsSoft = Color(0xFFE6EBFD);
+  static const Color jobsInk = Color(0xFF0B6B4D);
+  static const Color jobsSoft = Color(0xFFDDF4EA);
+
   /// Opacité de la teinte derrière l'icône d'un module.
   static const double tileTintOpacity = 0.12;
 
