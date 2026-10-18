@@ -305,4 +305,49 @@ void main() {
       verify(() => h.service.deleteAccount(password: null)).called(1);
     });
   });
+
+  group('email verification confirms itself', () {
+    testWidgets('re-checks in the background every 10 s and removes the banner once verified', (tester) async {
+      var verified = false;
+      when(() => h.service.reloadUser()).thenAnswer((_) async => verified);
+      await open(tester, emailVerified: false);
+      expect(find.text('Email non vérifié'), findsOneWidget);
+
+      await tester.pump(const Duration(seconds: 10));
+      await tester.pump();
+      verify(() => h.service.reloadUser()).called(1); // sans aucun tap
+      expect(find.text('Email non vérifié'), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsNothing, reason: 'vérification silencieuse');
+
+      verified = true; // l'utilisateur a cliqué sur le lien dans sa boîte mail
+      await tester.pump(const Duration(seconds: 10));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Email non vérifié'), findsNothing);
+      expect(find.text('Email vérifié'), findsOneWidget);
+    });
+
+    testWidgets('re-checks when the app comes back to the foreground', (tester) async {
+      when(() => h.service.reloadUser()).thenAnswer((_) async => true);
+      await open(tester, emailVerified: false);
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+
+      verify(() => h.service.reloadUser()).called(1);
+      expect(find.text('Email vérifié'), findsOneWidget);
+    });
+
+    testWidgets('a background check that fails stays silent', (tester) async {
+      when(() => h.service.reloadUser()).thenThrow(AuthFailure.fromCode('network-request-failed'));
+      await open(tester, emailVerified: false);
+
+      await tester.pump(const Duration(seconds: 10));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Pas de connexion réseau.'), findsNothing);
+      expect(find.text('Email non vérifié'), findsOneWidget);
+    });
+  });
 }

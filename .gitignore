@@ -49,3 +49,6 @@ app.*.map.json
 
 # Gradle output of the android project
 /android/build/
+
+# Secrets locaux (identifiants OAuth) : ne jamais versionner
+/.env.json
