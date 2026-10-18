@@ -23,6 +23,8 @@ class MockUserCredential extends Mock implements UserCredential {}
 
 class MockAuthInstance extends Mock implements FirebaseAuth {}
 
+class MockFbUser extends Mock implements User {}
+
 void main() {
   late MockFirebaseAuth auth;
   late FakeFirebaseFirestore firestore;
@@ -362,6 +364,81 @@ void main() {
       expect(
         () => service.verifyPhoneOtp('123456'),
         throwsA(isA<AuthFailure>().having((f) => f.code, 'code', 'otp-not-sent')),
+      );
+    });
+
+    /// Session mocktail dont `verifyPhoneNumber` répond aussitôt « code envoyé ».
+    (MockAuthInstance, MockFbUser) phoneSession(List<String> providers) {
+      final fbAuth = MockAuthInstance();
+      final user = MockFbUser();
+      when(() => fbAuth.currentUser).thenReturn(user);
+      when(() => user.uid).thenReturn('u-phone');
+      when(() => user.providerData).thenReturn([for (final p in providers) FakeUserInfo(p)]);
+      when(() => user.updatePhoneNumber(any())).thenAnswer((_) async {});
+      when(() => user.linkWithCredential(any())).thenAnswer((_) async => MockUserCredential());
+      when(() => fbAuth.verifyPhoneNumber(
+            phoneNumber: any(named: 'phoneNumber'),
+            forceResendingToken: any(named: 'forceResendingToken'),
+            timeout: any(named: 'timeout'),
+            verificationCompleted: any(named: 'verificationCompleted'),
+            verificationFailed: any(named: 'verificationFailed'),
+            codeSent: any(named: 'codeSent'),
+            codeAutoRetrievalTimeout: any(named: 'codeAutoRetrievalTimeout'),
+          )).thenAnswer((inv) async {
+        final codeSent = inv.namedArguments[#codeSent] as PhoneCodeSent;
+        codeSent('verif-1', 7);
+      });
+      return (fbAuth, user);
+    }
+
+    setUpAll(() {
+      registerFallbackValue(Duration.zero);
+      registerFallbackValue(PhoneAuthProvider.credential(verificationId: 'f', smsCode: '000000'));
+      registerFallbackValue((PhoneAuthCredential c) {});
+      registerFallbackValue((FirebaseAuthException e) {});
+      registerFallbackValue((String id, int? token) {});
+      registerFallbackValue((String id) {});
+    });
+
+    test('a first number is linked to the account and written to the profile', () async {
+      final (fbAuth, user) = phoneSession(['password']);
+      final s = AuthService(auth: fbAuth, firestore: firestore);
+
+      expect(await s.sendPhoneOtp('92 755 660'), '+21692755660');
+      await s.verifyPhoneOtp('261983');
+
+      verify(() => user.linkWithCredential(any())).called(1);
+      verifyNever(() => user.updatePhoneNumber(any()));
+      final doc = await firestore.collection('users').doc('u-phone').get();
+      expect(doc.data()!['phoneNumber'], '+21692755660');
+      expect(doc.data()!['isPhoneVerified'], isTrue);
+    });
+
+    test('changing the number of an account that already has one uses updatePhoneNumber', () async {
+      // Firebase refuse un second `link` du fournisseur téléphone
+      // (provider-already-linked) : on met le numéro à jour à la place.
+      final (fbAuth, user) = phoneSession(['password', 'phone']);
+      final s = AuthService(auth: fbAuth, firestore: firestore);
+
+      await s.sendPhoneOtp('92755661');
+      await s.verifyPhoneOtp('123456');
+
+      verify(() => user.updatePhoneNumber(any())).called(1);
+      verifyNever(() => user.linkWithCredential(any()));
+      final doc = await firestore.collection('users').doc('u-phone').get();
+      expect(doc.data()!['phoneNumber'], '+21692755661');
+    });
+
+    test('a number already used by another account is reported as such', () async {
+      final (fbAuth, user) = phoneSession(['password']);
+      when(() => user.linkWithCredential(any()))
+          .thenThrow(FirebaseAuthException(code: 'credential-already-in-use'));
+      final s = AuthService(auth: fbAuth, firestore: firestore);
+      await s.sendPhoneOtp('92755662');
+
+      expect(
+        () => s.verifyPhoneOtp('123456'),
+        throwsA(isA<AuthFailure>().having((f) => f.message, 'message', contains('déjà associé à un autre compte'))),
       );
     });
   });

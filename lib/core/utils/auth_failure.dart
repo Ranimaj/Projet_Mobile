@@ -45,6 +45,7 @@ class AuthFailure implements Exception {
     'invalid-verification-code': 'Code incorrect. Vérifiez et réessayez.',
     'session-expired': 'Le code a expiré. Demandez-en un nouveau.',
     'credential-already-in-use': 'Ce numéro est déjà associé à un autre compte.',
+    'provider-already-linked': 'Un numéro est déjà associé à ce compte.',
     'account-exists-with-different-credential':
         "Un compte existe déjà avec cet email via une autre méthode.",
     'cancelled': 'Opération annulée.',
