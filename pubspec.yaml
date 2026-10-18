@@ -55,6 +55,10 @@ dev_dependencies:
   flutter_lints: ^4.0.0
   hive_generator: ^2.0.1
   build_runner: ^2.4.13
+  mocktail: ^1.0.5
+  fake_cloud_firestore: ^3.1.0
+  firebase_auth_mocks: ^0.14.2
+  mock_exceptions: ^0.8.2
 
 flutter:
   uses-material-design: true

@@ -1,14 +1,23 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../core/theme/app_colors.dart';
 
-/// Bouton principal dégradé — utilisé pour toutes les actions CTA
-/// (publier, postuler, s'inscrire, se connecter...).
-class PrimaryButton extends StatelessWidget {
+/// Bouton principal — utilisé pour toutes les actions CTA (publier, postuler,
+/// enregistrer…). Aplat d'une seule couleur, entièrement arrondi, sans ombre
+/// ni dégradé ; léger rétrécissement à l'appui + vibration discrète, et fondu
+/// entre le libellé et l'indicateur de chargement.
+class PrimaryButton extends StatefulWidget {
   final String label;
   final VoidCallback? onPressed;
   final bool isLoading;
   final IconData? icon;
-  final Gradient gradient;
+
+  /// Couleur de fond (par défaut la couleur primaire).
+  final Color color;
+
+  /// Conservé pour compatibilité : seule la première couleur est utilisée, en
+  /// aplat (plus de dégradé sur les boutons).
+  final Gradient? gradient;
 
   const PrimaryButton({
     super.key,
@@ -16,59 +25,100 @@ class PrimaryButton extends StatelessWidget {
     required this.onPressed,
     this.isLoading = false,
     this.icon,
-    this.gradient = AppColors.primaryGradient,
+    this.color = AppColors.primary,
+    this.gradient,
   });
 
   @override
+  State<PrimaryButton> createState() => _PrimaryButtonState();
+}
+
+class _PrimaryButtonState extends State<PrimaryButton> {
+  bool _pressed = false;
+
+  bool get _enabled => widget.onPressed != null && !widget.isLoading;
+
+  void _setPressed(bool value) {
+    if (_pressed != value) setState(() => _pressed = value);
+  }
+
+  void _handleTap() {
+    HapticFeedback.lightImpact();
+    widget.onPressed?.call();
+  }
+
+  Color get _fill {
+    final g = widget.gradient;
+    if (g is LinearGradient && g.colors.isNotEmpty) return g.colors.first;
+    return widget.color;
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        gradient: onPressed == null ? null : gradient,
-        color: onPressed == null ? AppColors.border : null,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: onPressed == null
-            ? null
-            : [
-                BoxShadow(
-                  color: AppColors.primary.withValues(alpha: 0.3),
-                  blurRadius: 16,
-                  offset: const Offset(0, 8),
-                ),
-              ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(12),
-          onTap: isLoading ? null : onPressed,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 14),
-            child: isLoading
-                ? const Center(
-                    child: SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white),
-                    ),
-                  )
-                : Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      if (icon != null) ...[
-                        Icon(icon, size: 18, color: Colors.white),
-                        const SizedBox(width: 8),
-                      ],
-                      Text(
-                        label,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 14,
+    final reduceMotion = MediaQuery.of(context).disableAnimations;
+    final disabled = widget.onPressed == null;
+    final fg = disabled ? AppColors.textSecondary : Colors.white;
+
+    // Pas de `label` sur Semantics : le Text du libellé fournit déjà le sien.
+    return Semantics(
+      button: true,
+      enabled: _enabled,
+      child: AnimatedScale(
+        scale: _pressed && _enabled && !reduceMotion ? 0.97 : 1,
+        duration: const Duration(milliseconds: 110),
+        curve: Curves.easeOut,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          width: double.infinity,
+          constraints: const BoxConstraints(minHeight: 50),
+          decoration: BoxDecoration(
+            color: disabled ? AppColors.surfaceTone : _fill,
+            borderRadius: BorderRadius.circular(25),
+          ),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(25),
+              splashColor: Colors.white.withValues(alpha: 0.18),
+              highlightColor: Colors.white.withValues(alpha: 0.06),
+              onTap: _enabled ? _handleTap : null,
+              onTapDown: (_) => _setPressed(true),
+              onTapUp: (_) => _setPressed(false),
+              onTapCancel: () => _setPressed(false),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 18),
+                child: AnimatedSwitcher(
+                  duration: reduceMotion ? Duration.zero : const Duration(milliseconds: 150),
+                  child: widget.isLoading
+                      ? const Center(
+                          key: ValueKey('loading'),
+                          child: SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white),
+                          ),
+                        )
+                      : Row(
+                          key: const ValueKey('label'),
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            if (widget.icon != null) ...[
+                              Icon(widget.icon, size: 18, color: fg),
+                              const SizedBox(width: 8),
+                            ],
+                            Flexible(
+                              child: Text(
+                                widget.label,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(color: fg, fontWeight: FontWeight.w600, fontSize: 15),
+                              ),
+                            ),
+                          ],
                         ),
-                      ),
-                    ],
-                  ),
+                ),
+              ),
+            ),
           ),
         ),
       ),

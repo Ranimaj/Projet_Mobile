@@ -19,29 +19,38 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> {
   late int _index = widget.initialIndex;
 
-  final _screens = const [
-    HomeScreen(),
-    VenteDonListScreen(),
-    AnnoncesListScreen(),
-    EvenementsListScreen(),
-    StagesListScreen(),
-    ProfileScreen(),
-  ];
+  void _select(int i) {
+    if (i != _index) setState(() => _index = i);
+  }
 
   @override
   Widget build(BuildContext context) {
+    final screens = [
+      HomeScreen(onNavigate: _select),
+      const VenteDonListScreen(),
+      const AnnoncesListScreen(),
+      const EvenementsListScreen(),
+      const StagesListScreen(),
+      const ProfileScreen(),
+    ];
     return Scaffold(
-      body: IndexedStack(index: _index, children: _screens),
+      body: IndexedStack(index: _index, children: screens),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _index,
-        onTap: (i) => setState(() => _index = i),
+        onTap: _select,
         items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home_rounded), label: 'Accueil'),
-          BottomNavigationBarItem(icon: Icon(Icons.storefront_rounded), label: 'Vente/Don'),
-          BottomNavigationBarItem(icon: Icon(Icons.campaign_rounded), label: 'Annonces'),
-          BottomNavigationBarItem(icon: Icon(Icons.event_rounded), label: 'Événements'),
-          BottomNavigationBarItem(icon: Icon(Icons.work_rounded), label: 'Stages'),
-          BottomNavigationBarItem(icon: Icon(Icons.person_rounded), label: 'Profil'),
+          BottomNavigationBarItem(
+              icon: Icon(Icons.home_rounded), label: 'Accueil'),
+          BottomNavigationBarItem(
+              icon: Icon(Icons.storefront_rounded), label: 'Vente/Don'),
+          BottomNavigationBarItem(
+              icon: Icon(Icons.campaign_rounded), label: 'Annonces'),
+          BottomNavigationBarItem(
+              icon: Icon(Icons.event_rounded), label: 'Événements'),
+          BottomNavigationBarItem(
+              icon: Icon(Icons.work_rounded), label: 'Stages'),
+          BottomNavigationBarItem(
+              icon: Icon(Icons.person_rounded), label: 'Profil'),
         ],
       ),
     );
