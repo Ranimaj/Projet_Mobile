@@ -2,6 +2,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:uuid/uuid.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../constants/app_constants.dart';
+import 'local_cache_service.dart';
 
 enum QueueActionType { create, update, delete }
 
@@ -70,7 +71,7 @@ class OfflineQueueService {
       type: type,
       collection: collection,
       docId: docId ?? id,
-      payload: payload,
+      payload: Map<String, dynamic>.from(toHiveSafe(payload)),
       queuedAt: DateTime.now(),
     );
     _box.put(id, action.toJson());

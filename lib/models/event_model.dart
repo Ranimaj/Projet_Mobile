@@ -42,15 +42,23 @@ class EventModel {
       title: map['title'] ?? '',
       description: map['description'] ?? '',
       category: map['category'] ?? 'Générale',
-      startDate: (map['startDate'] is Timestamp)
-          ? (map['startDate'] as Timestamp).toDate()
-          : DateTime.tryParse(map['startDate']?.toString() ?? '') ?? DateTime.now(),
+      startDate: _parseDate(map['startDate']),
       location: map['location'] ?? '',
       latitude: (map['latitude'] as num?)?.toDouble(),
       longitude: (map['longitude'] as num?)?.toDouble(),
       registeredUserIds: List<String>.from(map['registeredUserIds'] ?? []),
       posterUrl: map['posterUrl'],
     );
+  }
+
+  /// La date peut arriver sous 4 formes : Timestamp (Firestore), DateTime
+  /// (cache Hive), int (millisecondes) ou String (ISO 8601).
+  static DateTime _parseDate(dynamic value) {
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    if (value is int) return DateTime.fromMillisecondsSinceEpoch(value);
+    if (value is String) return DateTime.tryParse(value) ?? DateTime.now();
+    return DateTime.now();
   }
 
   Map<String, dynamic> toMap() {

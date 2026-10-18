@@ -55,12 +55,22 @@ class _AddEventScreenState extends State<AddEventScreen> {
       startDate: startDate,
       location: _locationCtrl.text.trim(),
     );
-    await context.read<EventProvider>().createEvent(draft);
-
-    if (!mounted) return;
-    setState(() => _submitting = false);
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Événement créé !')));
-    Navigator.pop(context);
+    try {
+      // Délai max de 15 s : sans réseau stable, l'écriture pourrait ne jamais répondre.
+      await context.read<EventProvider>().createEvent(draft).timeout(const Duration(seconds: 15));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Événement créé !')));
+      Navigator.pop(context);
+    } catch (e) {
+      debugPrint('Création événement échouée : $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Impossible de créer l'événement. Vérifiez votre connexion et réessayez.")),
+      );
+    } finally {
+      // Toujours arrêter le chargement, que la création réussisse ou non.
+      if (mounted) setState(() => _submitting = false);
+    }
   }
 
   @override
