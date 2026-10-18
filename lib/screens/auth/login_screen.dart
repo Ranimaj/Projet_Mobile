@@ -311,7 +311,7 @@ class _RememberMe extends StatelessWidget {
               fillColor: WidgetStateProperty.resolveWith(
                 (s) => s.contains(WidgetState.selected) ? Colors.white : Colors.transparent,
               ),
-              checkColor: AppColors.authGradientBottom,
+              checkColor: AppColors.primary,
               visualDensity: VisualDensity.compact,
               materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),

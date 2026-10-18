@@ -26,18 +26,31 @@ class SectionCard extends StatelessWidget {
             padding: const EdgeInsets.only(left: 4, bottom: 10),
             child: Text(
               title!,
-              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+              style: const TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textPrimary),
             ),
           ),
         // Material (et non Container) : les ListTile dessinent leurs effets
         // d'encre sur le Material le plus proche.
-        Material(
-          color: AppColors.surface,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          clipBehavior: Clip.antiAlias,
-          child: Padding(
-            padding: padding,
-            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: children),
+        // Maquette : carte blanche arrondie (16 px) avec ombre douce.
+        DecoratedBox(
+          decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: const [AppColors.cardShadow]),
+          child: Material(
+            color: AppColors.surface,
+            elevation: 0,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            clipBehavior: Clip.antiAlias,
+            child: Padding(
+              padding: padding,
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: children),
+            ),
           ),
         ),
       ],
@@ -76,18 +89,22 @@ class SettingsTile extends StatelessWidget {
       leading: Icon(icon, size: 22, color: color ?? AppColors.primary),
       title: Text(
         label,
-        style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: tint),
+        style:
+            TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: tint),
       ),
       subtitle: subtitle == null
           ? null
           : Padding(
               padding: const EdgeInsets.only(top: 2),
-              child: Text(subtitle!, style: const TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+              child: Text(subtitle!,
+                  style: const TextStyle(
+                      fontSize: 13, color: AppColors.textSecondary)),
             ),
       trailing: trailing ??
           (onTap == null
               ? null
-              : const Icon(Icons.chevron_right_rounded, size: 20, color: AppColors.textSecondary)),
+              : const Icon(Icons.chevron_right_rounded,
+                  size: 20, color: AppColors.textSecondary)),
     );
   }
 }

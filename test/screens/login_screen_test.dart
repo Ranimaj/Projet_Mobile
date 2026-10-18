@@ -374,7 +374,7 @@ void main() {
 
       expect(cb.value, isTrue);
       expect(cb.side!.color, Colors.white);
-      expect(cb.checkColor, AppColors.authGradientBottom);
+      expect(cb.checkColor, AppColors.primary);
       expect(cb.fillColor!.resolve({WidgetState.selected}), Colors.white);
       expect(cb.fillColor!.resolve({}), Colors.transparent);
     });

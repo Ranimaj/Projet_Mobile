@@ -30,14 +30,18 @@ class ProfileScreen extends StatelessWidget {
   /// visiteur (sinon l'écran resterait affiché sans utilisateur).
   Future<void> _logout(BuildContext context) async {
     final ok = await context.read<AuthProvider>().logout();
-    if (ok && context.mounted) Navigator.of(context).popUntil((route) => route.isFirst);
+    if (ok && context.mounted) {
+      Navigator.of(context).popUntil((route) => route.isFirst);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
     final user = auth.currentUser;
-    if (user == null) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    if (user == null) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -59,12 +63,16 @@ class ProfileScreen extends StatelessWidget {
                     children: [
                       _StatTile(
                         label: 'Note moy.',
-                        value: user.ratingCount > 0 ? user.ratingAverage.toStringAsFixed(1) : '—',
+                        value: user.ratingCount > 0
+                            ? user.ratingAverage.toStringAsFixed(1)
+                            : '—',
                       ),
                       const SizedBox(width: 10),
                       _StatTile(label: 'Avis', value: '${user.ratingCount}'),
                       const SizedBox(width: 10),
-                      _StatTile(label: 'Membre depuis', value: '${user.createdAt.year}'),
+                      _StatTile(
+                          label: 'Membre depuis',
+                          value: '${user.createdAt.year}'),
                     ],
                   ),
                   const SizedBox(height: 22),
@@ -75,15 +83,18 @@ class ProfileScreen extends StatelessWidget {
                         icon: Icons.edit_rounded,
                         label: 'Modifier mes informations',
                         subtitle: 'Photo, nom, filière, compétences',
-                        onTap: () => Navigator.of(context)
-                            .push(MaterialPageRoute(builder: (_) => const EditProfileScreen())),
+                        onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                                builder: (_) => const EditProfileScreen())),
                       ),
                       if (auth.hasPasswordProvider) ...[
                         SettingsTile(
                           icon: Icons.lock_reset_rounded,
                           label: 'Changer le mot de passe',
-                          onTap: () => Navigator.of(context)
-                              .push(MaterialPageRoute(builder: (_) => const ChangePasswordScreen())),
+                          onTap: () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                  builder: (_) =>
+                                      const ChangePasswordScreen())),
                         ),
                       ],
                       SettingsTile(
@@ -91,7 +102,8 @@ class ProfileScreen extends StatelessWidget {
                         label: 'Numéro de téléphone',
                         subtitle: user.phoneNumber ?? 'Aucun numéro vérifié',
                         trailing: _Pill(
-                          label: user.isPhoneVerified ? 'Vérifié' : 'À vérifier',
+                          label:
+                              user.isPhoneVerified ? 'Vérifié' : 'À vérifier',
                           positive: user.isPhoneVerified,
                         ),
                         onTap: () => _verifyPhone(context, user),
@@ -112,12 +124,15 @@ class ProfileScreen extends StatelessWidget {
                               ? null
                               : (v) => context
                                   .read<AuthProvider>()
-                                  .updateProfile(user.copyWith(twoFactorEnabled: v)),
+                                  .updateProfile(
+                                      user.copyWith(twoFactorEnabled: v)),
                         ),
                       ),
                       Consumer<ConnectivityProvider>(
                         builder: (context, connectivity, _) => SettingsTile(
-                          icon: connectivity.isOnline ? Icons.wifi_rounded : Icons.wifi_off_rounded,
+                          icon: connectivity.isOnline
+                              ? Icons.wifi_rounded
+                              : Icons.wifi_off_rounded,
                           label: 'Mode hors-ligne',
                           subtitle: connectivity.pendingActionsCount > 0
                               ? '${connectivity.pendingActionsCount} action(s) en attente'
@@ -159,9 +174,10 @@ class ProfileScreen extends StatelessWidget {
                     onPressed: auth.isLoading ? null : () => _logout(context),
                     style: FilledButton.styleFrom(
                       minimumSize: const Size.fromHeight(50),
-                      backgroundColor: AppColors.surfaceTone,
-                      foregroundColor: AppColors.textPrimary,
-                      shape: const StadiumBorder(),
+                      backgroundColor: AppColors.danger.withValues(alpha: 0.1),
+                      foregroundColor: AppColors.danger,
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14)),
                     ),
                     icon: const Icon(Icons.logout_rounded, size: 18),
                     label: const Text('Déconnexion'),
@@ -182,7 +198,9 @@ class ProfileScreen extends StatelessWidget {
     );
     if (phone == null || !context.mounted) return;
     Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => OtpVerificationScreen(phone: phone, allowSkip: false)),
+      MaterialPageRoute(
+          builder: (_) =>
+              OtpVerificationScreen(phone: phone, allowSkip: false)),
     );
   }
 
@@ -219,13 +237,15 @@ class ProfileScreen extends StatelessWidget {
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Fermer')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('Fermer')),
           FilledButton.icon(
             onPressed: () async {
               await Clipboard.setData(ClipboardData(text: json));
               if (!ctx.mounted) return;
               Navigator.pop(ctx);
-              showAuthSnack(context, 'Données copiées dans le presse-papiers.', isError: false);
+              showAuthSnack(context, 'Données copiées dans le presse-papiers.',
+                  isError: false);
             },
             icon: const Icon(Icons.copy_rounded, size: 16),
             label: const Text('Copier'),
@@ -245,57 +265,73 @@ class _ProfileHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final details = [user.major, user.year].where((e) => e != null && e.isNotEmpty).join(' · ');
+    final text = Theme.of(context).textTheme;
+    final details = [user.major, user.year]
+        .where((e) => e != null && e.isNotEmpty)
+        .join(' · ');
 
+    // Maquette « Gestion Utilisateurs » : en-tête clair, titre sombre, avatar
+    // cerclé du dégradé violet, nom + coche, filière, puce de statut.
     return Container(
       width: double.infinity,
-      padding: EdgeInsets.fromLTRB(20, MediaQuery.paddingOf(context).top + 16, 20, 26),
-      // Champ de couleur uni : ni dégradé ni arrondi, le bord est net.
-      color: AppColors.primary,
+      padding: EdgeInsets.fromLTRB(
+          20, MediaQuery.paddingOf(context).top + 12, 20, 8),
+      color: AppColors.background,
       child: Column(
         children: [
           Align(
             alignment: Alignment.centerLeft,
-            child: Text(
-              'Mon profil',
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.9),
-                fontWeight: FontWeight.w600,
-                fontSize: 15,
+            child: Text('Mon profil', style: text.headlineMedium),
+          ),
+          const SizedBox(height: 20),
+          Container(
+            width: 104,
+            height: 104,
+            padding: const EdgeInsets.all(4),
+            decoration: const BoxDecoration(
+                shape: BoxShape.circle, gradient: AppColors.brandGradient),
+            child: Container(
+              padding: const EdgeInsets.all(3),
+              decoration: const BoxDecoration(
+                  shape: BoxShape.circle, color: AppColors.background),
+              child: CircleAvatar(
+                backgroundColor: AppColors.primary,
+                backgroundImage: user.photoUrl == null
+                    ? null
+                    : CachedNetworkImageProvider(user.photoUrl!),
+                child: user.photoUrl == null
+                    ? Text(
+                        user.initials,
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 30,
+                            fontWeight: FontWeight.w700),
+                      )
+                    : null,
               ),
             ),
           ),
-          const SizedBox(height: 14),
-          Container(
-            width: 96,
-            height: 96,
-            padding: const EdgeInsets.all(3),
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: Colors.white.withValues(alpha: 0.35),
-            ),
-            child: CircleAvatar(
-              backgroundColor: Colors.white,
-              backgroundImage:
-                  user.photoUrl == null ? null : CachedNetworkImageProvider(user.photoUrl!),
-              child: user.photoUrl == null
-                  ? Text(
-                      user.initials,
-                      style: const TextStyle(
-                          color: AppColors.primary, fontSize: 30, fontWeight: FontWeight.w700),
-                    )
-                  : null,
-            ),
-          ),
           const SizedBox(height: 12),
-          Text(
-            user.fullName,
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.displayMedium?.copyWith(color: Colors.white, fontSize: 26),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(
+                child: Text(
+                  user.fullName,
+                  textAlign: TextAlign.center,
+                  style: text.displayMedium?.copyWith(fontSize: 24),
+                ),
+              ),
+              if (user.isVerifiedStudent) ...[
+                const SizedBox(width: 6),
+                const Icon(Icons.verified_rounded,
+                    size: 20, color: AppColors.primary),
+              ],
+            ],
           ),
           if (details.isNotEmpty) ...[
             const SizedBox(height: 2),
-            Text(details, style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 14)),
+            Text(details, style: text.bodyMedium),
           ],
           const SizedBox(height: 12),
           Wrap(
@@ -304,14 +340,24 @@ class _ProfileHeader extends StatelessWidget {
             alignment: WrapAlignment.center,
             children: [
               _Badge(
-                icon: user.isVerifiedStudent ? Icons.verified_rounded : Icons.hourglass_top_rounded,
-                label: user.isVerifiedStudent ? 'Étudiant vérifié' : 'Vérification en attente',
+                icon: user.isVerifiedStudent
+                    ? Icons.verified_rounded
+                    : Icons.hourglass_top_rounded,
+                label: user.isVerifiedStudent
+                    ? 'Étudiant vérifié'
+                    : 'Vérification en attente',
                 highlighted: user.isVerifiedStudent,
               ),
               if (emailVerified)
-                const _Badge(icon: Icons.mark_email_read_rounded, label: 'Email vérifié', highlighted: true),
+                const _Badge(
+                    icon: Icons.mark_email_read_rounded,
+                    label: 'Email vérifié',
+                    highlighted: true),
               if (user.isPhoneVerified)
-                const _Badge(icon: Icons.phone_android_rounded, label: 'Téléphone vérifié', highlighted: true),
+                const _Badge(
+                    icon: Icons.phone_android_rounded,
+                    label: 'Téléphone vérifié',
+                    highlighted: true),
             ],
           ),
         ],
@@ -320,33 +366,31 @@ class _ProfileHeader extends StatelessWidget {
   }
 }
 
+/// Puce de statut : verte quand acquis (maquette « Étudiant vérifié »),
+/// ambre tant que c'est en attente.
 class _Badge extends StatelessWidget {
   final IconData icon;
   final String label;
   final bool highlighted;
-  const _Badge({required this.icon, required this.label, required this.highlighted});
+  const _Badge(
+      {required this.icon, required this.label, required this.highlighted});
 
   @override
   Widget build(BuildContext context) {
+    final bg = highlighted ? AppColors.successTint : const Color(0xFFFEF3C7);
+    final fg = highlighted ? AppColors.successInk : const Color(0xFF92400E);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: highlighted ? 0.92 : 0.18),
-        borderRadius: BorderRadius.circular(20),
-      ),
+      decoration:
+          BoxDecoration(color: bg, borderRadius: BorderRadius.circular(20)),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 14, color: highlighted ? AppColors.primary : Colors.white),
+          Icon(icon, size: 14, color: fg),
           const SizedBox(width: 5),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: highlighted ? AppColors.primary : Colors.white,
-            ),
-          ),
+          Text(label,
+              style: TextStyle(
+                  fontSize: 13, fontWeight: FontWeight.w600, color: fg)),
         ],
       ),
     );
@@ -359,10 +403,12 @@ class _EmailVerificationBanner extends StatefulWidget {
   const _EmailVerificationBanner();
 
   @override
-  State<_EmailVerificationBanner> createState() => _EmailVerificationBannerState();
+  State<_EmailVerificationBanner> createState() =>
+      _EmailVerificationBannerState();
 }
 
-class _EmailVerificationBannerState extends State<_EmailVerificationBanner> with WidgetsBindingObserver {
+class _EmailVerificationBannerState extends State<_EmailVerificationBanner>
+    with WidgetsBindingObserver {
   Timer? _ticker;
   Timer? _autoCheck;
 
@@ -421,7 +467,9 @@ class _EmailVerificationBannerState extends State<_EmailVerificationBanner> with
     if (!mounted) return;
     showAuthSnack(
       context,
-      ok ? 'Email de vérification renvoyé.' : (auth.errorMessage ?? 'Envoi impossible.'),
+      ok
+          ? 'Email de vérification renvoyé.'
+          : (auth.errorMessage ?? 'Envoi impossible.'),
       isError: !ok,
     );
     _syncTicker();
@@ -432,7 +480,10 @@ class _EmailVerificationBannerState extends State<_EmailVerificationBanner> with
     final verified = await auth.refreshEmailVerification();
     if (!mounted) return;
     if (!verified) {
-      showAuthSnack(context, auth.errorMessage ?? 'Email toujours non vérifié. Clique sur le lien reçu.');
+      showAuthSnack(
+          context,
+          auth.errorMessage ??
+              'Email toujours non vérifié. Clique sur le lien reçu.');
     }
   }
 
@@ -452,12 +503,16 @@ class _EmailVerificationBannerState extends State<_EmailVerificationBanner> with
         children: [
           const Row(
             children: [
-              Icon(Icons.mark_email_unread_outlined, size: 18, color: AppColors.accent2),
+              Icon(Icons.mark_email_unread_outlined,
+                  size: 18, color: AppColors.accent2),
               SizedBox(width: 8),
               Expanded(
                 child: Text(
                   'Email non vérifié',
-                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: Color(0xFF9A3412)),
+                  style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 15,
+                      color: Color(0xFF9A3412)),
                 ),
               ),
             ],
@@ -465,7 +520,8 @@ class _EmailVerificationBannerState extends State<_EmailVerificationBanner> with
           const SizedBox(height: 4),
           const Text(
             'Clique sur le lien reçu par email : ce bandeau disparaîtra tout seul.',
-            style: TextStyle(fontSize: 14, height: 1.4, color: Color(0xFF9A3412)),
+            style:
+                TextStyle(fontSize: 14, height: 1.4, color: Color(0xFF9A3412)),
           ),
           // Wrap plutôt que Row : avec le compte à rebours, les deux boutons
           // ne tiennent pas toujours sur une ligne en petite largeur.
@@ -502,14 +558,20 @@ class _StatTile extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 14),
         decoration: BoxDecoration(
           color: AppColors.surface,
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: const [AppColors.cardShadow],
         ),
         child: Column(
           children: [
             Text(value,
-                style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
+                style: const TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.primary)),
             const SizedBox(height: 2),
-            Text(label, style: const TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+            Text(label,
+                style: const TextStyle(
+                    fontSize: 13, color: AppColors.textSecondary)),
           ],
         ),
       ),
@@ -596,7 +658,9 @@ class _PhoneDialogState extends State<_PhoneDialog> {
         ),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')),
+        TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Annuler')),
         FilledButton(onPressed: _submit, child: const Text('Envoyer le code')),
       ],
     );
@@ -669,7 +733,9 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
             ],
             if (_error != null) ...[
               const SizedBox(height: 10),
-              Text(_error!, style: const TextStyle(color: AppColors.danger, fontSize: 13)),
+              Text(_error!,
+                  style:
+                      const TextStyle(color: AppColors.danger, fontSize: 13)),
             ],
           ],
         ),
@@ -684,7 +750,10 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
           onPressed: auth.isLoading ? null : _confirm,
           child: auth.isLoading
               ? const SizedBox(
-                  width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: Colors.white))
               : const Text('Supprimer définitivement'),
         ),
       ],
