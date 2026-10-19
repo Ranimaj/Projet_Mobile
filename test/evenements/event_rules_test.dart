@@ -166,6 +166,38 @@ void main() {
     test('la description n’est pas cherchée', () => expect(EventRules.matchesSearch(e, 'description'), isFalse));
   });
 
+  group('compte à rebours', () {
+    final t = DateTime(2026, 10, 19, 10, 0);
+    test('moins d’une heure : minutes', () {
+      expect(EventRules.countdown(t.add(const Duration(minutes: 25)), t), 'dans 25 min');
+      expect(EventRules.countdown(t.add(const Duration(seconds: 20)), t), 'dans 1 min');
+    });
+    test('moins de 6 h : heures', () {
+      expect(EventRules.countdown(t.add(const Duration(hours: 3, minutes: 40)), t), 'dans 3 h');
+    });
+    test('plus tard le même jour : aujourd’hui', () {
+      expect(EventRules.countdown(DateTime(2026, 10, 19, 20, 0), t), "aujourd'hui");
+    });
+    test('le lendemain : demain (même à moins de 24 h)', () {
+      expect(EventRules.countdown(DateTime(2026, 10, 20, 9, 0), t), 'demain');
+    });
+    test('plus loin : en jours de calendrier', () {
+      expect(EventRules.countdown(DateTime(2026, 10, 21, 8, 0), t), 'dans 2 jours');
+      expect(EventRules.countdown(DateTime(2026, 11, 2, 8, 0), t), 'dans 14 jours'); // passe l'heure d'hiver
+    });
+    test('déjà commencé : en cours', () {
+      expect(EventRules.countdown(t.subtract(const Duration(minutes: 5)), t), 'en cours');
+    });
+  });
+
+  group('nombre de filtres actifs', () {
+    test('0, 1 ou 2', () {
+      expect(EventRules.activeFilterCount(), 0);
+      expect(EventRules.activeFilterCount(category: 'Sport'), 1);
+      expect(EventRules.activeFilterCount(category: 'Sport', day: DateTime(2026, 11, 1)), 2);
+    });
+  });
+
   group('grille du mois (lundi en premier)', () {
     test('octobre 2026 commence un jeudi : 3 cases vides, 31 jours, 35 cases', () {
       final cells = EventRules.monthGrid(DateTime(2026, 10));

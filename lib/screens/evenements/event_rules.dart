@@ -90,6 +90,25 @@ class EventRules {
     return cells;
   }
 
+  /// Compte à rebours lisible jusqu'au début : « dans 25 min », « dans 3 h »
+  /// (moins de 6 h), « aujourd'hui », « demain », « dans 4 jours ».
+  /// Les jours sont comptés en jours de calendrier (arrondi : sûr même lors
+  /// d'un changement d'heure).
+  static String countdown(DateTime start, DateTime now) {
+    final diff = start.difference(now);
+    if (diff.isNegative) return 'en cours';
+    if (diff.inMinutes < 60) return 'dans ${diff.inMinutes < 1 ? 1 : diff.inMinutes} min';
+    if (diff.inHours < 6) return 'dans ${diff.inHours} h';
+    final days = (dateOnly(start).difference(dateOnly(now)).inHours / 24).round();
+    if (days == 0) return "aujourd'hui";
+    if (days == 1) return 'demain';
+    return 'dans $days jours';
+  }
+
+  /// Nombre de filtres actifs affiché sur l'icône filtre : catégorie et jour.
+  static int activeFilterCount({String? category, DateTime? day}) =>
+      (category == null ? 0 : 1) + (day == null ? 0 : 1);
+
   /// Jours (sans l'heure) où commence au moins un des [events] : on y met un point.
   static Set<DateTime> eventDays(List<EventModel> events) => {for (final e in events) dateOnly(e.startDate)};
 
