@@ -1,6 +1,5 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../core/theme/app_colors.dart';
@@ -10,6 +9,8 @@ import '../../providers/auth_provider.dart';
 import '../../providers/event_provider.dart';
 import '../../widgets/primary_button.dart';
 import 'add_event_screen.dart';
+import 'event_calendar_launcher.dart';
+import 'event_calendar_sync.dart';
 import 'event_rules.dart';
 import 'event_style.dart';
 import 'event_validators.dart';
@@ -133,7 +134,10 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                     _ModifiedBanner(updatedAt: event.updatedAt),
                   ],
                   const SizedBox(height: 16),
-                  _QuickActions(onCalendar: () => _copyCalendarLink(event)),
+                  _QuickActions(
+                    onCalendar: () => _addToCalendar(event),
+                    calendarBlockedReason: EventCalendarSync.blockedReason(event),
+                  ),
                   const SizedBox(height: 16),
                   _InfoCard(
                     icon: Icons.calendar_today_outlined,
@@ -180,13 +184,25 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
         '${EventRules.durationLabel(e.startDate, e.endDate)}';
   }
 
-  /// Comportement actuel conservé jusqu'à l'étape 9 (vraie synchronisation).
-  Future<void> _copyCalendarLink(EventModel event) async {
+  /// BF9 : ouvre le calendrier du téléphone avec l'événement pré-rempli
+  /// (vraies dates de début et de fin). L'utilisateur vérifie puis enregistre
+  /// dans son application Calendrier.
+  Future<void> _addToCalendar(EventModel event) async {
     final messenger = ScaffoldMessenger.of(context);
-    await Clipboard.setData(ClipboardData(text: context.read<EventProvider>().buildCalendarLink(event)));
-    messenger.showSnackBar(
-      const SnackBar(content: Text('Lien Google Calendar copié — collez-le dans votre navigateur.')),
-    );
+    final blocked = EventCalendarSync.blockedReason(event);
+    if (blocked != null) {
+      messenger.showSnackBar(SnackBar(content: Text(blocked)));
+      return;
+    }
+    try {
+      await EventCalendarLauncher.open(EventCalendarSync.buildEntry(event));
+      final note = EventCalendarSync.note(event, DateTime.now());
+      messenger.showSnackBar(SnackBar(
+        content: Text(note ?? "Calendrier ouvert : vérifiez puis enregistrez l'événement."),
+      ));
+    } on EventActionException catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text(e.message)));
+    }
   }
 
   // ------------------------------------------------------- Menu organisateur
@@ -518,17 +534,26 @@ class _Header extends StatelessWidget {
   }
 }
 
-/// Rangée d'actions rapides : Calendrier (actif), Partager et Itinéraire
-/// (bientôt disponibles, étapes suivantes).
+/// Rangée d'actions rapides : Calendrier (actif, sauf événement annulé),
+/// Partager et Itinéraire (bientôt disponibles, étapes suivantes).
 class _QuickActions extends StatelessWidget {
   final VoidCallback onCalendar;
-  const _QuickActions({required this.onCalendar});
+  final String? calendarBlockedReason; // non null = calendrier désactivé
+  const _QuickActions({required this.onCalendar, required this.calendarBlockedReason});
 
   @override
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Expanded(child: _QuickAction(icon: Icons.event_available_outlined, label: 'Calendrier', onTap: onCalendar)),
+        Expanded(
+          child: _QuickAction(
+            icon: Icons.event_available_outlined,
+            label: 'Calendrier',
+            semanticLabel: 'Ajouter à mon calendrier',
+            onTap: calendarBlockedReason == null ? onCalendar : null,
+            disabledMessage: calendarBlockedReason ?? 'Bientôt',
+          ),
+        ),
         const SizedBox(width: 10),
         const Expanded(child: _QuickAction(icon: Icons.share_outlined, label: 'Partager', onTap: null)),
         const SizedBox(width: 10),
@@ -538,11 +563,21 @@ class _QuickActions extends StatelessWidget {
   }
 }
 
+/// Action rapide (au moins 44 px). Désactivée (onTap null) : grisée, et un
+/// toucher ou un appui long explique pourquoi ([disabledMessage]).
 class _QuickAction extends StatelessWidget {
   final IconData icon;
   final String label;
-  final VoidCallback? onTap; // null = pas encore disponible
-  const _QuickAction({required this.icon, required this.label, required this.onTap});
+  final String? semanticLabel;
+  final VoidCallback? onTap;
+  final String disabledMessage;
+  const _QuickAction({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.semanticLabel,
+    this.disabledMessage = 'Bientôt',
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -551,14 +586,15 @@ class _QuickAction extends StatelessWidget {
     final button = Semantics(
       button: true,
       enabled: enabled,
-      label: enabled ? label : '$label, bientôt disponible',
+      label: enabled ? (semanticLabel ?? label) : '$label, indisponible : $disabledMessage',
       excludeSemantics: true,
       child: Material(
         color: enabled ? AppColors.primary.withValues(alpha: 0.08) : AppColors.border.withValues(alpha: 0.5),
         borderRadius: BorderRadius.circular(14),
         child: InkWell(
           borderRadius: BorderRadius.circular(14),
-          onTap: onTap,
+          onTap: onTap ??
+              () => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(disabledMessage))),
           child: ConstrainedBox(
             constraints: const BoxConstraints(minHeight: 64),
             child: Column(
@@ -573,7 +609,7 @@ class _QuickAction extends StatelessWidget {
         ),
       ),
     );
-    return enabled ? button : Tooltip(message: 'Bientôt', child: button);
+    return enabled ? button : Tooltip(message: disabledMessage, child: button);
   }
 }
 

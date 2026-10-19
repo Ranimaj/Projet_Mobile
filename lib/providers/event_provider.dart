@@ -398,26 +398,6 @@ class EventProvider extends ChangeNotifier {
     }
   }
 
-  // ------------------------------------------------------------- Calendrier
-
-  /// Lien Google Calendar pré-rempli (la vraie synchronisation avec le
-  /// calendrier du téléphone arrive à l'étape 9).
-  String buildCalendarLink(EventModel event) {
-    final start = event.startDate.toUtc();
-    final end = event.endDate.toUtc();
-    String fmt(DateTime d) =>
-        '${d.year.toString().padLeft(4, '0')}${d.month.toString().padLeft(2, '0')}${d.day.toString().padLeft(2, '0')}'
-        'T${d.hour.toString().padLeft(2, '0')}${d.minute.toString().padLeft(2, '0')}${d.second.toString().padLeft(2, '0')}Z';
-    final params = {
-      'action': 'TEMPLATE',
-      'text': event.title,
-      'dates': '${fmt(start)}/${fmt(end)}',
-      'details': event.description,
-      'location': event.location,
-    };
-    final query = params.entries
-        .map((e) => '${Uri.encodeComponent(e.key)}=${Uri.encodeComponent(e.value)}')
-        .join('&');
-    return 'https://calendar.google.com/calendar/render?$query';
-  }
+  // La synchronisation calendrier n'est pas ici : voir event_calendar_sync.dart
+  // (logique pure) et event_calendar_launcher.dart (appel au plugin).
 }
