@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
@@ -12,7 +14,10 @@ import '../../widgets/primary_button.dart';
 import 'event_categories.dart';
 import 'event_rules.dart';
 import 'event_validators.dart';
+import 'cloudinary_service.dart';
 import 'photon_service.dart';
+import 'poster_compressor.dart';
+import 'poster_rules.dart';
 
 /// BF8.3 / BF8.4 — un seul formulaire pour créer OU modifier un événement.
 /// Création si [existing] est null, modification sinon.
@@ -92,6 +97,26 @@ class _AddEventScreenState extends State<AddEventScreen> {
 
   bool get _placeLocated => _placeLat != null && _placeLng != null;
 
+  // --- Affiche (Cloudinary, preset unsigned) ---
+  /// JPEG déjà compressé, choisi mais PAS encore envoyé : l'envoi se fait à
+  /// l'enregistrement, pour ne pas laisser d'images orphelines quand le
+  /// formulaire est abandonné.
+  Uint8List? _posterBytes;
+
+  /// URL déjà obtenue pour [_posterBytes] : un nouvel essai d'enregistrement
+  /// ne renvoie pas l'image une seconde fois.
+  String? _uploadedPosterUrl;
+
+  /// Modification : l'affiche existante a été retirée.
+  bool _posterRemoved = false;
+  bool _posterPreparing = false;
+  bool _posterUploading = false;
+
+  String? get _existingPosterUrl => widget.existing?.posterUrl;
+
+  /// Affiche actuellement montrée (choisie, ou existante non retirée).
+  bool get _hasPoster => _posterBytes != null || (!_posterRemoved && _existingPosterUrl != null);
+
   bool get _isEdit => widget.existing != null;
 
   @override
@@ -167,7 +192,8 @@ class _AddEventScreenState extends State<AddEventScreen> {
     final e = widget.existing;
     String n(String s) => EventValidators.normalize(s);
     if (e == null) {
-      return [_titleCtrl, _descCtrl, _locationCtrl, _capacityCtrl, _priceCtrl].any((c) => n(c.text).isNotEmpty);
+      return _posterBytes != null ||
+          [_titleCtrl, _descCtrl, _locationCtrl, _capacityCtrl, _priceCtrl].any((c) => n(c.text).isNotEmpty);
     }
     return n(_titleCtrl.text) != e.title ||
         n(_descCtrl.text) != e.description ||
@@ -176,7 +202,9 @@ class _AddEventScreenState extends State<AddEventScreen> {
         _start != e.startDate ||
         _end != e.endDate ||
         _capacityCtrl.text.trim() != (e.capacity?.toString() ?? '') ||
-        _priceCtrl.text.trim() != _priceText(e.price);
+        _priceCtrl.text.trim() != _priceText(e.price) ||
+        _posterBytes != null ||
+        _posterRemoved;
   }
 
   Future<void> _confirmLeave() async {
@@ -244,6 +272,115 @@ class _AddEventScreenState extends State<AddEventScreen> {
 
   void _showMessage(String message) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  // ------------------------------------------------------------- Affiche
+
+  /// Galerie → contrôle (type réel, taille) → compression. Rien n'est envoyé
+  /// ici. Galerie annulée : rien ne se passe.
+  Future<void> _pickPoster() async {
+    final messenger = ScaffoldMessenger.of(context);
+    XFile? file;
+    try {
+      // requestFullMetadata: false → pas besoin d'accès complet aux métadonnées.
+      file = await ImagePicker().pickImage(source: ImageSource.gallery, requestFullMetadata: false);
+    } on PlatformException catch (e) {
+      messenger.showSnackBar(SnackBar(
+        content: Text(e.code.toLowerCase().contains('denied')
+            ? 'Accès aux photos refusé : autorisez-le dans les réglages du téléphone.'
+            : "Impossible d'ouvrir la galerie."),
+      ));
+      return;
+    }
+    if (file == null) return; // sélection annulée : en silence
+
+    Uint8List? bytes;
+    try {
+      bytes = await file.readAsBytes();
+    } catch (_) {
+      bytes = null;
+    }
+    final error = PosterRules.validate(file.name, bytes);
+    if (error != null) {
+      messenger.showSnackBar(SnackBar(content: Text(error)));
+      return;
+    }
+
+    setState(() => _posterPreparing = true);
+    Uint8List? compressed;
+    try {
+      compressed = await PosterCompressor.compress(bytes!);
+    } catch (_) {
+      compressed = null;
+    }
+    if (!mounted) return;
+    setState(() {
+      _posterPreparing = false;
+      if (compressed != null) {
+        _posterBytes = compressed;
+        _uploadedPosterUrl = null; // nouvelle image : pas encore envoyée
+        _posterRemoved = false;
+      }
+    });
+    if (compressed == null) {
+      messenger.showSnackBar(const SnackBar(content: Text('Impossible de préparer cette image. Essayez-en une autre.')));
+    }
+  }
+
+  void _removePoster() => setState(() {
+        _posterBytes = null;
+        _uploadedPosterUrl = null;
+        _posterRemoved = _existingPosterUrl != null;
+      });
+
+  /// Envoie l'affiche choisie (si besoin) au moment d'enregistrer.
+  /// proceed false = l'organisateur a annulé ; url null = pas de nouvelle affiche.
+  Future<({bool proceed, String? url})> _ensurePosterUploaded(bool isOnline) async {
+    final bytes = _posterBytes;
+    if (bytes == null) return (proceed: true, url: null);
+    if (_uploadedPosterUrl != null) return (proceed: true, url: _uploadedPosterUrl); // déjà envoyée
+
+    while (true) {
+      setState(() {
+        _submitting = true;
+        _posterUploading = true;
+      });
+      final response = isOnline
+          ? await CloudinaryService.instance.upload(bytes)
+          : const UploadFailure(UploadError.noConnection, "Pas de connexion : l'affiche n'a pas été envoyée.");
+      if (!mounted) return (proceed: false, url: null);
+      setState(() {
+        _submitting = false;
+        _posterUploading = false;
+      });
+      switch (response) {
+        case UploadSuccess(:final url):
+          _uploadedPosterUrl = url;
+          return (proceed: true, url: url);
+        case UploadFailure(:final message):
+          final choice = await showDialog<String>(
+            context: context,
+            barrierDismissible: false,
+            builder: (ctx) => AlertDialog(
+              title: const Text("Envoi de l'affiche impossible"),
+              content: Text(message),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(ctx, 'cancel'), child: const Text('Annuler')),
+                TextButton(onPressed: () => Navigator.pop(ctx, 'without'), child: const Text('Enregistrer sans affiche')),
+                FilledButton(onPressed: () => Navigator.pop(ctx, 'retry'), child: const Text('Réessayer')),
+              ],
+            ),
+          );
+          if (!mounted) return (proceed: false, url: null);
+          if (choice == 'retry') {
+            isOnline = context.read<EventProvider>().isOnline; // la connexion a pu revenir
+            continue;
+          }
+          // « Sans affiche » : on enregistre le reste ; la nouvelle image n'est
+          // pas utilisée (une affiche existante reste, sauf si elle a été retirée).
+          return (proceed: choice == 'without', url: null);
+      }
+    }
   }
 
   // ------------------------------------------------- Suggestions de lieu
@@ -364,6 +501,14 @@ class _AddEventScreenState extends State<AddEventScreen> {
     final lng = located ? _placeLng : null;
     final placeNote = located ? null : "Lieu non localisé : pas de carte ni d'itinéraire.";
 
+    // Affiche : envoyée MAINTENANT (pas au choix). En cas d'échec, l'organisateur
+    // choisit : réessayer, enregistrer sans la nouvelle affiche, ou annuler
+    // (le formulaire reste rempli).
+    final poster = await _ensurePosterUploaded(provider.isOnline);
+    if (!poster.proceed || !mounted) return;
+    // Affiche finale : la nouvelle si envoyée, sinon l'existante (sauf retirée).
+    final posterUrl = poster.url ?? (_posterRemoved ? null : _existingPosterUrl);
+
     setState(() => _submitting = true);
     try {
       String message;
@@ -384,6 +529,8 @@ class _AddEventScreenState extends State<AddEventScreen> {
           longitude: lng,
           // Texte changé sans nouvelle suggestion : l'ancienne position serait fausse.
           clearCoordinates: !located,
+          posterUrl: posterUrl,
+          clearPoster: posterUrl == null,
         );
         final sentOnline = await provider.updateEvent(original, edited);
         message = sentOnline
@@ -412,6 +559,7 @@ class _AddEventScreenState extends State<AddEventScreen> {
           longitude: lng,
           capacity: _capacityValue,
           price: _priceValue,
+          posterUrl: posterUrl,
         );
         // Le provider applique un délai max de 15 s (TimeoutException ci-dessous).
         final sentOnline = await provider.createEvent(draft);
@@ -463,6 +611,15 @@ class _AddEventScreenState extends State<AddEventScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                _PosterPicker(
+                  bytes: _posterBytes,
+                  existingUrl: _posterRemoved ? null : _existingPosterUrl,
+                  preparing: _posterPreparing,
+                  enabled: !_submitting,
+                  onPick: _pickPoster,
+                  onRemove: _hasPoster ? _removePoster : null,
+                ),
+                const SizedBox(height: 16),
                 TextFormField(
                   controller: _titleCtrl,
                   focusNode: _titleFocus,
@@ -629,11 +786,124 @@ class _AddEventScreenState extends State<AddEventScreen> {
                   isLoading: _submitting, // désactivé pendant l'enregistrement
                   onPressed: _submit,
                 ),
+                if (_posterUploading)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 8),
+                    child: Text("Envoi de l'affiche…",
+                        textAlign: TextAlign.center, style: TextStyle(color: AppColors.textSecondary)),
+                  ),
               ],
             ),
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Zone d'affiche (16:9) en haut du formulaire : « Ajouter une affiche »,
+/// puis l'aperçu avec « Changer » / « Retirer » et le poids après compression.
+class _PosterPicker extends StatelessWidget {
+  final Uint8List? bytes; // nouvelle affiche choisie (pas encore envoyée)
+  final String? existingUrl; // affiche déjà enregistrée (modification)
+  final bool preparing;
+  final bool enabled;
+  final VoidCallback onPick;
+  final VoidCallback? onRemove;
+  const _PosterPicker({
+    required this.bytes,
+    required this.existingUrl,
+    required this.preparing,
+    required this.enabled,
+    required this.onPick,
+    required this.onRemove,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final hasImage = bytes != null || existingUrl != null;
+    const placeholder = Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(Icons.add_photo_alternate_outlined, size: 36, color: AppColors.primary),
+        SizedBox(height: 6),
+        Text('Ajouter une affiche', style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.primary)),
+        SizedBox(height: 2),
+        Text('JPG ou PNG, 5 Mo maximum (optionnel)', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+      ],
+    );
+
+    Widget content;
+    if (preparing) {
+      content = const Center(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          CircularProgressIndicator(),
+          SizedBox(height: 8),
+          Text("Préparation de l'affiche…"),
+        ]),
+      );
+    } else if (bytes != null) {
+      content = Semantics(image: true, label: 'Affiche choisie', child: Image.memory(bytes!, fit: BoxFit.cover));
+    } else if (existingUrl != null) {
+      content = Semantics(
+        image: true,
+        label: "Affiche actuelle de l'événement",
+        child: CachedNetworkImage(
+          imageUrl: existingUrl!,
+          fit: BoxFit.cover,
+          placeholder: (_, __) => const Center(child: CircularProgressIndicator()),
+          errorWidget: (_, __, ___) => placeholder,
+        ),
+      );
+    } else {
+      content = placeholder;
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        AspectRatio(
+          aspectRatio: 16 / 9,
+          child: Material(
+            color: AppColors.primary.withValues(alpha: 0.05),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: const BorderSide(color: AppColors.border),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              // Zone vide : un toucher ouvre la galerie.
+              onTap: enabled && !preparing && !hasImage ? onPick : null,
+              child: content,
+            ),
+          ),
+        ),
+        if (hasImage && !preparing) ...[
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: bytes != null
+                    ? Text('Affiche compressée : ${PosterRules.formatSize(bytes!.length)}',
+                        maxLines: 2, style: const TextStyle(fontSize: 12.5, color: AppColors.textSecondary))
+                    : const SizedBox.shrink(),
+              ),
+              TextButton.icon(
+                style: TextButton.styleFrom(minimumSize: const Size(44, 48)),
+                onPressed: enabled ? onPick : null,
+                icon: const Icon(Icons.swap_horiz_rounded),
+                label: const Text('Changer'),
+              ),
+              TextButton.icon(
+                style: TextButton.styleFrom(minimumSize: const Size(44, 48), foregroundColor: AppColors.danger),
+                onPressed: enabled ? onRemove : null,
+                icon: const Icon(Icons.delete_outline_rounded),
+                label: const Text('Retirer'),
+              ),
+            ],
+          ),
+        ],
+      ],
     );
   }
 }

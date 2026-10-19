@@ -553,11 +553,16 @@ class _Header extends StatelessWidget {
           if (event.posterUrl == null)
             fallback
           else
-            CachedNetworkImage(
-              imageUrl: event.posterUrl!,
-              fit: BoxFit.cover,
-              placeholder: (_, __) => fallback,
-              errorWidget: (_, __, ___) => fallback,
+            // Hors-ligne ou lien cassé : le dégradé de la catégorie, jamais d'erreur.
+            Semantics(
+              image: true,
+              label: "Affiche de l'événement ${event.title}",
+              child: CachedNetworkImage(
+                imageUrl: event.posterUrl!,
+                fit: BoxFit.cover,
+                placeholder: (_, __) => fallback,
+                errorWidget: (_, __, ___) => fallback,
+              ),
             ),
           // Dégradé sombre : texte et icônes blancs lisibles sur toute image.
           const DecoratedBox(

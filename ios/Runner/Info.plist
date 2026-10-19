@@ -72,6 +72,8 @@
 	<string>Votre position sert uniquement à calculer l'itinéraire jusqu'au lieu d'un événement, pendant que l'app est ouverte.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>La caméra sert uniquement à scanner les billets des participants.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>CampusConnect accède à vos photos uniquement pour choisir l'affiche d'un événement ou la photo d'une annonce.</string>
 	<key>NSContactsUsageDescription</key>
 	<string>Le calendrier peut proposer vos contacts et lieux enregistrés quand vous complétez le lieu d'un événement.</string>
 </dict>

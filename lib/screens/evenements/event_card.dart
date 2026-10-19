@@ -54,7 +54,7 @@ class EventCard extends StatelessWidget {
                       child: Row(
                         children: [
                           if (event.posterUrl != null) ...[
-                            _PosterThumbnail(url: event.posterUrl!),
+                            _PosterThumbnail(url: event.posterUrl!, title: event.title, color: color),
                             const SizedBox(width: 12),
                           ],
                           Expanded(
@@ -121,23 +121,33 @@ class EventCard extends StatelessWidget {
 /// Vignette de l'affiche (mise en cache) ; une icône si l'image ne charge pas.
 class _PosterThumbnail extends StatelessWidget {
   final String url;
-  const _PosterThumbnail({required this.url});
+  final String title;
+  final Color color; // couleur de la catégorie, pour le repli
+  const _PosterThumbnail({required this.url, required this.title, required this.color});
 
   @override
   Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(10),
-      child: CachedNetworkImage(
-        imageUrl: url,
-        width: 56,
-        height: 56,
-        fit: BoxFit.cover,
-        placeholder: (_, __) => Container(width: 56, height: 56, color: AppColors.border),
-        errorWidget: (_, __, ___) => Container(
+    // Chargement ou erreur (hors-ligne, lien cassé) : petit dégradé de la
+    // catégorie, jamais de message d'erreur.
+    final fallback = Container(
+      width: 56,
+      height: 56,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(colors: [color, color.withValues(alpha: 0.6)]),
+      ),
+    );
+    return Semantics(
+      image: true,
+      label: "Affiche de l'événement $title",
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: CachedNetworkImage(
+          imageUrl: url,
           width: 56,
           height: 56,
-          color: AppColors.border,
-          child: const Icon(Icons.image_not_supported_outlined, size: 20, color: AppColors.textSecondary),
+          fit: BoxFit.cover,
+          placeholder: (_, __) => fallback,
+          errorWidget: (_, __, ___) => fallback,
         ),
       ),
     );

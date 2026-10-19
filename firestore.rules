@@ -66,6 +66,8 @@ service cloud.firestore {
     // seulement par l'organisateur ou un admin, une personne inscrite à la
     // fois, dans une écriture à part ; à la désinscription, chacun peut se
     // retirer lui-même de ces deux listes.
+    // v5 : affiche (posterUrl) absente/null, ou une URL https de NOTRE cloud
+    // Cloudinary (res.cloudinary.com/jmwc9h1o/), 500 caractères au plus.
     match /events/{eventId} {
       // Champs modifiés par la requête (ajoutés, supprimés ou changés).
       function changedKeys() {
@@ -82,6 +84,7 @@ service cloud.firestore {
         let end = d.get('endDate', d.startDate + duration.value(2, 'h'));
         let cap = d.get('capacity', null);
         let price = d.get('price', null);
+        let poster = d.get('posterUrl', null);
         let category = d.get('category', '');
         let status = d.get('status', 'active');
         let reason = d.get('cancelReason', '');
@@ -91,6 +94,8 @@ service cloud.firestore {
           (category in ['Conférence', 'Carrière', 'Sport', 'Culture', 'Vie associative'] ||
             (previousCategory != null && category == previousCategory)) &&
           (price == null || (price is number && price >= 0 && price <= 1000)) &&
+          (poster == null || (poster is string && poster.size() <= 500 &&
+            poster.matches('https://res[.]cloudinary[.]com/jmwc9h1o/.+'))) &&
           d.startDate is timestamp && end is timestamp &&
           end > d.startDate && end <= d.startDate + duration.value(72, 'h') &&
           (cap == null || (cap is int && cap >= 1 && cap <= 5000)) &&

@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../models/event_model.dart';
@@ -30,65 +31,108 @@ class EventHeroCard extends StatelessWidget {
       child: Material(
         borderRadius: BorderRadius.circular(20),
         clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: () => Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => EventDetailScreen(event: event)),
-          ),
-          child: Ink(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [color, color.withValues(alpha: 0.72)],
+        child: Stack(
+          children: [
+            // Fond : l'affiche si elle existe (chargement / erreur / hors-ligne :
+            // le dégradé de la catégorie), sinon le dégradé.
+            Positioned.fill(child: _background(color)),
+            // Voile sombre sur l'affiche : le texte blanc reste lisible.
+            if (event.posterUrl != null)
+              const Positioned.fill(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [Color(0x99000000), Color(0x66000000), Color(0xB3000000)],
+                    ),
+                  ),
+                ),
+              ),
+            Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => EventDetailScreen(event: event)),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(18),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          // Le libellé rétrécit (« … ») ; la pastille garde sa taille.
+                          Expanded(
+                            child: Text(
+                              'PROCHAIN ÉVÉNEMENT · ${event.category.toUpperCase()}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: 1.1),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.22),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(countdown,
+                                maxLines: 1,
+                                style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700)),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Text(event.title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleLarge
+                              ?.copyWith(color: Colors.white, fontWeight: FontWeight.w700)),
+                      const SizedBox(height: 10),
+                      _HeroLine(icon: Icons.calendar_today_outlined, text: date[0].toUpperCase() + date.substring(1)),
+                      const SizedBox(height: 4),
+                      _HeroLine(icon: Icons.place_outlined, text: event.location),
+                      const SizedBox(height: 4),
+                      _HeroLine(icon: Icons.sell_outlined, text: EventRules.priceLabel(event)),
+                    ],
+                  ),
+                ),
               ),
             ),
-            padding: const EdgeInsets.all(18),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    // Le libellé rétrécit (« … ») ; la pastille garde sa taille.
-                    Expanded(
-                      child: Text(
-                        'PROCHAIN ÉVÉNEMENT · ${event.category.toUpperCase()}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                            color: Colors.white70, fontSize: 10.5, fontWeight: FontWeight.w700, letterSpacing: 1.1),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.22),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(countdown,
-                          maxLines: 1,
-                          style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700)),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Text(event.title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context)
-                        .textTheme
-                        .titleLarge
-                        ?.copyWith(color: Colors.white, fontWeight: FontWeight.w700)),
-                const SizedBox(height: 10),
-                _HeroLine(icon: Icons.calendar_today_outlined, text: date[0].toUpperCase() + date.substring(1)),
-                const SizedBox(height: 4),
-                _HeroLine(icon: Icons.place_outlined, text: event.location),
-                const SizedBox(height: 4),
-                _HeroLine(icon: Icons.sell_outlined, text: EventRules.priceLabel(event)),
-              ],
-            ),
-          ),
+          ],
         ),
+      ),
+    );
+  }
+
+  Widget _background(Color color) {
+    final gradient = DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [color, color.withValues(alpha: 0.72)],
+        ),
+      ),
+    );
+    final url = event.posterUrl;
+    if (url == null) return gradient;
+    return Semantics(
+      image: true,
+      label: "Affiche de l'événement ${event.title}",
+      child: CachedNetworkImage(
+        imageUrl: url,
+        fit: BoxFit.cover,
+        placeholder: (_, __) => gradient,
+        errorWidget: (_, __, ___) => gradient,
       ),
     );
   }

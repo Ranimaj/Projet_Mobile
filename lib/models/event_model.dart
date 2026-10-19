@@ -103,7 +103,7 @@ class EventModel {
       latitude: (map['latitude'] as num?)?.toDouble(),
       longitude: (map['longitude'] as num?)?.toDouble(),
       registeredUserIds: List<String>.from(map['registeredUserIds'] ?? []),
-      posterUrl: map['posterUrl'],
+      posterUrl: map['posterUrl']?.toString(),
       capacity: (map['capacity'] as num?)?.toInt(),
       price: (map['price'] as num?)?.toDouble(),
       status: map['status'] == EventStatus.cancelled.name ? EventStatus.cancelled : EventStatus.active,
@@ -159,6 +159,7 @@ class EventModel {
     'title', 'description', 'category', 'startDate', 'endDate', 'location', 'capacity',
     'latitude', 'longitude', // recalculées quand le lieu change (géocodage)
     'price',
+    'posterUrl', // affiche Cloudinary (changée ou retirée dans le formulaire)
   ];
 
   /// Seulement les champs modifiables qui diffèrent de [original] : c'est ce
@@ -175,7 +176,8 @@ class EventModel {
   /// Copie avec certains champs changés. Pour remettre la capacité à
   /// « illimitée » (null), passer [clearCapacity] à true ; pour effacer la
   /// position (lieu changé mais introuvable), passer [clearCoordinates] ;
-  /// pour repasser en gratuit (prix null), passer [clearPrice].
+  /// pour repasser en gratuit (prix null), passer [clearPrice] ; pour retirer
+  /// l'affiche, passer [clearPoster].
   EventModel copyWith({
     String? id,
     String? organizerName,
@@ -190,6 +192,7 @@ class EventModel {
     bool clearCoordinates = false,
     List<String>? registeredUserIds,
     String? posterUrl,
+    bool clearPoster = false,
     int? capacity,
     bool clearCapacity = false,
     double? price,
@@ -216,7 +219,7 @@ class EventModel {
       latitude: clearCoordinates ? null : (latitude ?? this.latitude),
       longitude: clearCoordinates ? null : (longitude ?? this.longitude),
       registeredUserIds: registeredUserIds ?? this.registeredUserIds,
-      posterUrl: posterUrl ?? this.posterUrl,
+      posterUrl: clearPoster ? null : (posterUrl ?? this.posterUrl),
       capacity: clearCapacity ? null : (capacity ?? this.capacity),
       price: clearPrice ? null : (price ?? this.price),
       status: status ?? this.status,
