@@ -68,6 +68,8 @@
 	</array>
 	<key>NSCalendarsUsageDescription</key>
 	<string>CampusConnect ajoute les événements du campus auxquels vous vous inscrivez à votre calendrier.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Votre position sert uniquement à calculer l'itinéraire jusqu'au lieu d'un événement, pendant que l'app est ouverte.</string>
 	<key>NSContactsUsageDescription</key>
 	<string>Le calendrier peut proposer vos contacts et lieux enregistrés quand vous complétez le lieu d'un événement.</string>
 </dict>

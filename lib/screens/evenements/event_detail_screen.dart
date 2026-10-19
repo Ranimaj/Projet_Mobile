@@ -138,6 +138,12 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                   _QuickActions(
                     onCalendar: () => _addToCalendar(event),
                     calendarBlockedReason: EventCalendarSync.blockedReason(event),
+                    onItinerary: () => Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) => EventMapScreen(event: event, showItinerary: true))),
+                    // Sans coordonnées, pas de destination : on explique pourquoi.
+                    itineraryBlockedReason: event.latitude == null || event.longitude == null
+                        ? 'Lieu non localisé : itinéraire indisponible.'
+                        : null,
                   ),
                   const SizedBox(height: 16),
                   _InfoCard(
@@ -545,12 +551,19 @@ class _Header extends StatelessWidget {
   }
 }
 
-/// Rangée d'actions rapides : Calendrier (actif, sauf événement annulé),
-/// Partager et Itinéraire (bientôt disponibles, étapes suivantes).
+/// Rangée d'actions rapides : Calendrier (sauf événement annulé),
+/// Itinéraire (si le lieu est localisé) et Partager (bientôt disponible).
 class _QuickActions extends StatelessWidget {
   final VoidCallback onCalendar;
   final String? calendarBlockedReason; // non null = calendrier désactivé
-  const _QuickActions({required this.onCalendar, required this.calendarBlockedReason});
+  final VoidCallback onItinerary;
+  final String? itineraryBlockedReason; // non null = itinéraire désactivé
+  const _QuickActions({
+    required this.onCalendar,
+    required this.calendarBlockedReason,
+    required this.onItinerary,
+    required this.itineraryBlockedReason,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -568,7 +581,15 @@ class _QuickActions extends StatelessWidget {
         const SizedBox(width: 10),
         const Expanded(child: _QuickAction(icon: Icons.share_outlined, label: 'Partager', onTap: null)),
         const SizedBox(width: 10),
-        const Expanded(child: _QuickAction(icon: Icons.directions_outlined, label: 'Itinéraire', onTap: null)),
+        Expanded(
+          child: _QuickAction(
+            icon: Icons.directions_outlined,
+            label: 'Itinéraire',
+            semanticLabel: "Itinéraire jusqu'au lieu",
+            onTap: itineraryBlockedReason == null ? onItinerary : null,
+            disabledMessage: itineraryBlockedReason ?? 'Bientôt',
+          ),
+        ),
       ],
     );
   }
