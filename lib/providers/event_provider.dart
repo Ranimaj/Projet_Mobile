@@ -96,7 +96,10 @@ class EventProvider extends ChangeNotifier {
   }
 
   Future<String> createEvent(EventModel draft) async {
-    final id = await _repo.create(draft, isOnline: _isOnline);
+    // Horloge du téléphone (pas de serverTimestamp : la file Hive ne peut
+    // pas stocker un FieldValue).
+    final now = DateTime.now();
+    final id = await _repo.create(draft.copyWith(createdAt: now, updatedAt: now), isOnline: _isOnline);
     await load();
     return id;
   }
