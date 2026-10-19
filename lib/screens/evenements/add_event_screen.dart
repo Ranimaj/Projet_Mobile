@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
+import '../../core/theme/app_colors.dart';
 import '../../models/event_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/event_provider.dart';
@@ -11,7 +12,7 @@ import '../../widgets/primary_button.dart';
 import 'event_categories.dart';
 import 'event_rules.dart';
 import 'event_validators.dart';
-import 'nominatim_service.dart';
+import 'photon_service.dart';
 
 /// BF8.3 / BF8.4 — un seul formulaire pour créer OU modifier un événement.
 /// Création si [existing] est null, modification sinon.
@@ -70,6 +71,27 @@ class _AddEventScreenState extends State<AddEventScreen> {
   bool _submitting = false;
   bool _saved = false;
 
+  // --- Lieu : suggestions Photon pendant la saisie (BF9.1) ---
+  /// Une instance PAR formulaire : au plus 1 requête toutes les 500 ms.
+  final _photon = PhotonService();
+  Timer? _placeDebounce;
+
+  /// Compteur de requêtes : une réponse qui arrive après une recherche plus
+  /// récente est ignorée (on ne peut pas annuler une requête http en cours).
+  int _placeRequestId = 0;
+  List<PlaceSuggestion> _placeSuggestions = const [];
+  bool _placeLoading = false;
+  bool _placeNoResult = false;
+
+  /// Coordonnées de la suggestion choisie (null = lieu non localisé) et le
+  /// texte exact au moment du choix : si le texte change, elles sont effacées.
+  double? _placeLat;
+  double? _placeLng;
+  String? _placeLabel;
+  double _lastKeyboardInset = 0;
+
+  bool get _placeLocated => _placeLat != null && _placeLng != null;
+
   bool get _isEdit => widget.existing != null;
 
   @override
@@ -82,10 +104,21 @@ class _AddEventScreenState extends State<AddEventScreen> {
     _watchFocus(_locationFocus, _Field.location);
     _watchFocus(_capacityFocus, _Field.capacity);
     _watchFocus(_priceFocus, _Field.price);
+    // Perte du focus du champ « Lieu » : on ferme la liste de suggestions.
+    _locationFocus.addListener(() {
+      if (!_locationFocus.hasFocus) _closePlaceList();
+    });
     if (e != null) {
       _titleCtrl.text = e.title;
       _descCtrl.text = e.description;
       _locationCtrl.text = e.location;
+      // Ancien événement déjà localisé : tant que le texte ne change pas, on
+      // garde ses coordonnées.
+      if (e.latitude != null && e.longitude != null) {
+        _placeLat = e.latitude;
+        _placeLng = e.longitude;
+        _placeLabel = e.location;
+      }
       _capacityCtrl.text = e.capacity?.toString() ?? '';
       _priceCtrl.text = _priceText(e.price);
       // Une ancienne catégorie hors liste oblige à en choisir une valide.
@@ -103,6 +136,7 @@ class _AddEventScreenState extends State<AddEventScreen> {
 
   @override
   void dispose() {
+    _placeDebounce?.cancel();
     for (final c in [_titleCtrl, _descCtrl, _locationCtrl, _capacityCtrl, _priceCtrl]) {
       c.dispose();
     }
@@ -212,21 +246,77 @@ class _AddEventScreenState extends State<AddEventScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
-  /// Position du lieu (BF9.1) : géocodée seulement si le lieu a changé (et
-  /// toujours à la création), et seulement en ligne. Le géocodage ne bloque
-  /// jamais l'enregistrement plus que son délai (10 s) ; en cas d'échec on
-  /// enregistre sans coordonnées. Hors-ligne : pas de coordonnées et rien en
-  /// file d'attente (le géocodage n'est pas rejoué plus tard).
-  Future<({double? lat, double? lng, String? note, bool changed})> _locate(String location, bool isOnline) async {
-    final existing = widget.existing;
-    if (!EventRules.locationChanged(location, existing?.location)) {
-      return (lat: existing!.latitude, lng: existing.longitude, note: null, changed: false);
+  // ------------------------------------------------- Suggestions de lieu
+
+  /// Ferme la liste et rend périmée toute réponse encore en route.
+  void _closePlaceList() {
+    _placeDebounce?.cancel();
+    _placeRequestId++;
+    if (!mounted || (_placeSuggestions.isEmpty && !_placeLoading && !_placeNoResult)) return;
+    setState(() {
+      _placeSuggestions = const [];
+      _placeLoading = false;
+      _placeNoResult = false;
+    });
+  }
+
+  /// Saisie dans « Lieu » : on attend 3 caractères et une pause de 500 ms
+  /// (debounce) avant de chercher. Modifier le texte après avoir choisi une
+  /// suggestion efface sa position (elle ne correspondrait plus).
+  void _onLocationChanged(String text) {
+    _edited.add(_Field.location);
+    setState(() {
+      if (_placeLocated && EventRules.locationChanged(text, _placeLabel)) {
+        _placeLat = null;
+        _placeLng = null;
+        _placeLabel = null;
+      }
+    });
+    _placeDebounce?.cancel();
+    final query = text.trim();
+    if (query.length < 3) {
+      _closePlaceList();
+      return;
     }
-    if (!isOnline) {
-      return (lat: null, lng: null, note: 'Hors ligne : enregistré sans position sur la carte.', changed: true);
-    }
-    final r = EventRules.coordinatesFrom(await NominatimService.instance.geocode(location));
-    return (lat: r.lat, lng: r.lng, note: r.note, changed: true);
+    _placeDebounce = Timer(const Duration(milliseconds: 500), () => _searchPlaces(query));
+  }
+
+  Future<void> _searchPlaces(String query) async {
+    // Hors-ligne : pas de liste, le texte sera enregistré tel quel.
+    if (!mounted || !context.read<EventProvider>().isOnline) return;
+    final id = ++_placeRequestId;
+    setState(() {
+      _placeLoading = true;
+      _placeNoResult = false;
+    });
+    final response = await _photon.search(query);
+    if (!mounted || id != _placeRequestId) return; // réponse périmée : ignorée
+    setState(() {
+      _placeLoading = false;
+      switch (response) {
+        case PhotonSuccess(:final suggestions):
+          _placeSuggestions = suggestions;
+          _placeNoResult = suggestions.isEmpty;
+        case PhotonFailure():
+          // Erreur réseau / serveur : pas de liste, sans message d'erreur.
+          _placeSuggestions = const [];
+          _placeNoResult = false;
+      }
+    });
+  }
+
+  /// Suggestion choisie : on remplit le champ et on garde sa position.
+  void _selectPlace(PlaceSuggestion s) {
+    final text = s.label.length <= EventValidators.locationMax ? s.label : s.name;
+    _locationCtrl.value = TextEditingValue(text: text, selection: TextSelection.collapsed(offset: text.length));
+    _edited.add(_Field.location);
+    setState(() {
+      _placeLat = s.latitude;
+      _placeLng = s.longitude;
+      _placeLabel = text;
+    });
+    _closePlaceList();
+    _locationFocus.unfocus();
   }
 
   Future<void> _submit() async {
@@ -266,14 +356,19 @@ class _AddEventScreenState extends State<AddEventScreen> {
       if (confirmed != true || !mounted) return;
     }
 
+    // Position : seulement si une suggestion a été choisie (et pas modifiée
+    // ensuite), coordonnées vérifiées. Sinon le texte libre est enregistré
+    // sans coordonnées : on ne bloque jamais l'enregistrement.
+    final located = _placeLocated && EventValidators.coordinates(_placeLat, _placeLng) == null;
+    final lat = located ? _placeLat : null;
+    final lng = located ? _placeLng : null;
+    final placeNote = located ? null : "Lieu non localisé : pas de carte ni d'itinéraire.";
+
     setState(() => _submitting = true);
     try {
       String message;
-      String? geoNote;
       if (_isEdit) {
         final original = widget.existing!;
-        final geo = await _locate(location, provider.isOnline);
-        geoNote = geo.note;
         final edited = original.copyWith(
           title: title,
           description: EventValidators.normalize(_descCtrl.text),
@@ -285,10 +380,10 @@ class _AddEventScreenState extends State<AddEventScreen> {
           clearCapacity: _capacityValue == null,
           price: _priceValue,
           clearPrice: _priceValue == null,
-          latitude: geo.lat,
-          longitude: geo.lng,
-          // Lieu changé mais introuvable : l'ancienne position serait fausse.
-          clearCoordinates: geo.changed && geo.lat == null,
+          latitude: lat,
+          longitude: lng,
+          // Texte changé sans nouvelle suggestion : l'ancienne position serait fausse.
+          clearCoordinates: !located,
         );
         final sentOnline = await provider.updateEvent(original, edited);
         message = sentOnline
@@ -303,9 +398,6 @@ class _AddEventScreenState extends State<AddEventScreen> {
         final limit = EventValidators.dailyLimit(organizerId: user.id, existing: others, now: now);
         if (limit != null) throw EventActionException(limit);
 
-        // Géocodage après les contrôles : pas d'appel réseau pour un doublon.
-        final geo = await _locate(location, provider.isOnline);
-        geoNote = geo.note;
         final draft = EventModel(
           id: _eventId,
           organizerId: user.id,
@@ -316,8 +408,8 @@ class _AddEventScreenState extends State<AddEventScreen> {
           startDate: _start,
           endDate: _end,
           location: location,
-          latitude: geo.lat,
-          longitude: geo.lng,
+          latitude: lat,
+          longitude: lng,
           capacity: _capacityValue,
           price: _priceValue,
         );
@@ -327,7 +419,7 @@ class _AddEventScreenState extends State<AddEventScreen> {
       }
       if (!mounted) return;
       _saved = true;
-      _showMessage(geoNote == null ? message : '$message $geoNote');
+      _showMessage(placeNote == null ? message : '$message $placeNote');
       Navigator.pop(context);
     } on EventActionException catch (e) {
       if (mounted) _showMessage(e.message);
@@ -348,6 +440,13 @@ class _AddEventScreenState extends State<AddEventScreen> {
   @override
   Widget build(BuildContext context) {
     final registeredCount = widget.existing?.registeredUserIds.length ?? 0;
+
+    // Clavier fermé (bouton retour Android) : on ferme aussi la liste.
+    final keyboardInset = MediaQuery.viewInsetsOf(context).bottom;
+    if (_lastKeyboardInset > 0 && keyboardInset == 0 && _placeSuggestions.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _closePlaceList());
+    }
+    _lastKeyboardInset = keyboardInset;
 
     return PopScope(
       canPop: false, // on décide nous-mêmes dans _confirmLeave
@@ -396,14 +495,48 @@ class _AddEventScreenState extends State<AddEventScreen> {
                   controller: _locationCtrl,
                   focusNode: _locationFocus,
                   autovalidateMode: _modeFor(_Field.location),
-                  onChanged: (_) => _edited.add(_Field.location),
+                  onChanged: _onLocationChanged,
                   maxLength: EventValidators.locationMax,
                   textInputAction: TextInputAction.next,
                   onFieldSubmitted: (_) => _capacityFocus.requestFocus(),
-                  decoration: const InputDecoration(
-                      labelText: 'Lieu', prefixIcon: Icon(Icons.place_outlined), errorMaxLines: 2),
+                  decoration: InputDecoration(
+                    labelText: 'Lieu',
+                    prefixIcon: const Icon(Icons.place_outlined),
+                    // Petit indicateur pendant la recherche, coche verte une fois localisé.
+                    suffixIcon: _placeLoading
+                        ? const Padding(
+                            padding: EdgeInsets.all(14),
+                            child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+                          )
+                        : (_placeLocated
+                            ? const Tooltip(
+                                message: 'Lieu localisé',
+                                child: Icon(Icons.check_circle, color: AppColors.success),
+                              )
+                            : null),
+                    helperText: _placeLocated
+                        ? 'Lieu localisé'
+                        : (_locationCtrl.text.trim().isEmpty
+                            ? null
+                            : "Choisissez une suggestion pour activer la carte et l'itinéraire"),
+                    helperStyle: _placeLocated
+                        ? const TextStyle(color: AppColors.success, fontWeight: FontWeight.w600)
+                        : null,
+                    helperMaxLines: 2,
+                    errorMaxLines: 2,
+                  ),
                   validator: EventValidators.location,
                 ),
+                // Toucher une suggestion ne doit pas faire perdre le focus au
+                // champ avant le choix : la liste fait partie de sa zone.
+                if (_placeSuggestions.isNotEmpty || _placeNoResult)
+                  TextFieldTapRegion(
+                    child: _PlaceSuggestionList(
+                      suggestions: _placeSuggestions,
+                      noResult: _placeNoResult,
+                      onSelected: _selectPlace,
+                    ),
+                  ),
                 const SizedBox(height: 8),
                 TextFormField(
                   controller: _capacityCtrl,
@@ -499,6 +632,83 @@ class _AddEventScreenState extends State<AddEventScreen> {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Liste des suggestions de lieu sous le champ : épingle, nom en gras,
+/// ligne grise (rue / quartier, ville, pays). Ou « Aucun lieu trouvé ».
+class _PlaceSuggestionList extends StatelessWidget {
+  final List<PlaceSuggestion> suggestions;
+  final bool noResult;
+  final ValueChanged<PlaceSuggestion> onSelected;
+  const _PlaceSuggestionList({required this.suggestions, required this.noResult, required this.onSelected});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Material(
+        color: Colors.white,
+        elevation: 3,
+        borderRadius: BorderRadius.circular(12),
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (noResult)
+              const Padding(
+                padding: EdgeInsets.all(14),
+                child: Text('Aucun lieu trouvé : le texte sera enregistré tel quel',
+                    style: TextStyle(color: AppColors.textSecondary)),
+              ),
+            for (final s in suggestions)
+              Semantics(
+                button: true,
+                label: s.secondary.isEmpty ? s.name : '${s.name}, ${s.secondary}',
+                excludeSemantics: true,
+                child: InkWell(
+                  onTap: () => onSelected(s),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(minHeight: 52),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.place_outlined, size: 20, color: AppColors.primary),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(s.name,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(fontWeight: FontWeight.w700)),
+                                if (s.secondary.isNotEmpty)
+                                  Text(s.secondary,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(fontSize: 12.5, color: AppColors.textSecondary)),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            // Données OpenStreetMap via Photon : attribution demandée.
+            const Padding(
+              padding: EdgeInsets.fromLTRB(14, 2, 14, 8),
+              child: Text('Suggestions : Photon · © OpenStreetMap contributors',
+                  style: TextStyle(fontSize: 10.5, color: AppColors.textSecondary)),
+            ),
+          ],
         ),
       ),
     );

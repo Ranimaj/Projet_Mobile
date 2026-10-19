@@ -22,8 +22,6 @@ class EventValidators {
   static const int maxEventsPerDay = 5;
   static const double priceMax = 1000; // TND
 
-  static const String lieuIntrouvable = 'Lieu introuvable sur la carte';
-
   /// Supprime les espaces au début et à la fin, et remplace les espaces
   /// répétés à l'intérieur par un seul. Les retours à la ligne sont gardés
   /// (utile pour la description).

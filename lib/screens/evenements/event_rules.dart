@@ -1,6 +1,5 @@
 import '../../models/event_model.dart';
 import 'event_validators.dart';
-import 'nominatim_service.dart';
 
 /// Filtre principal de la liste des événements.
 enum EventFilter { upcoming, past, myRegistrations, myEvents }
@@ -114,25 +113,6 @@ class EventRules {
   /// En modification, on ne regéocode que si le texte normalisé a changé.
   static bool locationChanged(String newLocation, String? oldLocation) =>
       oldLocation == null || EventValidators.normalize(newLocation) != EventValidators.normalize(oldLocation);
-
-  /// Coordonnées à enregistrer d'après la réponse du géocodage, et la petite
-  /// note à afficher si on n'en a pas. Les coordonnées passent par
-  /// EventValidators.coordinates (latitude -90..90, longitude -180..180).
-  static ({double? lat, double? lng, String? note}) coordinatesFrom(GeocodeResponse response) {
-    switch (response) {
-      case GeocodeSuccess(:final result):
-        if (EventValidators.coordinates(result.lat, result.lng) == null) {
-          return (lat: result.lat, lng: result.lng, note: null);
-        }
-        return (lat: null, lng: null, note: EventValidators.lieuIntrouvable);
-      case GeocodeFailure(:final error, :final message):
-        // Introuvable : la note demandée. Panne réseau : on dit pourquoi.
-        final note = error == GeocodeError.notFound || error == GeocodeError.emptyQuery
-            ? EventValidators.lieuIntrouvable
-            : '$message Événement enregistré sans position.';
-        return (lat: null, lng: null, note: note);
-    }
-  }
 
   /// Taux de remplissage entre 0 et 1, ou null si les places sont illimitées.
   static double? capacityRatio(EventModel event) {

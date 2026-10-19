@@ -31,7 +31,7 @@ class RouteFailure extends RouteResponse {
 }
 
 /// Calcul d'itinéraire gratuit avec l'API REST publique d'OSRM (Open Source
-/// Routing Machine), sans clé, sur le même modèle que NominatimService.
+/// Routing Machine), sans clé, sur le même modèle que PhotonService et OpenMeteoService.
 ///
 /// HONNÊTETÉ : router.project-osrm.org est un serveur de DÉMONSTRATION,
 /// prévu pour un usage léger (au plus 1 requête par seconde, sans garantie
