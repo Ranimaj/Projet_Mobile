@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../models/event_model.dart';
 import 'event_detail_screen.dart';
+import 'itinerary_rules.dart';
 import 'event_rules.dart';
 import 'event_style.dart';
 
@@ -15,7 +16,10 @@ import 'event_style.dart';
 class EventHeroCard extends StatelessWidget {
   final EventModel event;
   final DateTime now;
-  const EventHeroCard({super.key, required this.event, required this.now});
+
+  /// Distance (m) affichée seulement quand le tri « Près de moi » est actif.
+  final double? distanceMeters;
+  const EventHeroCard({super.key, required this.event, required this.now, this.distanceMeters});
 
   @override
   Widget build(BuildContext context) {
@@ -26,7 +30,8 @@ class EventHeroCard extends StatelessWidget {
     return Semantics(
       button: true,
       label: 'Prochain événement : ${event.title}, $date, ${event.location}, '
-          '${EventRules.priceLabel(event)}, $countdown',
+          '${EventRules.priceLabel(event)}, $countdown'
+          '${distanceMeters == null ? '' : ', à ${ItineraryRules.formatDistance(distanceMeters!)}'}',
       excludeSemantics: true,
       child: Material(
         borderRadius: BorderRadius.circular(20),
@@ -102,6 +107,10 @@ class EventHeroCard extends StatelessWidget {
                       _HeroLine(icon: Icons.place_outlined, text: event.location),
                       const SizedBox(height: 4),
                       _HeroLine(icon: Icons.sell_outlined, text: EventRules.priceLabel(event)),
+                      if (distanceMeters != null) ...[
+                        const SizedBox(height: 4),
+                        _HeroLine(icon: Icons.near_me_outlined, text: ItineraryRules.formatDistance(distanceMeters!)),
+                      ],
                     ],
                   ),
                 ),

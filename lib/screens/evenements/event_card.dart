@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../../core/theme/app_colors.dart';
 import '../../models/event_model.dart';
 import 'event_detail_screen.dart';
+import 'itinerary_rules.dart';
 import 'event_style.dart';
 
 /// Carte d'événement façon maquette, partagée par la liste et le calendrier :
@@ -13,7 +14,16 @@ class EventCard extends StatelessWidget {
   final EventModel event;
   final DateTime now;
   final bool isRegistered;
-  const EventCard({super.key, required this.event, required this.now, required this.isRegistered});
+
+  /// Distance (m) affichée seulement quand le tri « Près de moi » est actif.
+  final double? distanceMeters;
+  const EventCard({
+    super.key,
+    required this.event,
+    required this.now,
+    required this.isRegistered,
+    this.distanceMeters,
+  });
 
   static const double radius = 16;
 
@@ -29,7 +39,8 @@ class EventCard extends StatelessWidget {
 
     return Semantics(
       button: true,
-      label: '${event.category}, ${event.title}, $when',
+      label: '${event.category}, ${event.title}, $when'
+          '${distanceMeters == null ? '' : ', à ${ItineraryRules.formatDistance(distanceMeters!)}'}',
       child: Material(
         color: Colors.white,
         borderRadius: BorderRadius.circular(radius),
@@ -86,6 +97,20 @@ class EventCard extends StatelessWidget {
                                         style: Theme.of(context).textTheme.bodyMedium),
                                   ),
                                 ]),
+                                if (distanceMeters != null) ...[
+                                  const SizedBox(height: 4),
+                                  Row(children: [
+                                    const Icon(Icons.near_me_outlined, size: 14, color: AppColors.primary),
+                                    const SizedBox(width: 4),
+                                    Flexible(
+                                      child: Text(ItineraryRules.formatDistance(distanceMeters!),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                              fontWeight: FontWeight.w600, color: AppColors.primary)),
+                                    ),
+                                  ]),
+                                ],
                                 if (badges.isNotEmpty) ...[
                                   const SizedBox(height: 8),
                                   Wrap(spacing: 6, runSpacing: 4, children: badges),

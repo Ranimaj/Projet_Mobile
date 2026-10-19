@@ -14,6 +14,7 @@ import 'event_calendar_screen.dart';
 import 'event_card.dart';
 import 'event_categories.dart';
 import 'event_hero_card.dart';
+import 'location_service.dart';
 import 'event_rules.dart';
 import 'event_style.dart';
 
@@ -121,7 +122,8 @@ class _EvenementsListScreenState extends State<EvenementsListScreen> with Ticker
       ..setFilter(EventFilter.upcoming)
       ..setCategoryFilter(null)
       ..setSelectedDay(null)
-      ..setPriceFilter(PriceFilter.all);
+      ..setPriceFilter(PriceFilter.all)
+      ..setSortByDate();
     _tabCtrl?.animateTo(0);
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollStripToFocusDay());
   }
@@ -420,7 +422,7 @@ class _EvenementsListScreenState extends State<EvenementsListScreen> with Ticker
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 96),
         children: [
           if (hero != null) ...[
-            EventHeroCard(event: hero, now: now),
+            EventHeroCard(event: hero, now: now, distanceMeters: provider.distanceTo(hero)),
             if (events.isNotEmpty) ...[
               const SizedBox(height: 20),
               Text('Ensuite', style: Theme.of(context).textTheme.titleMedium),
@@ -428,7 +430,12 @@ class _EvenementsListScreenState extends State<EvenementsListScreen> with Ticker
             ],
           ],
           for (final e in events) ...[
-            EventCard(event: e, now: now, isRegistered: userId != null && e.isUserRegistered(userId)),
+            EventCard(
+              event: e,
+              now: now,
+              isRegistered: userId != null && e.isUserRegistered(userId),
+              distanceMeters: provider.distanceTo(e),
+            ),
             const SizedBox(height: 12),
           ],
         ],
@@ -460,6 +467,29 @@ class _EvenementsListScreenState extends State<EvenementsListScreen> with Ticker
 /// tout de suite.
 class _CategorySheet extends StatelessWidget {
   const _CategorySheet();
+
+  /// « Près de moi » : position une fois (ou celle de moins de 5 min). Refus
+  /// ou indisponible : on ferme la feuille, on explique (avec l'accès aux
+  /// réglages si utile) et le tri revient à la date.
+  Future<void> _chooseNearMe(BuildContext context, EventProvider provider) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+    final failure = await provider.enableNearMe();
+    if (failure == null) return;
+    navigator.pop(); // la SnackBar s'affiche sur la liste, pas derrière la feuille
+    final SnackBarAction? action = switch (failure.error) {
+      PositionError.deniedForever =>
+        const SnackBarAction(label: 'Ouvrir les réglages', onPressed: LocationService.openAppSettings),
+      PositionError.serviceOff =>
+        const SnackBarAction(label: 'Ouvrir les réglages', onPressed: LocationService.openLocationSettings),
+      _ => null,
+    };
+    messenger.showSnackBar(SnackBar(
+      content: Text('${failure.message} Tri par date conservé.'),
+      action: action,
+      duration: const Duration(seconds: 6),
+    ));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -512,6 +542,33 @@ class _CategorySheet extends StatelessWidget {
                   ),
               ],
             ),
+            const SizedBox(height: 18),
+            Text('Trier par', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 4),
+            Text("« Près de moi » trie l'onglet À venir par distance.",
+                style: Theme.of(context).textTheme.bodySmall),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                EventChip(
+                  label: 'Date',
+                  selected: provider.sort == EventSort.date,
+                  onTap: provider.setSortByDate,
+                ),
+                EventChip(
+                  label: 'Près de moi',
+                  selected: provider.sort == EventSort.nearMe,
+                  onTap: provider.locating ? () {} : () => _chooseNearMe(context, provider),
+                ),
+                if (provider.locating) ...[
+                  const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+                  const Text('Localisation…'),
+                ],
+              ],
+            ),
             if (provider.selectedDay != null) ...[
               const SizedBox(height: 14),
               Text('Jour choisi : ${DateFormat('EEEE d MMMM', 'fr_FR').format(provider.selectedDay!)}',
@@ -530,7 +587,8 @@ class _CategorySheet extends StatelessWidget {
                   onPressed: () => provider
                     ..setCategoryFilter(null)
                     ..setSelectedDay(null)
-                    ..setPriceFilter(PriceFilter.all),
+                    ..setPriceFilter(PriceFilter.all)
+                    ..setSortByDate(),
                   child: const Text('Réinitialiser'),
                 ),
                 FilledButton(

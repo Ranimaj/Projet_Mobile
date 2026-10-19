@@ -7,6 +7,7 @@ import '../core/utils/offline_queue_service.dart';
 import '../models/event_model.dart';
 import '../screens/evenements/event_rules.dart';
 import '../screens/evenements/event_validators.dart';
+import '../screens/evenements/location_service.dart';
 
 /// Erreur d'action sur un événement, avec un message prêt à afficher.
 class EventActionException implements Exception {
@@ -94,16 +95,73 @@ class EventProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  // --------------------------------------------------------- Près de moi
+
+  /// Tri choisi. « Près de moi » ne s'applique qu'à l'onglet « À venir ».
+  EventSort sort = EventSort.date;
+
+  /// Position de l'utilisateur, lue UNE fois au choix du tri et gardée
+  /// 5 minutes (pas à chaque reconstruction de l'écran).
+  /// VIE PRIVÉE : cette position reste sur le téléphone ; elle sert
+  /// seulement à calculer les distances localement, rien n'est envoyé.
+  ({double lat, double lng})? _origin;
+  DateTime? _originAt;
+  bool locating = false;
+  static const _originMaxAge = Duration(minutes: 5);
+
+  /// Tri « Près de moi » réellement actif (onglet À venir + position connue).
+  bool get isNearMeActive => sort == EventSort.nearMe && filter == EventFilter.upcoming && _origin != null;
+
+  /// Distance (m) jusqu'à [event] quand « Près de moi » est actif, sinon null.
+  double? distanceTo(EventModel event) => isNearMeActive ? EventRules.distanceMeters(event, _origin!) : null;
+
+  void setSortByDate() {
+    sort = EventSort.date;
+    notifyListeners();
+  }
+
+  /// Active « Près de moi » : position du GPS (hors-ligne aussi : le GPS
+  /// n'a pas besoin du réseau), ou celle de moins de 5 minutes. En cas
+  /// d'échec, on revient au tri par date et on renvoie l'échec pour que
+  /// l'écran l'explique.
+  Future<PositionFailure?> enableNearMe() async {
+    final fresh = _originAt != null && DateTime.now().difference(_originAt!) < _originMaxAge;
+    if (_origin != null && fresh) {
+      sort = EventSort.nearMe;
+      notifyListeners();
+      return null;
+    }
+    locating = true;
+    notifyListeners();
+    final response = await LocationService.currentPosition();
+    locating = false;
+    switch (response) {
+      case PositionSuccess(:final position):
+        _origin = (lat: position.latitude, lng: position.longitude);
+        _originAt = DateTime.now();
+        sort = EventSort.nearMe;
+        notifyListeners();
+        return null;
+      case PositionFailure():
+        sort = EventSort.date;
+        notifyListeners();
+        return response;
+    }
+  }
+
   /// Liste affichée : filtre principal + catégorie + jour + recherche + prix,
-  /// triée par début.
-  List<EventModel> visibleEvents(String? userId, {String query = ''}) => EventRules.filter(_all,
-      filter: filter,
-      now: DateTime.now(),
-      userId: userId,
-      category: categoryFilter,
-      day: selectedDay,
-      query: query,
-      price: priceFilter);
+  /// triée par début, ou par distance si « Près de moi » est actif.
+  List<EventModel> visibleEvents(String? userId, {String query = ''}) {
+    final list = EventRules.filter(_all,
+        filter: filter,
+        now: DateTime.now(),
+        userId: userId,
+        category: categoryFilter,
+        day: selectedDay,
+        query: query,
+        price: priceFilter);
+    return isNearMeActive ? EventRules.sortByDistance(list, _origin!) : list;
+  }
 
   /// Événements du calendrier : filtre principal + catégorie + prix, mais
   /// sans le jour (le calendrier montre tous les jours) ni la recherche.

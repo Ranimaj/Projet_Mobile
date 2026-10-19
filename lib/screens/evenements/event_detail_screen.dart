@@ -44,6 +44,10 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
   /// réagir une 2e fois au document supprimé dans le flux.
   bool _leaving = false;
 
+  /// Barre d'inscription du bas : sa clé sert à mesurer sa hauteur réelle.
+  final _barKey = GlobalKey();
+  double _barHeight = 0;
+
   @override
   void initState() {
     super.initState();
@@ -99,7 +103,18 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     final now = DateTime.now();
     final color = EventStyle.categoryColor(event.category);
 
+    // Hauteur RÉELLE de la barre du bas (elle change : « Mon billet », motif
+    // de refus, zone de sécurité…), mesurée après l'affichage.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final h = _barKey.currentContext?.size?.height;
+      if (mounted && h != null && (h - _barHeight).abs() > 0.5) setState(() => _barHeight = h);
+    });
+
     return Scaffold(
+      // Le contenu passe derrière la barre du bas, et on réserve en bas
+      // exactement sa hauteur (zone de sécurité comprise) + une marge : la
+      // carte et les derniers blocs ne sont jamais cachés.
+      extendBody: true,
       body: CustomScrollView(
         slivers: [
           SliverAppBar(
@@ -119,7 +134,8 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
           ),
           SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+              // Avant la première mesure : une estimation de la barre (140 px).
+              padding: EdgeInsets.fromLTRB(20, 16, 20, (_barHeight > 0 ? _barHeight : 140) + 16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -193,7 +209,10 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
           ),
         ],
       ),
-      bottomNavigationBar: _buildRegisterBar(event, userId: userId, isRegistered: isRegistered, now: now),
+      bottomNavigationBar: KeyedSubtree(
+        key: _barKey,
+        child: _buildRegisterBar(event, userId: userId, isRegistered: isRegistered, now: now),
+      ),
     );
   }
 
@@ -530,17 +549,24 @@ class _Header extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = EventStyle.categoryColor(event.category);
+    // Dégradé net à deux tons de la couleur de catégorie (plus de transparence
+    // « boueuse »), icône centrée dans la zone VISIBLE : sous la barre d'app
+    // (barre d'état + barre d'outils) et au-dessus du libellé du bas.
+    final topInset = MediaQuery.paddingOf(context).top + kToolbarHeight;
     final fallback = DecoratedBox(
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [color, color.withValues(alpha: 0.7)],
+          colors: [color, Color.lerp(color, Colors.black, 0.28)!],
         ),
       ),
-      child: Center(
-        child: Icon(EventStyle.categoryIcon(event.category),
-            size: 88, color: Colors.white.withValues(alpha: 0.35)),
+      child: Padding(
+        padding: EdgeInsets.only(top: topInset, bottom: 64),
+        child: Center(
+          child: Icon(EventStyle.categoryIcon(event.category),
+              size: 72, color: Colors.white.withValues(alpha: 0.5)),
+        ),
       ),
     );
     final badges = EventStyle.badges(event, now, isRegistered: isRegistered);
@@ -564,8 +590,10 @@ class _Header extends StatelessWidget {
                 errorWidget: (_, __, ___) => fallback,
               ),
             ),
-          // Dégradé sombre : texte et icônes blancs lisibles sur toute image.
-          const DecoratedBox(
+          // Voile sombre SEULEMENT sur une affiche : texte et icônes blancs
+          // lisibles sur n'importe quelle photo.
+          if (event.posterUrl != null)
+            const DecoratedBox(
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
@@ -858,11 +886,12 @@ class _CapacityCard extends StatelessWidget {
     final Color barColor = event.isFull
         ? AppColors.danger
         : (EventRules.isAlmostFull(event) ? AppColors.warning : AppColors.success);
-    final label = ratio == null ? '$n inscrit(s) · places illimitées' : '$n / ${event.capacity} inscrits';
+    // « Places illimitées » n'est affiché qu'une fois : dans la barre du bas.
+    final label = ratio == null ? '$n inscrit(s)' : '$n / ${event.capacity} inscrits';
 
     return Semantics(
       label: ratio == null
-          ? '$n inscrits, places illimitées'
+          ? '$n inscrits'
           : '$n inscrits sur ${event.capacity}${event.isFull ? ', complet' : ''}',
       excludeSemantics: true,
       child: Container(

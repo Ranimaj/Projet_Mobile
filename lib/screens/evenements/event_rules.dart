@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import '../../models/event_model.dart';
 import '../../models/user_model.dart';
 import 'event_validators.dart';
@@ -10,6 +11,9 @@ enum PriceFilter { all, free, paid }
 
 /// Filtre de la liste des participants (écran organisateur).
 enum AttendeeFilter { all, present, absent, unpaid }
+
+/// Tri de « À venir » : par date (défaut) ou par distance (« Près de moi »).
+enum EventSort { date, nearMe }
 
 /// Règles métier du module Événements (addendum, section 4).
 ///
@@ -172,6 +176,48 @@ class EventRules {
 
   /// Le prix change-t-il ? (null et 0 comptent tous deux comme « gratuit ».)
   static bool priceChanged(double? before, double? after) => (before ?? 0) != (after ?? 0);
+
+  // ----------------------------------------------------------- Près de moi
+
+  /// Distance à vol d'oiseau en km (formule de haversine, Terre sphérique de
+  /// rayon 6371 km) : suffisant pour trier des événements par proximité.
+  static double haversineKm(double lat1, double lng1, double lat2, double lng2) {
+    const earthRadiusKm = 6371.0;
+    double rad(double deg) => deg * math.pi / 180;
+    final dLat = rad(lat2 - lat1);
+    final dLng = rad(lng2 - lng1);
+    final a = math.pow(math.sin(dLat / 2), 2) +
+        math.cos(rad(lat1)) * math.cos(rad(lat2)) * math.pow(math.sin(dLng / 2), 2);
+    return 2 * earthRadiusKm * math.asin(math.sqrt(a));
+  }
+
+  /// Distance en mètres jusqu'à [event], ou null s'il n'a pas de coordonnées.
+  static double? distanceMeters(EventModel event, ({double lat, double lng}) origin) {
+    if (event.latitude == null || event.longitude == null) return null;
+    return haversineKm(origin.lat, origin.lng, event.latitude!, event.longitude!) * 1000;
+  }
+
+  /// Tri « Près de moi » : d'abord les événements localisés, du plus proche
+  /// au plus loin (à distance égale : le plus tôt d'abord), puis ceux sans
+  /// coordonnées, par date.
+  static List<EventModel> sortByDistance(List<EventModel> events, ({double lat, double lng}) origin) {
+    final located = <({EventModel event, double meters})>[];
+    final unlocated = <EventModel>[];
+    for (final e in events) {
+      final d = distanceMeters(e, origin);
+      if (d == null) {
+        unlocated.add(e);
+      } else {
+        located.add((event: e, meters: d));
+      }
+    }
+    located.sort((a, b) {
+      final byDistance = a.meters.compareTo(b.meters);
+      return byDistance != 0 ? byDistance : a.event.startDate.compareTo(b.event.startDate);
+    });
+    unlocated.sort((a, b) => a.startDate.compareTo(b.startDate));
+    return [for (final x in located) x.event, ...unlocated];
+  }
 
   // ---------------------------------------------------------- Participants
 
