@@ -100,6 +100,8 @@ class _EventCalendarScreenState extends State<EventCalendarScreen> {
                         Expanded(
                           child: Text(label.toUpperCase(),
                               textAlign: TextAlign.center,
+                              maxLines: 1,
+                              overflow: TextOverflow.clip,
                               style: const TextStyle(
                                   fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.textSecondary)),
                         ),
@@ -161,11 +163,16 @@ class _EventCalendarScreenState extends State<EventCalendarScreen> {
           icon: const Icon(Icons.chevron_left_rounded),
           onPressed: () => _changeMonth(-1),
         ),
+        // Entre trois boutons : le mois est réduit si la place manque
+        // (« Septembre 2026 » en grand texte sur un écran étroit).
         Expanded(
-          child: Text(
-            _capitalize(DateFormat.yMMMM('fr_FR').format(_month)),
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.titleMedium,
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              _capitalize(DateFormat.yMMMM('fr_FR').format(_month)),
+              maxLines: 1,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
           ),
         ),
         IconButton(

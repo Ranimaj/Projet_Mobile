@@ -638,7 +638,15 @@ class _QuickAction extends StatelessWidget {
               children: [
                 Icon(icon, color: fg, size: 22),
                 const SizedBox(height: 4),
-                Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: fg)),
+                // Libellé réduit si besoin (tiers d'écran étroit, grand texte).
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(label,
+                        maxLines: 1, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: fg)),
+                  ),
+                ),
               ],
             ),
           ),
@@ -723,8 +731,13 @@ class _WeatherChipState extends State<_WeatherChip> {
               children: [
                 Icon(info.icon, size: 18, color: const Color(0xFF1E40AF)),
                 const SizedBox(width: 6),
-                Text('$temperature · ${info.label}',
-                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF1E40AF))),
+                // Peut rétrécir (« … ») sur un écran étroit ou en grand texte.
+                Flexible(
+                  child: Text('$temperature · ${info.label}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF1E40AF))),
+                ),
               ],
             ),
           ),
@@ -849,8 +862,11 @@ class _OfflineNote extends StatelessWidget {
         children: [
           Icon(Icons.wifi_off_rounded, size: 14, color: AppColors.accent2),
           SizedBox(width: 6),
-          Text('Hors ligne : dernières données connues',
-              style: TextStyle(fontSize: 12, color: Color(0xFF9A3412))),
+          // Passe à la ligne au lieu de déborder (écran étroit, grand texte).
+          Flexible(
+            child: Text('Hors ligne : dernières données connues',
+                style: TextStyle(fontSize: 12, color: Color(0xFF9A3412))),
+          ),
         ],
       ),
     );

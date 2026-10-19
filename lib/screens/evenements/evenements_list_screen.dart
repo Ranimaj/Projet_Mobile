@@ -13,7 +13,7 @@ import 'add_event_screen.dart';
 import 'event_calendar_screen.dart';
 import 'event_card.dart';
 import 'event_categories.dart';
-import 'event_detail_screen.dart';
+import 'event_hero_card.dart';
 import 'event_rules.dart';
 import 'event_style.dart';
 
@@ -420,7 +420,7 @@ class _EvenementsListScreenState extends State<EvenementsListScreen> with Ticker
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 96),
         children: [
           if (hero != null) ...[
-            _HeroCard(event: hero, now: now),
+            EventHeroCard(event: hero, now: now),
             if (events.isNotEmpty) ...[
               const SizedBox(height: 20),
               Text('Ensuite', style: Theme.of(context).textTheme.titleMedium),
@@ -452,102 +452,6 @@ class _EvenementsListScreenState extends State<EvenementsListScreen> with Ticker
       case EventFilter.myEvents:
         return "Vous n'avez créé aucun événement.";
     }
-  }
-}
-
-/// Carte « Prochain événement » : grande carte dans la couleur de la
-/// catégorie, avec un compte à rebours.
-class _HeroCard extends StatelessWidget {
-  final EventModel event;
-  final DateTime now;
-  const _HeroCard({required this.event, required this.now});
-
-  @override
-  Widget build(BuildContext context) {
-    final color = EventStyle.categoryColor(event.category);
-    final countdown = EventRules.countdown(event.startDate, now);
-    final date = DateFormat('EEEE d MMMM · HH:mm', 'fr_FR').format(event.startDate);
-
-    return Semantics(
-      button: true,
-      label: 'Prochain événement : ${event.title}, $date, ${event.location}, ${EventRules.priceLabel(event)}, $countdown',
-      excludeSemantics: true,
-      child: Material(
-        borderRadius: BorderRadius.circular(20),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: () => Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => EventDetailScreen(event: event)),
-          ),
-          child: Ink(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [color, color.withValues(alpha: 0.72)],
-              ),
-            ),
-            padding: const EdgeInsets.all(18),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Text('PROCHAIN ÉVÉNEMENT · ${event.category.toUpperCase()}',
-                        style: const TextStyle(
-                            color: Colors.white70, fontSize: 10.5, fontWeight: FontWeight.w700, letterSpacing: 1.1)),
-                    const Spacer(),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.22),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(countdown,
-                          style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700)),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Text(event.title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context)
-                        .textTheme
-                        .titleLarge
-                        ?.copyWith(color: Colors.white, fontWeight: FontWeight.w700)),
-                const SizedBox(height: 10),
-                _HeroLine(icon: Icons.calendar_today_outlined, text: date[0].toUpperCase() + date.substring(1)),
-                const SizedBox(height: 4),
-                _HeroLine(icon: Icons.place_outlined, text: event.location),
-                const SizedBox(height: 4),
-                _HeroLine(icon: Icons.sell_outlined, text: EventRules.priceLabel(event)),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _HeroLine extends StatelessWidget {
-  final IconData icon;
-  final String text;
-  const _HeroLine({required this.icon, required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(children: [
-      Icon(icon, size: 15, color: Colors.white70),
-      const SizedBox(width: 6),
-      Expanded(
-        child: Text(text,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: Colors.white, fontSize: 13)),
-      ),
-    ]);
   }
 }
 
@@ -614,7 +518,12 @@ class _CategorySheet extends StatelessWidget {
                   style: Theme.of(context).textTheme.bodyMedium),
             ],
             const SizedBox(height: 16),
-            Row(
+            // Côte à côte si ça tient, sinon l'un sous l'autre (grand texte).
+            OverflowBar(
+              alignment: MainAxisAlignment.spaceBetween,
+              overflowAlignment: OverflowBarAlignment.end,
+              spacing: 8,
+              overflowSpacing: 8,
               children: [
                 TextButton(
                   style: TextButton.styleFrom(minimumSize: const Size(44, 44)),
@@ -624,7 +533,6 @@ class _CategorySheet extends StatelessWidget {
                     ..setPriceFilter(PriceFilter.all),
                   child: const Text('Réinitialiser'),
                 ),
-                const Spacer(),
                 FilledButton(
                   style: FilledButton.styleFrom(minimumSize: const Size(120, 44)),
                   onPressed: () => Navigator.pop(context),
