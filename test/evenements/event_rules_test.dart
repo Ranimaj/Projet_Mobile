@@ -190,6 +190,66 @@ void main() {
     });
   });
 
+  group('jauge des places', () {
+    test('illimité : pas de ratio, pas de places restantes', () {
+      final e = ev('e', registered: ['a', 'b']);
+      expect(EventRules.capacityRatio(e), isNull);
+      expect(EventRules.remainingSeats(e), isNull);
+      expect(EventRules.isAlmostFull(e), isFalse);
+    });
+    test('12 / 50 : 24 %, 38 places', () {
+      final e = ev('e', capacity: 50, registered: List.generate(12, (i) => 'u$i'));
+      expect(EventRules.capacityRatio(e), closeTo(0.24, 1e-9));
+      expect(EventRules.remainingSeats(e), 38);
+      expect(EventRules.isAlmostFull(e), isFalse);
+    });
+    test('seuil de 80 % : 39/50 non, 40/50 oui', () {
+      expect(EventRules.isAlmostFull(ev('e', capacity: 50, registered: List.generate(39, (i) => 'u$i'))), isFalse);
+      expect(EventRules.isAlmostFull(ev('e', capacity: 50, registered: List.generate(40, (i) => 'u$i'))), isTrue);
+    });
+    test('complet : ratio 1, 0 place', () {
+      final e = ev('e', capacity: 2, registered: ['a', 'b']);
+      expect(EventRules.capacityRatio(e), 1.0);
+      expect(EventRules.remainingSeats(e), 0);
+    });
+    test('plus d’inscrits que de places (ancienne donnée) : borné à 1 et 0', () {
+      final e = ev('e', capacity: 2, registered: ['a', 'b', 'c']);
+      expect(EventRules.capacityRatio(e), 1.0);
+      expect(EventRules.remainingSeats(e), 0);
+    });
+  });
+
+  group('bandeau « Modifié le… »', () {
+    EventModel withDates(Duration editedAfter, {List<String> registered = const ['a']}) {
+      final created = DateTime(2026, 10, 1, 10, 0);
+      return ev('e', registered: registered).copyWith(createdAt: created, updatedAt: created.add(editedAfter));
+    }
+
+    test('modifié 2 h après la création, avec inscrits : affiché', () {
+      expect(EventRules.showModifiedBanner(withDates(const Duration(hours: 2))), isTrue);
+    });
+    test('exactement 1 minute après : pas affiché (il faut PLUS d’une minute)', () {
+      expect(EventRules.showModifiedBanner(withDates(const Duration(minutes: 1))), isFalse);
+    });
+    test('jamais modifié : pas affiché', () {
+      expect(EventRules.showModifiedBanner(withDates(Duration.zero)), isFalse);
+    });
+    test('sans inscrits : pas affiché', () {
+      expect(EventRules.showModifiedBanner(withDates(const Duration(hours: 2), registered: [])), isFalse);
+    });
+  });
+
+  group('durée lisible', () {
+    final s = DateTime(2026, 11, 1, 14, 0);
+    test('45 min, 2 h, 1 h 30, 72 h', () {
+      expect(EventRules.durationLabel(s, s.add(const Duration(minutes: 45))), '45 min');
+      expect(EventRules.durationLabel(s, s.add(const Duration(hours: 2))), '2 h');
+      expect(EventRules.durationLabel(s, s.add(const Duration(hours: 1, minutes: 30))), '1 h 30');
+      expect(EventRules.durationLabel(s, s.add(const Duration(hours: 1, minutes: 5))), '1 h 05');
+      expect(EventRules.durationLabel(s, s.add(const Duration(hours: 72))), '72 h');
+    });
+  });
+
   group('nombre de filtres actifs', () {
     test('0, 1 ou 2', () {
       expect(EventRules.activeFilterCount(), 0);

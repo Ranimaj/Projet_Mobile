@@ -105,6 +105,39 @@ class EventRules {
     return 'dans $days jours';
   }
 
+  /// Taux de remplissage entre 0 et 1, ou null si les places sont illimitées.
+  static double? capacityRatio(EventModel event) {
+    final cap = event.capacity;
+    if (cap == null || cap <= 0) return null;
+    return (event.registeredUserIds.length / cap).clamp(0.0, 1.0);
+  }
+
+  /// Presque complet : au moins 80 % des places prises (la barre change de couleur).
+  static bool isAlmostFull(EventModel event) => (capacityRatio(event) ?? 0) >= 0.8;
+
+  /// Places restantes (jamais négatif), ou null si illimitées.
+  static int? remainingSeats(EventModel event) {
+    final cap = event.capacity;
+    if (cap == null) return null;
+    final left = cap - event.registeredUserIds.length;
+    return left < 0 ? 0 : left;
+  }
+
+  /// Règle 5 : bandeau « Modifié le… » si l'événement a été modifié (plus
+  /// d'une minute après sa création) ET que des personnes sont inscrites.
+  static bool showModifiedBanner(EventModel event) =>
+      event.registeredUserIds.isNotEmpty &&
+      event.updatedAt.difference(event.createdAt) > const Duration(minutes: 1);
+
+  /// Durée lisible : « 45 min », « 2 h », « 1 h 30 ».
+  static String durationLabel(DateTime start, DateTime end) {
+    final minutes = end.difference(start).inMinutes;
+    if (minutes < 60) return '$minutes min';
+    final h = minutes ~/ 60;
+    final m = minutes % 60;
+    return m == 0 ? '$h h' : '$h h ${m.toString().padLeft(2, '0')}';
+  }
+
   /// Nombre de filtres actifs affiché sur l'icône filtre : catégorie et jour.
   static int activeFilterCount({String? category, DateTime? day}) =>
       (category == null ? 0 : 1) + (day == null ? 0 : 1);

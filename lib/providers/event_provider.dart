@@ -157,6 +157,28 @@ class EventProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Écoute en temps réel UN événement (règle 10) : events/{id}.snapshots().
+  /// Chaque nouvelle version met aussi à jour la copie du provider et le
+  /// cache, pour que les actions (inscription…) partent des données les plus
+  /// récentes. event == null : le document a été supprimé. fromCache : la
+  /// donnée vient du cache local de Firestore (pas de réseau).
+  Stream<({EventModel? event, bool fromCache})> watchEvent(String id) {
+    return _doc(id).snapshots(includeMetadataChanges: true).asyncMap((snap) async {
+      if (!snap.exists) {
+        // Supprimé (ou jamais synchronisé) : on le retire de la liste locale.
+        if (!snap.metadata.isFromCache && findById(id) != null) {
+          _all = _all.where((e) => e.id != id).toList();
+          await _cache.removeFromCache(AppConstants.hiveEventsBox, id);
+          notifyListeners();
+        }
+        return (event: null, fromCache: snap.metadata.isFromCache);
+      }
+      final event = EventModel.fromMap(snap.id, snap.data()!);
+      if (findById(id) != null) await _replaceLocal(event);
+      return (event: event, fromCache: snap.metadata.isFromCache);
+    });
+  }
+
   /// Remplace un événement dans la liste locale et dans le cache Hive
   /// (valeurs simples uniquement, jamais de FieldValue).
   Future<void> _replaceLocal(EventModel updated) async {
