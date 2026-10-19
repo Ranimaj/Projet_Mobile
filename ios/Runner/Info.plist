@@ -70,6 +70,8 @@
 	<string>CampusConnect ajoute les événements du campus auxquels vous vous inscrivez à votre calendrier.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Votre position sert uniquement à calculer l'itinéraire jusqu'au lieu d'un événement, pendant que l'app est ouverte.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>La caméra sert uniquement à scanner les billets des participants.</string>
 	<key>NSContactsUsageDescription</key>
 	<string>Le calendrier peut proposer vos contacts et lieux enregistrés quand vous complétez le lieu d'un événement.</string>
 </dict>

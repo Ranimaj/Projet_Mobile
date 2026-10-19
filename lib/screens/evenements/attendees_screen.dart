@@ -5,6 +5,8 @@ import '../../models/event_model.dart';
 import '../../providers/event_provider.dart';
 import 'event_card.dart';
 import 'event_rules.dart';
+import 'scan_ticket_screen.dart';
+import 'ticket_rules.dart';
 
 /// BF8.5 — participants d'un événement (organisateur ou admin) : résumé
 /// (inscrits, présents, payés, recette attendue), recherche, filtres, et
@@ -70,6 +72,67 @@ class _AttendeesScreenState extends State<AttendeesScreen> {
     }
   }
 
+  /// Scan d'un billet : connexion requise ; on lit le QR, on vérifie (bon
+  /// événement, inscrit, pas déjà pointé, pointage permis), puis on POINTE
+  /// présent (jamais l'inverse) et on affiche le résultat.
+  Future<void> _scan(EventModel event) async {
+    final provider = context.read<EventProvider>();
+    final messenger = ScaffoldMessenger.of(context);
+    if (!provider.isOnline) {
+      messenger.showSnackBar(const SnackBar(content: Text('Connexion requise pour scanner les billets.')));
+      return;
+    }
+    final raw = await Navigator.of(context).push<String>(MaterialPageRoute(builder: (_) => const ScanTicketScreen()));
+    if (raw == null || !mounted) return; // scanner fermé sans lecture
+
+    final latest = provider.findById(event.id) ?? event;
+    final result = TicketRules.scanVerdict(latest, raw, DateTime.now());
+    final uid = result.uid;
+    var name = '';
+    if (uid != null) {
+      name = _names[uid] ?? (await provider.attendeeNames([uid]))[uid] ?? EventRules.fallbackName(uid);
+    }
+
+    late final String title;
+    late final String detail;
+    var ok = false;
+    switch (result.verdict) {
+      case ScanVerdict.markPresent:
+        try {
+          await provider.markPresent(event.id, uid!);
+          title = 'Présent : $name';
+          detail = 'Le participant est pointé présent.';
+          ok = true;
+        } on EventActionException catch (e) {
+          title = 'Pointage impossible';
+          detail = e.message;
+        }
+      case ScanVerdict.alreadyPresent:
+        title = 'Déjà pointé';
+        detail = '$name est déjà marqué présent.';
+        ok = true;
+      case ScanVerdict.invalid:
+        title = 'Billet invalide';
+        detail = "Ce code n'est pas un billet CampusConnect.";
+      case ScanVerdict.otherEvent:
+        title = 'Billet invalide';
+        detail = 'Ce billet concerne un autre événement.';
+      case ScanVerdict.notRegistered:
+        title = 'Pas inscrit';
+        detail = "$name n'est pas inscrit à cet événement.";
+      case ScanVerdict.blocked:
+        title = 'Pointage impossible';
+        detail = result.reason ?? '';
+    }
+    if (!mounted) return;
+    final again = await showModalBottomSheet<bool>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => _ScanResultSheet(title: title, detail: detail, ok: ok),
+    );
+    if (again == true && mounted) await _scan(event);
+  }
+
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<({EventModel? event, bool fromCache})>(
@@ -96,6 +159,14 @@ class _AttendeesScreenState extends State<AttendeesScreen> {
                     style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w400)),
               ],
             ),
+            actions: [
+              if (!deleted)
+                IconButton(
+                  tooltip: 'Scanner un billet',
+                  icon: const Icon(Icons.qr_code_scanner_rounded),
+                  onPressed: () => _scan(event),
+                ),
+            ],
           ),
           body: deleted
               ? const _Message(icon: Icons.event_busy_outlined, text: "Cet événement n'existe plus.")
@@ -408,6 +479,61 @@ class _ToggleChip extends StatelessWidget {
                 ],
               ),
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Résultat d'un scan : icône verte (pointé) ou rouge (refusé), titre,
+/// détail, et « Scanner un autre billet ».
+class _ScanResultSheet extends StatelessWidget {
+  final String title;
+  final String detail;
+  final bool ok;
+  const _ScanResultSheet({required this.title, required this.detail, required this.ok});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = ok ? AppColors.success : AppColors.danger;
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: EdgeInsets.fromLTRB(24, 0, 24, 16 + MediaQuery.viewInsetsOf(context).bottom),
+        child: Semantics(
+          liveRegion: true,
+          container: true,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(ok ? Icons.check_circle_rounded : Icons.cancel_rounded, size: 56, color: color),
+              const SizedBox(height: 10),
+              Text(title,
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(color: color, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 6),
+              Text(detail, textAlign: TextAlign.center),
+              const SizedBox(height: 18),
+              OverflowBar(
+                alignment: MainAxisAlignment.spaceBetween,
+                overflowAlignment: OverflowBarAlignment.center,
+                spacing: 8,
+                overflowSpacing: 8,
+                children: [
+                  TextButton(
+                    style: TextButton.styleFrom(minimumSize: const Size(44, 48)),
+                    onPressed: () => Navigator.pop(context, false),
+                    child: const Text('Fermer'),
+                  ),
+                  FilledButton.icon(
+                    style: FilledButton.styleFrom(minimumSize: const Size(44, 48)),
+                    onPressed: () => Navigator.pop(context, true),
+                    icon: const Icon(Icons.qr_code_scanner_rounded),
+                    label: const Text('Scanner un autre billet'),
+                  ),
+                ],
+              ),
+            ],
           ),
         ),
       ),

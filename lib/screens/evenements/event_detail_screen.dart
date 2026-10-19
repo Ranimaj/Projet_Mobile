@@ -2,6 +2,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 import '../../core/theme/app_colors.dart';
 import '../../models/event_model.dart';
 import '../../models/user_model.dart';
@@ -18,6 +19,8 @@ import 'weather_rules.dart';
 import 'event_rules.dart';
 import 'event_style.dart';
 import 'event_validators.dart';
+import 'ticket_rules.dart';
+import 'ticket_screen.dart';
 
 /// Actions du menu organisateur / admin.
 enum _MenuAction { attendees, edit, cancel, delete }
@@ -147,6 +150,8 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                     itineraryBlockedReason: event.latitude == null || event.longitude == null
                         ? 'Lieu non localisé : itinéraire indisponible.'
                         : null,
+                    onShare: () => _share(event),
+                    shareBlockedReason: TicketRules.shareBlockedReason(event),
                   ),
                   const SizedBox(height: 16),
                   _InfoCard(
@@ -204,6 +209,22 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
         : DateFormat('EEE d MMM HH:mm', 'fr_FR').format(e.endDate);
     return '${DateFormat('HH:mm', 'fr_FR').format(e.startDate)} → $end · '
         '${EventRules.durationLabel(e.startDate, e.endDate)}';
+  }
+
+  /// Partage texte (titre, date, lieu, prix, invitation), sans lien profond.
+  /// Fonctionne hors-ligne : c'est l'appli choisie qui enverra le message.
+  Future<void> _share(EventModel event) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final blocked = TicketRules.shareBlockedReason(event);
+    if (blocked != null) {
+      messenger.showSnackBar(SnackBar(content: Text(blocked)));
+      return;
+    }
+    try {
+      await SharePlus.instance.share(ShareParams(text: TicketRules.shareMessage(event), subject: event.title));
+    } catch (_) {
+      messenger.showSnackBar(const SnackBar(content: Text('Partage impossible sur cet appareil.')));
+    }
   }
 
   /// BF9 : ouvre le calendrier du téléphone avec l'événement pré-rempli
@@ -407,6 +428,17 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                 Text('Connectez-vous pour vous inscrire à cet événement.',
                     textAlign: TextAlign.center, style: Theme.of(context).textTheme.bodyMedium)
               else ...[
+                // « Mon billet » : inscrit et événement pas terminé (annulé : billet « Annulé »).
+                if (TicketRules.ticketBlockedReason(event, userId, now) == null) ...[
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+                    onPressed: () => Navigator.of(context)
+                        .push(MaterialPageRoute(builder: (_) => TicketScreen(event: event))),
+                    icon: const Icon(Icons.qr_code_2_rounded),
+                    label: const Text('Mon billet'),
+                  ),
+                  const SizedBox(height: 8),
+                ],
                 Semantics(
                   button: true,
                   enabled: blockedReason == null,
@@ -562,18 +594,22 @@ class _Header extends StatelessWidget {
   }
 }
 
-/// Rangée d'actions rapides : Calendrier (sauf événement annulé),
-/// Itinéraire (si le lieu est localisé) et Partager (bientôt disponible).
+/// Rangée d'actions rapides : Calendrier et Partager (sauf événement
+/// annulé), Itinéraire (si le lieu est localisé).
 class _QuickActions extends StatelessWidget {
   final VoidCallback onCalendar;
   final String? calendarBlockedReason; // non null = calendrier désactivé
   final VoidCallback onItinerary;
   final String? itineraryBlockedReason; // non null = itinéraire désactivé
+  final VoidCallback onShare;
+  final String? shareBlockedReason; // non null = partage désactivé
   const _QuickActions({
     required this.onCalendar,
     required this.calendarBlockedReason,
     required this.onItinerary,
     required this.itineraryBlockedReason,
+    required this.onShare,
+    required this.shareBlockedReason,
   });
 
   @override
@@ -590,7 +626,15 @@ class _QuickActions extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 10),
-        const Expanded(child: _QuickAction(icon: Icons.share_outlined, label: 'Partager', onTap: null)),
+        Expanded(
+          child: _QuickAction(
+            icon: Icons.share_outlined,
+            label: 'Partager',
+            semanticLabel: "Partager l'événement",
+            onTap: shareBlockedReason == null ? onShare : null,
+            disabledMessage: shareBlockedReason ?? 'Bientôt',
+          ),
+        ),
         const SizedBox(width: 10),
         Expanded(
           child: _QuickAction(

@@ -375,10 +375,14 @@ class EventProvider extends ChangeNotifier {
   /// Bascule « payé » (paidUserIds) pour [uid].
   Future<void> togglePaid(String eventId, String uid) => _toggleAttendance(eventId, 'paidUserIds', uid);
 
+  /// Scan d'un billet : POINTE présent, ne retire jamais (déjà présent : rien).
+  Future<void> markPresent(String eventId, String uid) =>
+      _toggleAttendance(eventId, 'checkedInUserIds', uid, onlyAdd: true);
+
   /// arrayUnion / arrayRemove sur UNE seule liste et UN seul uid : on ne
   /// réécrit jamais la liste entière (deux organisateurs qui pointent en même
   /// temps ne s'écrasent pas). Connexion requise, jamais de file d'attente.
-  Future<void> _toggleAttendance(String eventId, String field, String uid) async {
+  Future<void> _toggleAttendance(String eventId, String field, String uid, {bool onlyAdd = false}) async {
     final key = '$eventId|$field|$uid';
     if (_busyAttendance.contains(key)) return; // double tap ignoré
     final current = findById(eventId);
@@ -392,6 +396,7 @@ class EventProvider extends ChangeNotifier {
 
     final list = isPresentList ? current.checkedInUserIds : current.paidUserIds;
     final add = !list.contains(uid);
+    if (onlyAdd && !add) return; // déjà dans la liste : on ne retire jamais
     _busyAttendance.add(key);
     notifyListeners();
     try {
