@@ -4,11 +4,11 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
-import '../../core/constants/app_constants.dart';
 import '../../models/event_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/event_provider.dart';
 import '../../widgets/primary_button.dart';
+import 'event_categories.dart';
 import 'event_rules.dart';
 import 'event_validators.dart';
 import 'nominatim_service.dart';
@@ -24,7 +24,7 @@ class AddEventScreen extends StatefulWidget {
 }
 
 /// Champs du formulaire, pour savoir lesquels ont été « touchés ».
-enum _Field { title, description, location, capacity, category, start, end }
+enum _Field { title, description, location, capacity, price, category, start, end }
 
 class _AddEventScreenState extends State<AddEventScreen> {
   final _formKey = GlobalKey<FormState>();
@@ -33,10 +33,12 @@ class _AddEventScreenState extends State<AddEventScreen> {
   final _descCtrl = TextEditingController();
   final _locationCtrl = TextEditingController();
   final _capacityCtrl = TextEditingController();
+  final _priceCtrl = TextEditingController();
   final _titleFocus = FocusNode();
   final _descFocus = FocusNode();
   final _locationFocus = FocusNode();
   final _capacityFocus = FocusNode();
+  final _priceFocus = FocusNode();
 
   /// Affichage des erreurs : un champ montre son erreur seulement s'il a été
   /// modifié PUIS quitté (« touché »), ou après une première tentative
@@ -79,19 +81,21 @@ class _AddEventScreenState extends State<AddEventScreen> {
     _watchFocus(_descFocus, _Field.description);
     _watchFocus(_locationFocus, _Field.location);
     _watchFocus(_capacityFocus, _Field.capacity);
+    _watchFocus(_priceFocus, _Field.price);
     if (e != null) {
       _titleCtrl.text = e.title;
       _descCtrl.text = e.description;
       _locationCtrl.text = e.location;
       _capacityCtrl.text = e.capacity?.toString() ?? '';
+      _priceCtrl.text = _priceText(e.price);
       // Une ancienne catégorie hors liste oblige à en choisir une valide.
-      _category = AppConstants.eventCategories.contains(e.category) ? e.category : null;
+      _category = EventCategories.all.contains(e.category) ? e.category : null;
       _initialCategory = _category;
       _start = e.startDate;
       _end = e.endDate;
     } else {
       final tomorrow = DateTime.now().add(const Duration(days: 1));
-      _category = AppConstants.eventCategories.first;
+      _category = EventCategories.all.first;
       _start = DateTime(tomorrow.year, tomorrow.month, tomorrow.day, 14, 0);
       _end = _start.add(EventModel.defaultDuration);
     }
@@ -99,10 +103,10 @@ class _AddEventScreenState extends State<AddEventScreen> {
 
   @override
   void dispose() {
-    for (final c in [_titleCtrl, _descCtrl, _locationCtrl, _capacityCtrl]) {
+    for (final c in [_titleCtrl, _descCtrl, _locationCtrl, _capacityCtrl, _priceCtrl]) {
       c.dispose();
     }
-    for (final f in [_titleFocus, _descFocus, _locationFocus, _capacityFocus]) {
+    for (final f in [_titleFocus, _descFocus, _locationFocus, _capacityFocus, _priceFocus]) {
       f.dispose();
     }
     super.dispose();
@@ -113,12 +117,23 @@ class _AddEventScreenState extends State<AddEventScreen> {
     return v.isEmpty ? null : int.parse(v);
   }
 
+  /// Prix saisi, arrondi à 2 décimales (null = gratuit). Appelé après validation.
+  double? get _priceValue => EventValidators.parsePrice(_priceCtrl.text);
+
+  /// Prix existant affiché dans le champ : vide si gratuit, « 15 » ou « 12,50 ».
+  static String _priceText(double? price) {
+    if (price == null || price == 0) return '';
+    return price == price.roundToDouble()
+        ? price.toStringAsFixed(0)
+        : price.toStringAsFixed(2).replaceAll('.', ',');
+  }
+
   /// Le formulaire contient-il des modifications non enregistrées ?
   bool get _isDirty {
     final e = widget.existing;
     String n(String s) => EventValidators.normalize(s);
     if (e == null) {
-      return [_titleCtrl, _descCtrl, _locationCtrl, _capacityCtrl].any((c) => n(c.text).isNotEmpty);
+      return [_titleCtrl, _descCtrl, _locationCtrl, _capacityCtrl, _priceCtrl].any((c) => n(c.text).isNotEmpty);
     }
     return n(_titleCtrl.text) != e.title ||
         n(_descCtrl.text) != e.description ||
@@ -126,7 +141,8 @@ class _AddEventScreenState extends State<AddEventScreen> {
         _category != _initialCategory ||
         _start != e.startDate ||
         _end != e.endDate ||
-        _capacityCtrl.text.trim() != (e.capacity?.toString() ?? '');
+        _capacityCtrl.text.trim() != (e.capacity?.toString() ?? '') ||
+        _priceCtrl.text.trim() != _priceText(e.price);
   }
 
   Future<void> _confirmLeave() async {
@@ -229,6 +245,27 @@ class _AddEventScreenState extends State<AddEventScreen> {
     final title = EventValidators.normalize(_titleCtrl.text);
     final location = EventValidators.normalize(_locationCtrl.text);
 
+    // Prix modifié alors que des personnes sont inscrites : on confirme. Ils
+    // le verront grâce au bandeau « Modifié le… » de la fiche (pas de paiement
+    // ni de notification dans l'app).
+    if (_isEdit && EventRules.needsPriceChangeConfirmation(widget.existing!, _priceValue)) {
+      final n = widget.existing!.registeredUserIds.length;
+      final newLabel = EventRules.priceLabel(widget.existing!.copyWith(price: _priceValue, clearPrice: _priceValue == null));
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Modifier le prix ?'),
+          content: Text('$n inscrit(s) seront informés du nouveau prix ($newLabel) '
+              'par le bandeau « Modifié le… » de l\'événement.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuler')),
+            TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Confirmer')),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
+    }
+
     setState(() => _submitting = true);
     try {
       String message;
@@ -246,6 +283,8 @@ class _AddEventScreenState extends State<AddEventScreen> {
           endDate: _end,
           capacity: _capacityValue,
           clearCapacity: _capacityValue == null,
+          price: _priceValue,
+          clearPrice: _priceValue == null,
           latitude: geo.lat,
           longitude: geo.lng,
           // Lieu changé mais introuvable : l'ancienne position serait fausse.
@@ -280,6 +319,7 @@ class _AddEventScreenState extends State<AddEventScreen> {
           latitude: geo.lat,
           longitude: geo.lng,
           capacity: _capacityValue,
+          price: _priceValue,
         );
         // Le provider applique un délai max de 15 s (TimeoutException ci-dessous).
         final sentOnline = await provider.createEvent(draft);
@@ -373,7 +413,8 @@ class _AddEventScreenState extends State<AddEventScreen> {
                   maxLength: 4, // 5000 max : 4 chiffres suffisent
                   keyboardType: TextInputType.number,
                   inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                  textInputAction: TextInputAction.done,
+                  textInputAction: TextInputAction.next,
+                  onFieldSubmitted: (_) => _priceFocus.requestFocus(),
                   decoration: InputDecoration(
                     labelText: 'Capacité (optionnelle)',
                     helperText: registeredCount > 0
@@ -386,11 +427,32 @@ class _AddEventScreenState extends State<AddEventScreen> {
                   validator: (v) => EventValidators.capacity(v, registeredCount: registeredCount),
                 ),
                 const SizedBox(height: 8),
+                TextFormField(
+                  controller: _priceCtrl,
+                  focusNode: _priceFocus,
+                  autovalidateMode: _modeFor(_Field.price),
+                  onChanged: (_) => _edited.add(_Field.price),
+                  maxLength: 7, // « 1000,00 »
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  // Chiffres, virgule ou point (la virgule est normalisée en point).
+                  inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))],
+                  textInputAction: TextInputAction.done,
+                  decoration: const InputDecoration(
+                    labelText: 'Prix (TND)',
+                    hintText: 'Gratuit',
+                    helperText: 'Vide = gratuit · informatif, payé sur place',
+                    prefixIcon: Icon(Icons.sell_outlined),
+                    counterText: '',
+                    errorMaxLines: 2,
+                  ),
+                  validator: EventValidators.price,
+                ),
+                const SizedBox(height: 8),
                 DropdownButtonFormField<String>(
                   initialValue: _category,
                   autovalidateMode: _modeFor(_Field.category),
                   decoration: const InputDecoration(labelText: 'Catégorie', errorMaxLines: 2),
-                  items: AppConstants.eventCategories
+                  items: EventCategories.all
                       .map((c) => DropdownMenuItem(value: c, child: Text(c)))
                       .toList(),
                   onChanged: (v) => setState(() {

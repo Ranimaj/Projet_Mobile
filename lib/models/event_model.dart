@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../screens/evenements/event_categories.dart';
 
 /// Statut STOCKÉ dans Firestore : seule l'annulation est une décision humaine.
 enum EventStatus { active, cancelled }
@@ -28,6 +29,7 @@ class EventModel {
   final List<String> registeredUserIds;
   final String? posterUrl;
   final int? capacity; // null = places illimitées
+  final double? price; // TND, informatif ; null ou 0 = gratuit
   final EventStatus status;
   final String? cancelReason;
   final DateTime? cancelledAt;
@@ -53,6 +55,7 @@ class EventModel {
     this.registeredUserIds = const [],
     this.posterUrl,
     this.capacity,
+    this.price,
     this.status = EventStatus.active,
     this.cancelReason,
     this.cancelledAt,
@@ -90,7 +93,8 @@ class EventModel {
       organizerName: map['organizerName'] ?? '',
       title: map['title'] ?? '',
       description: map['description'] ?? '',
-      category: map['category'] ?? 'Générale',
+      // Anciennes valeurs (Job Fair, Associatif...) traduites : pas de migration.
+      category: EventCategories.normalize(map['category']?.toString()),
       startDate: start,
       endDate: _parseDate(map['endDate']),
       location: map['location'] ?? '',
@@ -99,6 +103,7 @@ class EventModel {
       registeredUserIds: List<String>.from(map['registeredUserIds'] ?? []),
       posterUrl: map['posterUrl'],
       capacity: (map['capacity'] as num?)?.toInt(),
+      price: (map['price'] as num?)?.toDouble(),
       status: map['status'] == EventStatus.cancelled.name ? EventStatus.cancelled : EventStatus.active,
       cancelReason: map['cancelReason'],
       cancelledAt: _parseDate(map['cancelledAt']),
@@ -134,6 +139,7 @@ class EventModel {
       'registeredUserIds': registeredUserIds,
       'posterUrl': posterUrl,
       'capacity': capacity,
+      'price': price,
       'status': status.name,
       'cancelReason': cancelReason,
       'cancelledAt': cancelledAt == null ? null : Timestamp.fromDate(cancelledAt!),
@@ -148,6 +154,7 @@ class EventModel {
   static const List<String> editableFields = [
     'title', 'description', 'category', 'startDate', 'endDate', 'location', 'capacity',
     'latitude', 'longitude', // recalculées quand le lieu change (géocodage)
+    'price',
   ];
 
   /// Seulement les champs modifiables qui diffèrent de [original] : c'est ce
@@ -163,7 +170,8 @@ class EventModel {
 
   /// Copie avec certains champs changés. Pour remettre la capacité à
   /// « illimitée » (null), passer [clearCapacity] à true ; pour effacer la
-  /// position (lieu changé mais introuvable), passer [clearCoordinates].
+  /// position (lieu changé mais introuvable), passer [clearCoordinates] ;
+  /// pour repasser en gratuit (prix null), passer [clearPrice].
   EventModel copyWith({
     String? id,
     String? organizerName,
@@ -180,6 +188,8 @@ class EventModel {
     String? posterUrl,
     int? capacity,
     bool clearCapacity = false,
+    double? price,
+    bool clearPrice = false,
     EventStatus? status,
     String? cancelReason,
     DateTime? cancelledAt,
@@ -203,6 +213,7 @@ class EventModel {
       registeredUserIds: registeredUserIds ?? this.registeredUserIds,
       posterUrl: posterUrl ?? this.posterUrl,
       capacity: clearCapacity ? null : (capacity ?? this.capacity),
+      price: clearPrice ? null : (price ?? this.price),
       status: status ?? this.status,
       cancelReason: cancelReason ?? this.cancelReason,
       cancelledAt: cancelledAt ?? this.cancelledAt,

@@ -67,14 +67,59 @@ void main() {
   });
 
   group('catégorie', () {
-    test('les 5 catégories sont valides', () {
-      for (final c in ['Conférence', 'Job Fair', 'Sport', 'Culture', 'Associatif']) {
+    test('les 5 nouvelles catégories sont valides', () {
+      for (final c in ['Conférence', 'Carrière', 'Sport', 'Culture', 'Vie associative']) {
         expect(EventValidators.category(c), isNull, reason: c);
       }
     });
+    test('anciennes valeurs refusées à la création / modification', () {
+      for (final c in ['Job Fair', 'Associatif', 'Générale']) {
+        expect(EventValidators.category(c), 'Catégorie invalide', reason: c);
+      }
+    });
     test('inconnue ou null refusée', () {
-      expect(EventValidators.category('Générale'), 'Catégorie invalide');
+      expect(EventValidators.category('Gaming'), 'Catégorie invalide');
       expect(EventValidators.category(null), 'Catégorie invalide');
+    });
+  });
+
+  group('prix (optionnel, 0 à 1000 TND, 2 décimales max)', () {
+    test('vide = gratuit : valide, enregistré null', () {
+      expect(EventValidators.price(''), isNull);
+      expect(EventValidators.price(null), isNull);
+      expect(EventValidators.price('   '), isNull);
+      expect(EventValidators.parsePrice(''), isNull);
+    });
+    test('entier, 1 ou 2 décimales : valides', () {
+      expect(EventValidators.price('15'), isNull);
+      expect(EventValidators.price('12.5'), isNull);
+      expect(EventValidators.price('12.50'), isNull);
+    });
+    test('virgule acceptée et normalisée', () {
+      expect(EventValidators.price('12,5'), isNull);
+      expect(EventValidators.parsePrice('12,5'), 12.5);
+    });
+    test('3 décimales refusées', () {
+      expect(EventValidators.price('12.505'), 'Prix entre 0 et 1000 TND (2 décimales max)');
+      expect(EventValidators.price('12,505'), isNotNull);
+    });
+    test('négatif refusé', () => expect(EventValidators.price('-5'), isNotNull));
+    test('0 et 1000 acceptés ; 1000.01 refusé', () {
+      expect(EventValidators.price('0'), isNull);
+      expect(EventValidators.price('1000'), isNull);
+      expect(EventValidators.price('1000.00'), isNull);
+      expect(EventValidators.price('1000.01'), isNotNull);
+    });
+    test('texte refusé', () {
+      expect(EventValidators.price('abc'), isNotNull);
+      expect(EventValidators.price('12.'), isNotNull);
+      expect(EventValidators.price('.5'), isNotNull);
+      expect(EventValidators.price('1,2,3'), isNotNull);
+    });
+    test('arrondi à 2 décimales avant l’enregistrement', () {
+      expect(EventValidators.parsePrice('19.99'), 19.99);
+      expect(EventValidators.parsePrice('0,10'), 0.1);
+      expect(EventValidators.parsePrice('15'), 15.0);
     });
   });
 

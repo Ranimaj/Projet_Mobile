@@ -14,7 +14,7 @@ void main() {
         organizerName: organizer,
         title: '  Soirée robots  ',
         description: 'Démonstrations et ateliers.',
-        category: 'Associatif',
+        category: 'Vie associative',
         startDate: start,
         endDate: end,
         location: ' Hall principal ',
@@ -34,7 +34,7 @@ void main() {
     });
     test('rappel de 30 minutes avant', () => expect(entry.alarmMinutes, 30));
     test('description : catégorie, organisateur puis texte', () {
-      expect(entry.description, startsWith('Associatif · organisé par Club Robotique'));
+      expect(entry.description, startsWith('Vie associative · organisé par Club Robotique'));
       expect(entry.description, contains('Démonstrations et ateliers.'));
     });
     test('organisateur vide : libellé de repli', () {

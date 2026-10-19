@@ -877,7 +877,7 @@ class _ModifiedBanner extends StatelessWidget {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              'Modifié le ${DateFormat("d MMMM 'à' HH:mm", 'fr_FR').format(updatedAt)} : vérifiez la date et le lieu.',
+              'Modifié le ${DateFormat("d MMMM 'à' HH:mm", 'fr_FR').format(updatedAt)} : vérifiez la date, le lieu et le prix.',
               style: const TextStyle(color: Color(0xFF1E40AF), fontWeight: FontWeight.w600, fontSize: 13),
             ),
           ),

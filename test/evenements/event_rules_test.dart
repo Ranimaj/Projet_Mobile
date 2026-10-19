@@ -156,7 +156,7 @@ void main() {
       organizerName: 'Club',
       title: 'Journée portes ouvertes',
       description: 'Description',
-      category: 'Associatif',
+      category: 'Vie associative',
       startDate: DateTime(2026, 11, 1, 9, 0),
       location: 'École Polytechnique',
     );
@@ -325,10 +325,10 @@ void main() {
         ev('a', start: DateTime(2026, 11, 1, 9, 0), category: 'Sport'),
         ev('b', start: DateTime(2026, 11, 1, 12, 0), category: 'Culture'),
         ev('c', start: DateTime(2026, 11, 1, 18, 0), category: 'Sport'),
-        ev('d', start: DateTime(2026, 11, 2, 9, 0), category: 'Associatif'),
+        ev('d', start: DateTime(2026, 11, 2, 9, 0), category: 'Vie associative'),
       ]);
       expect(byDay[DateTime(2026, 11, 1)], ['Sport', 'Culture']);
-      expect(byDay[DateTime(2026, 11, 2)], ['Associatif']);
+      expect(byDay[DateTime(2026, 11, 2)], ['Vie associative']);
       expect(byDay[DateTime(2026, 11, 3)], isNull);
     });
     test('jours avec événements : sans l’heure, sans doublon', () {

@@ -5,6 +5,9 @@ import 'nominatim_service.dart';
 /// Filtre principal de la liste des événements.
 enum EventFilter { upcoming, past, myRegistrations, myEvents }
 
+/// Filtre de prix (feuille des filtres), combinable avec les autres.
+enum PriceFilter { all, free, paid }
+
 /// Règles métier du module Événements (addendum, section 4).
 ///
 /// Fonctions pures, comme EventValidators : tout est passé en paramètre
@@ -164,9 +167,32 @@ class EventRules {
     return m == 0 ? '$h h' : '$h h ${m.toString().padLeft(2, '0')}';
   }
 
-  /// Nombre de filtres actifs affiché sur l'icône filtre : catégorie et jour.
-  static int activeFilterCount({String? category, DateTime? day}) =>
-      (category == null ? 0 : 1) + (day == null ? 0 : 1);
+  /// Nombre de filtres actifs affiché sur l'icône filtre : catégorie, jour et prix.
+  static int activeFilterCount({String? category, DateTime? day, PriceFilter price = PriceFilter.all}) =>
+      (category == null ? 0 : 1) + (day == null ? 0 : 1) + (price == PriceFilter.all ? 0 : 1);
+
+  // ------------------------------------------------------------------ Prix
+  // Le prix est INFORMATIF : aucun paiement dans l'app (paiement sur place,
+  // noté plus tard par l'organisateur).
+
+  /// Gratuit : pas de prix, ou prix à 0.
+  static bool isFree(EventModel event) => event.price == null || event.price == 0;
+
+  /// « Gratuit », « 15 TND » ou « 12,50 TND » (virgule française).
+  static String priceLabel(EventModel event) {
+    if (isFree(event)) return 'Gratuit';
+    final p = event.price!;
+    final text = p == p.roundToDouble() ? p.toStringAsFixed(0) : p.toStringAsFixed(2).replaceAll('.', ',');
+    return '$text TND';
+  }
+
+  /// Le prix change-t-il ? (null et 0 comptent tous deux comme « gratuit ».)
+  static bool priceChanged(double? before, double? after) => (before ?? 0) != (after ?? 0);
+
+  /// Confirmation demandée dans le formulaire : le prix change alors que des
+  /// personnes sont déjà inscrites.
+  static bool needsPriceChangeConfirmation(EventModel original, double? newPrice) =>
+      original.registeredUserIds.isNotEmpty && priceChanged(original.price, newPrice);
 
   /// Pour chaque jour : les catégories distinctes des événements qui y
   /// commencent, dans l'ordre d'apparition (un point de couleur par catégorie).
@@ -209,8 +235,8 @@ class EventRules {
     return foldForSearch(event.title).contains(q) || foldForSearch(event.location).contains(q);
   }
 
-  /// Règles 6, 8 et 12 : filtre principal + catégorie + jour + recherche,
-  /// triés par date de début. Tous les filtres se combinent.
+  /// Règles 6, 8 et 12 : filtre principal + catégorie + jour + recherche +
+  /// prix, triés par date de début. Tous les filtres se combinent.
   /// - À venir : ni annulés, ni terminés (les événements en cours restent visibles).
   /// - Passés : terminés et non annulés (lecture seule).
   /// - Mes inscriptions / Mes événements : tout, y compris annulés et passés.
@@ -222,6 +248,7 @@ class EventRules {
     String? category,
     DateTime? day,
     String query = '',
+    PriceFilter price = PriceFilter.all,
   }) {
     bool matchesFilter(EventModel e) {
       switch (filter) {
@@ -241,6 +268,7 @@ class EventRules {
         .where((e) => category == null || e.category == category)
         .where((e) => day == null || _sameDay(e.startDate, day))
         .where((e) => matchesSearch(e, query))
+        .where((e) => price == PriceFilter.all || (price == PriceFilter.free) == isFree(e))
         .toList()
       ..sort((a, b) => a.startDate.compareTo(b.startDate));
     return list;

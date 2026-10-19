@@ -72,6 +72,12 @@ class EventProvider extends ChangeNotifier {
   EventFilter filter = EventFilter.upcoming;
   String? categoryFilter;
   DateTime? selectedDay;
+  PriceFilter priceFilter = PriceFilter.all;
+
+  void setPriceFilter(PriceFilter value) {
+    priceFilter = value;
+    notifyListeners();
+  }
 
   void setFilter(EventFilter value) {
     filter = value;
@@ -88,19 +94,21 @@ class EventProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Liste affichée : filtre principal + catégorie + jour + recherche, triée par début.
+  /// Liste affichée : filtre principal + catégorie + jour + recherche + prix,
+  /// triée par début.
   List<EventModel> visibleEvents(String? userId, {String query = ''}) => EventRules.filter(_all,
       filter: filter,
       now: DateTime.now(),
       userId: userId,
       category: categoryFilter,
       day: selectedDay,
-      query: query);
+      query: query,
+      price: priceFilter);
 
-  /// Événements du calendrier : filtre principal + catégorie, mais sans le
-  /// jour (le calendrier montre tous les jours) ni la recherche.
+  /// Événements du calendrier : filtre principal + catégorie + prix, mais
+  /// sans le jour (le calendrier montre tous les jours) ni la recherche.
   List<EventModel> calendarEvents(String? userId) => EventRules.filter(_all,
-      filter: filter, now: DateTime.now(), userId: userId, category: categoryFilter);
+      filter: filter, now: DateTime.now(), userId: userId, category: categoryFilter, price: priceFilter);
 
   /// À venir (ni annulés ni terminés), filtrés par catégorie.
   List<EventModel> get upcoming =>

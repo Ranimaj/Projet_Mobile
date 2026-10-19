@@ -1,5 +1,5 @@
-import '../../core/constants/app_constants.dart';
 import '../../models/event_model.dart';
+import 'event_categories.dart';
 
 /// Contrôles de saisie du module Événements.
 ///
@@ -20,6 +20,7 @@ class EventValidators {
   static const Duration maxDuration = Duration(hours: 72);
   static const int posterMaxBytes = 5 * 1024 * 1024; // 5 Mo avant compression
   static const int maxEventsPerDay = 5;
+  static const double priceMax = 1000; // TND
 
   static const String lieuIntrouvable = 'Lieu introuvable sur la carte';
 
@@ -53,8 +54,30 @@ class EventValidators {
   }
 
   static String? category(String? value) {
-    if (value == null || !AppConstants.eventCategories.contains(value)) return 'Catégorie invalide';
+    if (value == null || !EventCategories.all.contains(value)) return 'Catégorie invalide';
     return null;
+  }
+
+  static final RegExp _pricePattern = RegExp(r'^\d+(\.\d{1,2})?$');
+
+  /// Prix optionnel (vide = gratuit) : 0 à 1000 TND, 2 décimales au plus.
+  /// La virgule est acceptée (« 12,5 » = « 12.5 »).
+  static String? price(String? value) {
+    final v = (value ?? '').trim().replaceAll(',', '.');
+    if (v.isEmpty) return null;
+    const message = 'Prix entre 0 et 1000 TND (2 décimales max)';
+    if (!_pricePattern.hasMatch(v)) return message;
+    final p = double.parse(v);
+    if (p < 0 || p > priceMax) return message;
+    return null;
+  }
+
+  /// Prix à enregistrer : null si vide (gratuit), sinon arrondi à 2 décimales.
+  /// À appeler après [price] (valeur déjà validée).
+  static double? parsePrice(String? value) {
+    final v = (value ?? '').trim().replaceAll(',', '.');
+    if (v.isEmpty) return null;
+    return (double.parse(v) * 100).round() / 100;
   }
 
   /// Début : au moins 15 min dans le futur (couvre aussi « aujourd'hui avec

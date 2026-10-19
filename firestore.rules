@@ -56,10 +56,12 @@ service cloud.firestore {
     }
 
     // --- Gestion Événements ---
-    // Règles v2 : miroir serveur des contrôles de l'app. On utilise
+    // Règles v3 : miroir serveur des contrôles de l'app. On utilise
     // data.get(champ, défaut) car les anciens documents n'ont pas les
     // nouveaux champs, et request.time (horloge du serveur) pour tout ce qui
     // dépend de l'heure : un téléphone mal réglé ne peut pas tricher.
+    // v3 : nouvelles catégories (une ancienne valeur reste acceptée si elle
+    // n'est pas modifiée) et prix informatif optionnel de 0 à 1000 TND.
     match /events/{eventId} {
       // Champs modifiés par la requête (ajoutés, supprimés ou changés).
       function changedKeys() {
@@ -67,16 +69,24 @@ service cloud.firestore {
       }
 
       // Contenu valide d'un événement (création et modification).
-      // Capacité absente ou null = places illimitées.
-      function validEvent(d) {
+      // Capacité absente ou null = places illimitées ; prix absent ou null =
+      // gratuit. [previousCategory] : catégorie actuelle du document en
+      // modification (null à la création). Une ancienne catégorie (« Job
+      // Fair »...) reste acceptée tant qu'elle n'est pas changée, pour ne pas
+      // bloquer la modification du titre d'un ancien événement.
+      function validEvent(d, previousCategory) {
         let end = d.get('endDate', d.startDate + duration.value(2, 'h'));
         let cap = d.get('capacity', null);
+        let price = d.get('price', null);
+        let category = d.get('category', '');
         let status = d.get('status', 'active');
         let reason = d.get('cancelReason', '');
         return d.title is string && d.title.size() >= 3 && d.title.size() <= 80 &&
           d.description is string && d.description.size() >= 10 && d.description.size() <= 1000 &&
           d.location is string && d.location.size() >= 3 && d.location.size() <= 100 &&
-          d.category in ['Conférence', 'Job Fair', 'Sport', 'Culture', 'Associatif'] &&
+          (category in ['Conférence', 'Carrière', 'Sport', 'Culture', 'Vie associative'] ||
+            (previousCategory != null && category == previousCategory)) &&
+          (price == null || (price is number && price >= 0 && price <= 1000)) &&
           d.startDate is timestamp && end is timestamp &&
           end > d.startDate && end <= d.startDate + duration.value(72, 'h') &&
           (cap == null || (cap is int && cap >= 1 && cap <= 5000)) &&
@@ -131,7 +141,8 @@ service cloud.firestore {
           (!changedKeys().hasAny(['registeredUserIds']) || isOwnRegistrationDelta()) &&
           !(resource.data.get('status', 'active') == 'cancelled' && after.get('status', 'active') == 'active') &&
           (isCancelOnly() ||
-            (validEvent(after) && (cap == null || cap >= after.get('registeredUserIds', []).size())));
+            (validEvent(after, resource.data.get('category', null)) &&
+              (cap == null || cap >= after.get('registeredUserIds', []).size())));
       }
 
       // Autre utilisateur : ne touche qu'à registeredUserIds, et seulement sa
@@ -143,7 +154,7 @@ service cloud.firestore {
       allow read: if true;
       allow create: if isSignedIn() &&
         request.resource.data.organizerId == request.auth.uid &&
-        validEvent(request.resource.data) &&
+        validEvent(request.resource.data, null) &&
         request.resource.data.startDate > request.time &&
         request.resource.data.get('status', 'active') == 'active' &&
         request.resource.data.get('registeredUserIds', []).size() == 0 &&

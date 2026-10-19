@@ -12,6 +12,7 @@ import '../../widgets/offline_banner.dart';
 import 'add_event_screen.dart';
 import 'event_calendar_screen.dart';
 import 'event_card.dart';
+import 'event_categories.dart';
 import 'event_detail_screen.dart';
 import 'event_rules.dart';
 import 'event_style.dart';
@@ -119,7 +120,8 @@ class _EvenementsListScreenState extends State<EvenementsListScreen> with Ticker
     provider
       ..setFilter(EventFilter.upcoming)
       ..setCategoryFilter(null)
-      ..setSelectedDay(null);
+      ..setSelectedDay(null)
+      ..setPriceFilter(PriceFilter.all);
     _tabCtrl?.animateTo(0);
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollStripToFocusDay());
   }
@@ -207,7 +209,8 @@ class _EvenementsListScreenState extends State<EvenementsListScreen> with Ticker
 
   PreferredSizeWidget _buildAppBar(EventProvider provider) {
     final activeFilters =
-        EventRules.activeFilterCount(category: provider.categoryFilter, day: provider.selectedDay);
+        EventRules.activeFilterCount(
+            category: provider.categoryFilter, day: provider.selectedDay, price: provider.priceFilter);
     final filterButton = IconButton(
       tooltip: activeFilters == 0 ? 'Filtres' : 'Filtres ($activeFilters actif(s))',
       onPressed: _openFilterSheet,
@@ -467,7 +470,7 @@ class _HeroCard extends StatelessWidget {
 
     return Semantics(
       button: true,
-      label: 'Prochain événement : ${event.title}, $date, ${event.location}, $countdown',
+      label: 'Prochain événement : ${event.title}, $date, ${event.location}, ${EventRules.priceLabel(event)}, $countdown',
       excludeSemantics: true,
       child: Material(
         borderRadius: BorderRadius.circular(20),
@@ -517,6 +520,8 @@ class _HeroCard extends StatelessWidget {
                 _HeroLine(icon: Icons.calendar_today_outlined, text: date[0].toUpperCase() + date.substring(1)),
                 const SizedBox(height: 4),
                 _HeroLine(icon: Icons.place_outlined, text: event.location),
+                const SizedBox(height: 4),
+                _HeroLine(icon: Icons.sell_outlined, text: EventRules.priceLabel(event)),
               ],
             ),
           ),
@@ -575,12 +580,31 @@ class _CategorySheet extends StatelessWidget {
                   selected: provider.categoryFilter == null,
                   onTap: () => provider.setCategoryFilter(null),
                 ),
-                for (final c in AppConstants.eventCategories)
+                for (final c in EventCategories.all)
                   EventChip(
                     label: c,
                     color: EventStyle.categoryColor(c),
                     selected: provider.categoryFilter == c,
                     onTap: () => provider.setCategoryFilter(provider.categoryFilter == c ? null : c),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 18),
+            Text('Prix', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final (value, label) in const [
+                  (PriceFilter.all, 'Tous'),
+                  (PriceFilter.free, 'Gratuit'),
+                  (PriceFilter.paid, 'Payant'),
+                ])
+                  EventChip(
+                    label: label,
+                    selected: provider.priceFilter == value,
+                    onTap: () => provider.setPriceFilter(value),
                   ),
               ],
             ),
@@ -596,7 +620,8 @@ class _CategorySheet extends StatelessWidget {
                   style: TextButton.styleFrom(minimumSize: const Size(44, 44)),
                   onPressed: () => provider
                     ..setCategoryFilter(null)
-                    ..setSelectedDay(null),
+                    ..setSelectedDay(null)
+                    ..setPriceFilter(PriceFilter.all),
                   child: const Text('Réinitialiser'),
                 ),
                 const Spacer(),

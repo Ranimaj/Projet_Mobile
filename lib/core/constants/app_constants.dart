@@ -37,14 +37,7 @@ class AppConstants {
     'Générale',
   ];
 
-  // --- Catégories Événements ---
-  static const List<String> eventCategories = [
-    'Conférence',
-    'Job Fair',
-    'Sport',
-    'Culture',
-    'Associatif',
-  ];
+  // --- Catégories Événements : voir lib/screens/evenements/event_categories.dart ---
 
   // --- Types d'offres Stage & Emploi ---
   static const List<String> jobTypes = ['Stage', 'Emploi'];
