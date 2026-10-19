@@ -66,7 +66,7 @@ void main() {
       expect(sent.url.path, '/api/');
       expect(sent.url.queryParameters, {
         'q': 'esprit ghazela',
-        'limit': '5',
+        'limit': '10',
         'lang': 'fr',
         'lat': '36.8065',
         'lon': '10.1815',
@@ -96,6 +96,16 @@ void main() {
             for (var i = 0; i < 8; i++) feature(lng: 10.1 + i / 100, lat: 36.8, name: 'Lieu $i', city: 'Tunis'),
           ])))).search('lieu');
       expect((r as PhotonSuccess).suggestions.length, 5);
+    });
+
+    test('10 demandés : 4 étrangers + 6 tunisiens → les 5 premiers tunisiens', () async {
+      final r = await service(MockClient((_) async => jsonResponse(collection([
+            for (var i = 0; i < 4; i++)
+              feature(lng: 2.3, lat: 48.8, name: 'Paris $i', city: 'Paris', country: 'France', countrycode: 'FR'),
+            for (var i = 0; i < 6; i++) feature(lng: 10.1 + i / 100, lat: 36.8, name: 'Tunis $i', city: 'Tunis'),
+          ])))).search('lieu');
+      final list = (r as PhotonSuccess).suggestions;
+      expect(list.map((s) => s.name), ['Tunis 0', 'Tunis 1', 'Tunis 2', 'Tunis 3', 'Tunis 4']);
     });
 
     test('rue, sinon quartier, dans la ligne grise', () async {

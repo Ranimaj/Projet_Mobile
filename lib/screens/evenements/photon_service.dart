@@ -43,7 +43,8 @@ class PhotonFailure extends PhotonResponse {
 /// que Nominatim interdit). Même modèle que OsrmService / OpenMeteoService.
 ///
 /// - Résultats biaisés autour de Tunis (lat/lon), en français (lang=fr) ;
-/// - on ne garde que la Tunisie (countrycode « TN »), 5 au plus, sans doublon ;
+/// - on demande 10 résultats, on ne garde que la Tunisie (countrycode
+///   « TN »), sans doublon, et on en affiche 5 au plus ;
 /// - au plus 1 requête toutes les 500 ms : une instance PAR FORMULAIRE.
 ///
 /// VIE PRIVÉE : seul le texte tapé dans « Lieu » est envoyé. La position de
@@ -53,7 +54,10 @@ class PhotonService {
   static const String userAgent = 'CampusConnect/1.0 (com.esprit.campusconnect; projet etudiant ESPRIT)';
   static const double biasLat = 36.8065; // Tunis (point fixe, pas l'utilisateur)
   static const double biasLon = 10.1815;
-  static const int maxSuggestions = 5;
+  static const int maxSuggestions = 5; // affichées
+  /// Demandées au serveur : plus que [maxSuggestions], car le filtre Tunisie
+  /// et le retrait des doublons sont appliqués APRÈS la réponse.
+  static const int requestLimit = 10;
 
   final http.Client _client;
   final Duration timeout;
@@ -94,7 +98,7 @@ class PhotonService {
     await _waitTurn();
     final uri = Uri.https(host, '/api/', {
       'q': q,
-      'limit': '$maxSuggestions',
+      'limit': '$requestLimit',
       'lang': 'fr',
       'lat': '$biasLat',
       'lon': '$biasLon',
