@@ -69,6 +69,30 @@ class EventRules {
 
   static bool _sameDay(DateTime a, DateTime b) => a.year == b.year && a.month == b.month && a.day == b.day;
 
+  /// Date sans l'heure (minuit), pour comparer des jours.
+  static DateTime dateOnly(DateTime d) => DateTime(d.year, d.month, d.day);
+
+  /// Nombre de jours du mois (le « jour 0 » du mois suivant = dernier jour).
+  static int daysInMonth(DateTime month) => DateTime(month.year, month.month + 1, 0).day;
+
+  /// Cases de la grille du mois, semaine commençant le lundi : null avant le
+  /// 1er (décalage) et après le dernier jour (pour finir la semaine).
+  static List<DateTime?> monthGrid(DateTime month) {
+    final first = DateTime(month.year, month.month, 1);
+    final offset = first.weekday - DateTime.monday; // lundi = 0 ... dimanche = 6
+    final cells = <DateTime?>[
+      for (var i = 0; i < offset; i++) null,
+      for (var d = 1; d <= daysInMonth(month); d++) DateTime(month.year, month.month, d),
+    ];
+    while (cells.length % 7 != 0) {
+      cells.add(null);
+    }
+    return cells;
+  }
+
+  /// Jours (sans l'heure) où commence au moins un des [events] : on y met un point.
+  static Set<DateTime> eventDays(List<EventModel> events) => {for (final e in events) dateOnly(e.startDate)};
+
   static const Map<String, String> _accents = {
     'à': 'a', 'â': 'a', 'ä': 'a', 'á': 'a', 'ã': 'a', 'å': 'a',
     'ç': 'c',

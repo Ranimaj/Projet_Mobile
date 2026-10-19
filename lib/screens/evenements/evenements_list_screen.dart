@@ -11,6 +11,7 @@ import '../../providers/event_provider.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/offline_banner.dart';
 import 'add_event_screen.dart';
+import 'event_calendar_screen.dart';
 import 'event_detail_screen.dart';
 import 'event_rules.dart';
 import 'event_style.dart';
@@ -26,20 +27,44 @@ class EvenementsListScreen extends StatefulWidget {
 
 class _EvenementsListScreenState extends State<EvenementsListScreen> {
   final _searchCtrl = TextEditingController();
+  final _stripCtrl = ScrollController();
   Timer? _debounce;
   String _query = '';
+
+  /// Largeur d'une case de la bande des jours (52) + espace (8).
+  static const double _dayItemExtent = 60;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => context.read<EventProvider>().load());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<EventProvider>().load();
+      _scrollStripToFocusDay();
+    });
   }
 
   @override
   void dispose() {
     _debounce?.cancel();
     _searchCtrl.dispose();
+    _stripCtrl.dispose();
     super.dispose();
+  }
+
+  /// Jour mis en avant dans la bande : le jour sélectionné, sinon aujourd'hui.
+  DateTime get _focusDay => context.read<EventProvider>().selectedDay ?? DateTime.now();
+
+  /// Fait défiler la bande pour montrer le jour sélectionné (ou aujourd'hui).
+  void _scrollStripToFocusDay() {
+    if (!_stripCtrl.hasClients) return;
+    final offset = (_focusDay.day - 1) * _dayItemExtent;
+    _stripCtrl.jumpTo(offset.clamp(0, _stripCtrl.position.maxScrollExtent));
+  }
+
+  Future<void> _openCalendar() async {
+    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => const EventCalendarScreen()));
+    // Au retour, la bande montre le mois et le jour choisis dans le calendrier.
+    if (mounted) WidgetsBinding.instance.addPostFrameCallback((_) => _scrollStripToFocusDay());
   }
 
   /// Recherche « debouncée » : on attend que l'utilisateur arrête de taper
@@ -66,7 +91,16 @@ class _EvenementsListScreenState extends State<EvenementsListScreen> {
     final events = provider.visibleEvents(userId, query: _query);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Événements')),
+      appBar: AppBar(
+        title: const Text('Événements'),
+        actions: [
+          IconButton(
+            tooltip: 'Vue calendrier',
+            icon: const Icon(Icons.calendar_month_outlined),
+            onPressed: _openCalendar,
+          ),
+        ],
+      ),
       floatingActionButton: isGuest
           ? null
           : FloatingActionButton(
@@ -82,7 +116,7 @@ class _EvenementsListScreenState extends State<EvenementsListScreen> {
             _buildSearchField(),
             _buildFilterChips(provider, isGuest),
             _buildCategoryChips(provider),
-            _buildDayStrip(provider),
+            _buildDayStrip(provider, userId),
             if (provider.loadError != null && events.isNotEmpty) _buildStaleBanner(provider),
             Expanded(child: _buildBody(provider, events, userId)),
           ],
@@ -141,58 +175,99 @@ class _EvenementsListScreenState extends State<EvenementsListScreen> {
     ]);
   }
 
-  Widget _buildDayStrip(EventProvider provider) {
-    final today = DateTime.now();
-    final selected = provider.selectedDay;
-    return SizedBox(
-      height: 70,
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
-        itemCount: 14,
-        itemBuilder: (context, i) {
-          final day = DateTime(today.year, today.month, today.day + i);
-          final isSelected = selected != null &&
-              selected.year == day.year &&
-              selected.month == day.month &&
-              selected.day == day.day;
-          return Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                borderRadius: BorderRadius.circular(14),
-                onTap: () => provider.setSelectedDay(isSelected ? null : day),
-                child: Container(
-                  width: 52,
-                  decoration: BoxDecoration(
-                    gradient: isSelected ? AppColors.primaryGradient : null,
-                    color: isSelected ? null : Colors.white,
-                    border: Border.all(color: isSelected ? AppColors.primary : AppColors.border),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(DateFormat('E', 'fr_FR').format(day).toUpperCase(),
-                          style: TextStyle(
-                              fontSize: 10.5,
-                              fontWeight: FontWeight.w600,
-                              color: isSelected ? Colors.white70 : AppColors.textSecondary)),
-                      const SizedBox(height: 2),
-                      Text('${day.day}',
-                          style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w700,
-                              color: isSelected ? Colors.white : AppColors.textPrimary)),
-                    ],
+  /// Bande des jours : tout le mois du jour sélectionné (ou du mois courant),
+  /// avec un point sous les jours qui ont des événements (filtre + catégorie).
+  Widget _buildDayStrip(EventProvider provider, String? userId) {
+    final selected = provider.selectedDay == null ? null : EventRules.dateOnly(provider.selectedDay!);
+    final focus = selected ?? DateTime.now();
+    final month = DateTime(focus.year, focus.month);
+    final today = EventRules.dateOnly(DateTime.now());
+    final eventDays = EventRules.eventDays(provider.calendarEvents(userId));
+    final monthLabel = DateFormat.yMMMM('fr_FR').format(month);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 6, 20, 0),
+          child: Text(monthLabel[0].toUpperCase() + monthLabel.substring(1),
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textSecondary)),
+        ),
+        SizedBox(
+          height: 74,
+          child: ListView.builder(
+            controller: _stripCtrl,
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.fromLTRB(20, 6, 20, 4),
+            itemCount: EventRules.daysInMonth(month),
+            itemExtent: _dayItemExtent,
+            itemBuilder: (context, i) {
+              final day = DateTime(month.year, month.month, i + 1);
+              final isSelected = day == selected;
+              final hasEvents = eventDays.contains(day);
+              final isToday = day == today;
+              return Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: Semantics(
+                  button: true,
+                  selected: isSelected,
+                  label: DateFormat('EEEE d MMMM', 'fr_FR').format(day) + (hasEvents ? ', avec événements' : ''),
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(14),
+                      onTap: () {
+                        provider.setSelectedDay(isSelected ? null : day);
+                        // Désélection : la bande peut revenir au mois courant.
+                        if (isSelected) {
+                          WidgetsBinding.instance.addPostFrameCallback((_) => _scrollStripToFocusDay());
+                        }
+                      },
+                      child: Container(
+                        decoration: BoxDecoration(
+                          gradient: isSelected ? AppColors.primaryGradient : null,
+                          color: isSelected ? null : Colors.white,
+                          border: Border.all(
+                              color: isSelected || isToday ? AppColors.primary : AppColors.border),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(DateFormat('E', 'fr_FR').format(day).toUpperCase(),
+                                style: TextStyle(
+                                    fontSize: 10.5,
+                                    fontWeight: FontWeight.w600,
+                                    color: isSelected ? Colors.white70 : AppColors.textSecondary)),
+                            const SizedBox(height: 2),
+                            Text('${day.day}',
+                                style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w700,
+                                    color: isSelected ? Colors.white : AppColors.textPrimary)),
+                            const SizedBox(height: 3),
+                            // Point sous les jours qui ont des événements.
+                            Container(
+                              width: 5,
+                              height: 5,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: !hasEvents
+                                    ? Colors.transparent
+                                    : (isSelected ? Colors.white : AppColors.primary),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
                 ),
-              ),
-            ),
-          );
-        },
-      ),
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 

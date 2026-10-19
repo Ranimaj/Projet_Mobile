@@ -166,6 +166,40 @@ void main() {
     test('la description n’est pas cherchée', () => expect(EventRules.matchesSearch(e, 'description'), isFalse));
   });
 
+  group('grille du mois (lundi en premier)', () {
+    test('octobre 2026 commence un jeudi : 3 cases vides, 31 jours, 35 cases', () {
+      final cells = EventRules.monthGrid(DateTime(2026, 10));
+      expect(cells.take(3), everyElement(isNull));
+      expect(cells[3], DateTime(2026, 10, 1));
+      expect(cells.whereType<DateTime>().length, 31);
+      expect(cells.length, 35);
+    });
+    test('février 2027 commence un lundi : aucune case vide, 28 cases', () {
+      final cells = EventRules.monthGrid(DateTime(2027, 2));
+      expect(cells.first, DateTime(2027, 2, 1));
+      expect(cells.length, 28);
+    });
+    test('novembre 2026 commence un dimanche : 6 cases vides, 42 cases', () {
+      final cells = EventRules.monthGrid(DateTime(2026, 11));
+      expect(cells.take(6), everyElement(isNull));
+      expect(cells[6], DateTime(2026, 11, 1));
+      expect(cells.length, 42);
+    });
+    test('nombre de jours, années bissextiles comprises', () {
+      expect(EventRules.daysInMonth(DateTime(2026, 2)), 28);
+      expect(EventRules.daysInMonth(DateTime(2028, 2)), 29);
+      expect(EventRules.daysInMonth(DateTime(2026, 12)), 31);
+    });
+    test('jours avec événements : sans l’heure, sans doublon', () {
+      final days = EventRules.eventDays([
+        ev('a', start: DateTime(2026, 11, 1, 9, 0)),
+        ev('b', start: DateTime(2026, 11, 1, 18, 30)),
+        ev('c', start: DateTime(2026, 11, 3, 14, 0)),
+      ]);
+      expect(days, {DateTime(2026, 11, 1), DateTime(2026, 11, 3)});
+    });
+  });
+
   group('filtres combinés', () {
     final day1 = DateTime(2026, 11, 1, 18, 0);
     final day2 = DateTime(2026, 11, 2, 9, 0);

@@ -97,6 +97,11 @@ class EventProvider extends ChangeNotifier {
       day: selectedDay,
       query: query);
 
+  /// Événements du calendrier : filtre principal + catégorie, mais sans le
+  /// jour (le calendrier montre tous les jours) ni la recherche.
+  List<EventModel> calendarEvents(String? userId) => EventRules.filter(_all,
+      filter: filter, now: DateTime.now(), userId: userId, category: categoryFilter);
+
   /// À venir (ni annulés ni terminés), filtrés par catégorie.
   List<EventModel> get upcoming =>
       EventRules.filter(_all, filter: EventFilter.upcoming, now: DateTime.now(), category: categoryFilter);
