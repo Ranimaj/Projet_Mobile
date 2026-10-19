@@ -84,29 +84,16 @@ service cloud.firestore {
             (status == 'cancelled' && reason is string && reason.size() >= 5 && reason.size() <= 200));
       }
 
-      // Organisateur ou admin : modifie le contenu, annule, gère la présence ;
-      // jamais organizerId ni createdAt ; capacité >= nombre d'inscrits ;
-      // un événement annulé ne redevient pas actif.
-      function isOrganizerEdit() {
-        let after = request.resource.data;
-        let cap = after.get('capacity', null);
-        return (resource.data.organizerId == request.auth.uid || isAdmin()) &&
-          !changedKeys().hasAny(['organizerId', 'createdAt']) &&
-          validEvent(after) &&
-          (cap == null || cap >= after.get('registeredUserIds', []).size()) &&
-          !(resource.data.get('status', 'active') == 'cancelled' && after.get('status', 'active') == 'active');
-      }
-
-      // Autre utilisateur : ne touche qu'à registeredUserIds, pour ajouter OU
-      // retirer son propre uid, seulement si l'événement est actif, avant son
-      // début (heure du serveur), et sans dépasser la capacité.
-      function isOwnRegistrationChange() {
+      // La liste des inscrits change d'UNE seule entrée, la mienne : ajout
+      // (dans la limite des places) ou retrait, seulement si l'événement est
+      // actif et avant son début (heure du serveur). Vaut pour TOUT le monde,
+      // organisateur et admin compris.
+      function isOwnRegistrationDelta() {
         let before = resource.data.get('registeredUserIds', []);
         let after = request.resource.data.get('registeredUserIds', []);
         let me = [request.auth.uid].toSet();
-        let cap = resource.data.get('capacity', null);
-        return changedKeys().hasOnly(['registeredUserIds']) &&
-          resource.data.get('status', 'active') == 'active' &&
+        let cap = request.resource.data.get('capacity', null);
+        return resource.data.get('status', 'active') == 'active' &&
           request.time < resource.data.startDate && (
             // inscription : avant + moi, dans la limite des places
             (!(request.auth.uid in before) &&
@@ -118,6 +105,39 @@ service cloud.firestore {
               after.size() == before.size() - 1 &&
               after.toSet() == before.toSet().difference(me))
           );
+      }
+
+      // Annulation seule : uniquement ces 4 champs, statut « cancelled »,
+      // motif de 5 à 200 caractères. On ne revérifie pas tout le contenu :
+      // un ancien événement (description courte...) peut quand même être annulé.
+      function isCancelOnly() {
+        let after = request.resource.data;
+        let reason = after.get('cancelReason', '');
+        return changedKeys().hasOnly(['status', 'cancelReason', 'cancelledAt', 'updatedAt']) &&
+          after.get('status', 'active') == 'cancelled' &&
+          reason is string && reason.size() >= 5 && reason.size() <= 200 &&
+          after.get('cancelledAt', null) is timestamp;
+      }
+
+      // Organisateur ou admin : modifie le contenu, annule, gère la présence ;
+      // jamais organizerId ni createdAt ; inscrits modifiables seulement comme
+      // n'importe qui (sa propre inscription) ; capacité >= nombre d'inscrits ;
+      // un événement annulé ne redevient pas actif.
+      function isOrganizerEdit() {
+        let after = request.resource.data;
+        let cap = after.get('capacity', null);
+        return (resource.data.organizerId == request.auth.uid || isAdmin()) &&
+          !changedKeys().hasAny(['organizerId', 'createdAt']) &&
+          (!changedKeys().hasAny(['registeredUserIds']) || isOwnRegistrationDelta()) &&
+          !(resource.data.get('status', 'active') == 'cancelled' && after.get('status', 'active') == 'active') &&
+          (isCancelOnly() ||
+            (validEvent(after) && (cap == null || cap >= after.get('registeredUserIds', []).size())));
+      }
+
+      // Autre utilisateur : ne touche qu'à registeredUserIds, et seulement sa
+      // propre inscription.
+      function isOwnRegistrationChange() {
+        return changedKeys().hasOnly(['registeredUserIds']) && isOwnRegistrationDelta();
       }
 
       allow read: if true;
