@@ -4,10 +4,13 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../core/theme/app_colors.dart';
 import '../../models/event_model.dart';
+import '../../models/user_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/event_provider.dart';
 import '../../widgets/primary_button.dart';
 import '../../widgets/status_badge.dart';
+import 'add_event_screen.dart';
+import 'event_validators.dart';
 
 /// Détail d'un événement — inscription + fonctionnalités avancées :
 /// synchronisation calendrier natif et aperçu du lieu.
@@ -24,6 +27,7 @@ class EventDetailScreen extends StatelessWidget {
     final auth = context.watch<AuthProvider>();
     final isGuest = auth.status != AuthStatus.authenticated;
     final isOwner = auth.currentUser?.id == event.organizerId;
+    final isAdmin = auth.currentUser?.role == UserRole.admin;
     final userId = auth.currentUser?.id;
     final isRegistered = userId != null && event.isUserRegistered(userId);
     final isBusy = context.watch<EventProvider>().isRegistrationBusy(event.id);
@@ -32,6 +36,22 @@ class EventDetailScreen extends StatelessWidget {
       appBar: AppBar(
         title: const Text('Événement'),
         actions: [
+          if (isOwner || isAdmin)
+            IconButton(
+              tooltip: 'Modifier',
+              icon: const Icon(Icons.edit_outlined),
+              onPressed: () {
+                // Terminé ou annulé : on explique au lieu d'ouvrir le formulaire.
+                final blocked = EventValidators.editBlocked(event, DateTime.now());
+                if (blocked != null) {
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(blocked)));
+                  return;
+                }
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => AddEventScreen(existing: event)),
+                );
+              },
+            ),
           if (isOwner)
             IconButton(
               icon: const Icon(Icons.delete_outline_rounded),

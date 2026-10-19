@@ -3,7 +3,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import '../core/constants/app_constants.dart';
 import '../core/utils/local_cache_service.dart';
+import '../core/utils/offline_queue_service.dart';
 import '../models/event_model.dart';
+import '../screens/evenements/event_validators.dart';
 import '../services/firestore_repository.dart';
 
 /// Erreur d'action sur un événement, avec un message prêt à afficher.
@@ -43,8 +45,10 @@ class EventProvider extends ChangeNotifier {
 
   final _firestore = FirebaseFirestore.instance;
   final _cache = LocalCacheService();
+  final _queue = OfflineQueueService();
 
   bool _isOnline = true;
+  bool get isOnline => _isOnline;
   void updateConnectivity(bool online) => _isOnline = online;
 
   /// Événements dont une inscription/désinscription est en cours d'envoi.
@@ -52,6 +56,8 @@ class EventProvider extends ChangeNotifier {
   bool isRegistrationBusy(String eventId) => _busyEventIds.contains(eventId);
 
   List<EventModel> _all = [];
+  /// Tous les événements chargés (lecture seule), pour les contrôles du formulaire.
+  List<EventModel> get all => List.unmodifiable(_all);
   bool isLoading = false;
   String? categoryFilter;
 
@@ -95,13 +101,78 @@ class EventProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Création. [draft.id] est généré UNE fois à l'ouverture du formulaire et
+  /// réutilisé à chaque nouvel essai : réécrire le même document ne crée
+  /// jamais de doublon, même si le premier essai a réussi sans réponse.
+  /// Hors-ligne, le dépôt met la création en file d'attente.
   Future<String> createEvent(EventModel draft) async {
     // Horloge du téléphone (pas de serverTimestamp : la file Hive ne peut
     // pas stocker un FieldValue).
     final now = DateTime.now();
-    final id = await _repo.create(draft.copyWith(createdAt: now, updatedAt: now), isOnline: _isOnline);
+    final id = await _repo.create(
+      draft.copyWith(createdAt: now, updatedAt: now),
+      isOnline: _isOnline,
+      explicitId: draft.id.isEmpty ? null : draft.id,
+    );
     await load();
     return id;
+  }
+
+  /// Modification : envoie SEULEMENT les champs changés (+ updatedAt) avec
+  /// update(), jamais un set() du document entier, sinon les inscriptions
+  /// faites entre-temps seraient effacées. organizerId n'est jamais envoyé.
+  /// Renvoie true si envoyé au serveur, false si mis en file d'attente.
+  Future<bool> updateEvent(EventModel original, EventModel edited) async {
+    final now = DateTime.now();
+    final current = findById(original.id) ?? original; // inscrits les plus récents
+
+    final blocked = EventValidators.editBlocked(current, now);
+    if (blocked != null) throw EventActionException(blocked);
+    final capacityError = EventValidators.capacity(edited.capacity?.toString(),
+        registeredCount: current.registeredUserIds.length);
+    if (capacityError != null) throw EventActionException(capacityError);
+
+    final changes = edited.changedFieldsSince(original);
+    if (changes.isEmpty) return true; // rien à enregistrer
+    final patch = {...changes, 'updatedAt': Timestamp.fromDate(now)};
+
+    var sentOnline = _isOnline;
+    if (_isOnline) {
+      try {
+        await _firestore
+            .collection(AppConstants.eventsCollection)
+            .doc(original.id)
+            .update(patch)
+            .timeout(const Duration(seconds: 15));
+      } on FirebaseException catch (e) {
+        debugPrint('Modification événement ${original.id} : ${e.code}');
+        // Seule une panne réseau justifie la file d'attente. Un refus
+        // (permission-denied...) serait refusé à nouveau à chaque essai.
+        if (e.code != 'unavailable') throw EventActionException(friendlyFirebaseMessage(e));
+        sentOnline = false;
+      } on TimeoutException {
+        throw const EventActionException('Le serveur ne répond pas. Vérifiez votre connexion et réessayez.');
+      }
+    }
+    if (!sentOnline) {
+      // Le patch partiel est rejoué plus tard avec merge : il ne touche que ces champs.
+      _queue.enqueue(
+        type: QueueActionType.update,
+        collection: AppConstants.eventsCollection,
+        payload: patch,
+        docId: original.id,
+      );
+    }
+
+    // Mise à jour locale : on applique le patch sur la version la plus récente
+    // (les inscriptions restent celles du serveur, pas celles du formulaire).
+    final updated = EventModel.fromMap(original.id, {...current.toMap(), ...patch})
+        .copyWith(pendingSync: !sentOnline);
+    _all = [for (final e in _all) e.id == updated.id ? updated : e];
+    final cached = _cache.readCollection(AppConstants.hiveEventsBox)[original.id] ?? current.toMap();
+    await _cache.upsert(AppConstants.hiveEventsBox, original.id, {...cached, ...patch});
+    notifyListeners();
+    return sentOnline;
   }
 
   /// Inscription / désinscription atomique, en ligne uniquement.

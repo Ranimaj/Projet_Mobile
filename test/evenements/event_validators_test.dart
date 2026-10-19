@@ -194,6 +194,24 @@ void main() {
         createdAt: createdAt,
       );
 
+  group('modification bloquée (terminé ou annulé)', () {
+    final s = DateTime(2026, 11, 1, 20, 0);
+    final e = existing(start: s); // fin par défaut : s + 2 h
+    test('à venir : modifiable', () {
+      expect(EventValidators.editBlocked(e, s.subtract(const Duration(days: 1))), isNull);
+    });
+    test('en cours : modifiable', () => expect(EventValidators.editBlocked(e, s), isNull));
+    test('terminé : refusé', () {
+      expect(EventValidators.editBlocked(e, s.add(const Duration(hours: 2))),
+          'Un événement terminé ne peut plus être modifié.');
+    });
+    test('annulé : refusé', () {
+      final cancelled = e.copyWith(status: EventStatus.cancelled);
+      expect(EventValidators.editBlocked(cancelled, s.subtract(const Duration(days: 1))),
+          'Un événement annulé ne peut plus être modifié.');
+    });
+  });
+
   group('doublon (même organisateur, titre normalisé, début)', () {
     final list = [existing()];
     test('même titre avec casse et espaces différents : refusé', () {

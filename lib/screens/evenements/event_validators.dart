@@ -109,6 +109,18 @@ class EventValidators {
     return null;
   }
 
+  /// Raison pour laquelle [event] ne peut plus être modifié à [now], ou null.
+  static String? editBlocked(EventModel event, DateTime now) {
+    switch (event.statusAt(now)) {
+      case EventDisplayStatus.cancelled:
+        return 'Un événement annulé ne peut plus être modifié.';
+      case EventDisplayStatus.finished:
+        return 'Un événement terminé ne peut plus être modifié.';
+      default:
+        return null;
+    }
+  }
+
   /// Titre comparable : normalisé et en minuscules.
   static String normalizedTitle(String title) => normalize(title).toLowerCase();
 

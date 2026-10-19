@@ -143,6 +143,23 @@ class EventModel {
     };
   }
 
+  /// Champs que le formulaire de modification a le droit de changer.
+  /// organizerId, registeredUserIds, status... n'y sont volontairement pas.
+  static const List<String> editableFields = [
+    'title', 'description', 'category', 'startDate', 'endDate', 'location', 'capacity',
+  ];
+
+  /// Seulement les champs modifiables qui diffèrent de [original] : c'est ce
+  /// qu'on envoie à Firestore, pour ne jamais écraser les inscriptions.
+  Map<String, dynamic> changedFieldsSince(EventModel original) {
+    final after = toMap();
+    final before = original.toMap();
+    return {
+      for (final key in editableFields)
+        if (after[key] != before[key]) key: after[key],
+    };
+  }
+
   /// Copie avec certains champs changés. Pour remettre la capacité à
   /// « illimitée » (null), passer [clearCapacity] à true.
   EventModel copyWith({

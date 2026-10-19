@@ -219,4 +219,38 @@ void main() {
       expect(full.copyWith(clearCapacity: true).capacity, isNull);
     });
   });
+
+  group('changedFieldsSince (patch envoyé en modification)', () {
+    final original = event(capacity: 10, registered: ['a', 'b']);
+
+    test('aucun changement → patch vide', () {
+      expect(original.copyWith().changedFieldsSince(original), isEmpty);
+    });
+
+    test('seul le titre change → seul le titre est envoyé', () {
+      expect(original.copyWith(title: 'Nouveau').changedFieldsSince(original), {'title': 'Nouveau'});
+    });
+
+    test('dates changées → envoyées en Timestamp', () {
+      final later = start.add(const Duration(days: 1));
+      final patch = original
+          .copyWith(startDate: later, endDate: later.add(const Duration(hours: 2)))
+          .changedFieldsSince(original);
+      expect(patch.keys, unorderedEquals(['startDate', 'endDate']));
+      expect(patch['startDate'], Timestamp.fromDate(later));
+    });
+
+    test('capacité remise à illimitée → null envoyé', () {
+      expect(original.copyWith(clearCapacity: true).changedFieldsSince(original), {'capacity': null});
+    });
+
+    test('jamais les inscriptions, le statut ni l’organisateur', () {
+      final patch = original
+          .copyWith(registeredUserIds: ['z'], status: EventStatus.cancelled, checkedInUserIds: ['a'])
+          .changedFieldsSince(original);
+      expect(patch, isEmpty);
+      expect(EventModel.editableFields, isNot(contains('organizerId')));
+      expect(EventModel.editableFields, isNot(contains('registeredUserIds')));
+    });
+  });
 }
