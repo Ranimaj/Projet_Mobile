@@ -12,6 +12,8 @@ import 'add_event_screen.dart';
 import 'event_calendar_launcher.dart';
 import 'event_calendar_sync.dart';
 import 'event_map.dart';
+import 'open_meteo_service.dart';
+import 'weather_rules.dart';
 import 'event_rules.dart';
 import 'event_style.dart';
 import 'event_validators.dart';
@@ -152,6 +154,8 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                     title: _dateTitle(event),
                     subtitle: _timeSubtitle(event),
                   ),
+                  // Météo prévue (cachée si hors-ligne, trop loin ou en cas d'échec).
+                  _WeatherChip(event: event, isOnline: context.watch<EventProvider>().isOnline),
                   const SizedBox(height: 10),
                   _InfoCard(
                     icon: Icons.place_outlined,
@@ -642,6 +646,91 @@ class _QuickAction extends StatelessWidget {
       ),
     );
     return enabled ? button : Tooltip(message: disabledMessage, child: button);
+  }
+}
+
+/// Petite puce météo (Open-Meteo) pour l'heure de début : température,
+/// icône et libellé. Affichée seulement si le lieu est localisé et que
+/// l'événement commence dans les 14 jours ; en cas d'échec ou hors-ligne,
+/// elle reste simplement cachée (jamais de message d'erreur).
+class _WeatherChip extends StatefulWidget {
+  final EventModel event;
+  final bool isOnline;
+  const _WeatherChip({required this.event, required this.isOnline});
+
+  @override
+  State<_WeatherChip> createState() => _WeatherChipState();
+}
+
+class _WeatherChipState extends State<_WeatherChip> {
+  WeatherResult? _weather;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(_WeatherChip old) {
+    super.didUpdateWidget(old);
+    // La fiche se reconstruit souvent (données en direct) : on ne recharge
+    // que si la date, le lieu ou la connexion ont changé.
+    final e = widget.event, o = old.event;
+    if (e.startDate != o.startDate || e.latitude != o.latitude || e.longitude != o.longitude ||
+        widget.isOnline != old.isOnline) {
+      _load();
+    }
+  }
+
+  Future<void> _load() async {
+    final e = widget.event;
+    if (!widget.isOnline || !WeatherRules.shouldShowWeather(e, DateTime.now())) {
+      if (_weather != null) setState(() => _weather = null);
+      return;
+    }
+    final response = await OpenMeteoService.instance.forecastAt(e.latitude!, e.longitude!, e.startDate);
+    if (!mounted) return;
+    setState(() {
+      _weather = switch (response) {
+        WeatherSuccess(:final weather) => weather,
+        WeatherFailure() => null, // échec : la puce reste cachée
+      };
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final w = _weather;
+    if (w == null) return const SizedBox.shrink();
+    final info = WeatherRules.describe(w.weatherCode);
+    final temperature = WeatherRules.formatTemperature(w.temperatureC);
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Semantics(
+          label: 'Météo prévue au début : $temperature, ${info.label}',
+          excludeSemantics: true,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: const Color(0xFFDBEAFE),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(info.icon, size: 18, color: const Color(0xFF1E40AF)),
+                const SizedBox(width: 6),
+                Text('$temperature · ${info.label}',
+                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF1E40AF))),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
