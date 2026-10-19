@@ -82,7 +82,7 @@ class EventValidators {
   /// une heure passée ») et au plus 365 jours à l'avance.
   static String? start(DateTime? start, {required DateTime now}) {
     if (start == null || start.isBefore(now.add(minLeadTime))) {
-      return "L'événement doit commencer dans le futur";
+      return 'Le début doit être dans au moins 15 minutes.';
     }
     if (start.isAfter(now.add(maxLeadTime))) return "Au plus 365 jours à l'avance";
     return null;

@@ -128,7 +128,7 @@ void main() {
       expect(EventValidators.start(now.add(const Duration(days: 1)), now: now), isNull);
     });
     test('dans 5 min : refusé', () {
-      expect(EventValidators.start(now.add(const Duration(minutes: 5)), now: now), isNotNull);
+      expect(EventValidators.start(now.add(const Duration(minutes: 5)), now: now), 'Le début doit être dans au moins 15 minutes.');
     });
     test('exactement 15 min : accepté ; 14 min : refusé', () {
       expect(EventValidators.start(now.add(const Duration(minutes: 15)), now: now), isNull);
@@ -136,7 +136,7 @@ void main() {
     });
     test("aujourd'hui avec une heure passée : refusé", () {
       expect(EventValidators.start(DateTime(2026, 10, 19, 8, 0), now: now),
-          "L'événement doit commencer dans le futur");
+          'Le début doit être dans au moins 15 minutes.');
     });
     test('365 jours : accepté ; 366 jours : refusé', () {
       expect(EventValidators.start(now.add(const Duration(days: 365)), now: now), isNull);
