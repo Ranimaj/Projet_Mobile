@@ -215,9 +215,9 @@ class _AddEventScreenState extends State<AddEventScreen> {
           location: EventValidators.normalize(_locationCtrl.text),
           capacity: _capacityValue,
         );
-        final wasOnline = provider.isOnline;
-        await provider.createEvent(draft).timeout(const Duration(seconds: 15));
-        message = wasOnline ? 'Événement créé !' : 'Événement enregistré : publication au retour du réseau.';
+        // Le provider applique un délai max de 15 s (TimeoutException ci-dessous).
+        final sentOnline = await provider.createEvent(draft);
+        message = sentOnline ? 'Événement créé !' : 'Événement enregistré : publication au retour du réseau.';
       }
       if (!mounted) return;
       _saved = true;

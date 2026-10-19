@@ -109,6 +109,13 @@ class EventValidators {
     return null;
   }
 
+  /// Motif d'annulation obligatoire : 5 à 200 caractères.
+  static String? cancelReason(String? value) {
+    final v = normalize(value);
+    if (v.length < 5 || v.length > 200) return "Motif requis (5 à 200 caractères)";
+    return null;
+  }
+
   /// Raison pour laquelle [event] ne peut plus être modifié à [now], ou null.
   static String? editBlocked(EventModel event, DateTime now) {
     switch (event.statusAt(now)) {

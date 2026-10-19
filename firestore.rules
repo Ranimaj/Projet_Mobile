@@ -56,41 +56,84 @@ service cloud.firestore {
     }
 
     // --- Gestion Événements ---
+    // Règles v2 : miroir serveur des contrôles de l'app. On utilise
+    // data.get(champ, défaut) car les anciens documents n'ont pas les
+    // nouveaux champs, et request.time (horloge du serveur) pour tout ce qui
+    // dépend de l'heure : un téléphone mal réglé ne peut pas tricher.
     match /events/{eventId} {
       // Champs modifiés par la requête (ajoutés, supprimés ou changés).
       function changedKeys() {
         return request.resource.data.diff(resource.data).affectedKeys();
       }
 
-      // Organisateur ou admin : peut tout modifier SAUF l'organisateur.
-      function isOrganizerEdit() {
-        return (resource.data.organizerId == request.auth.uid || isAdmin()) &&
-          !changedKeys().hasAny(['organizerId']);
+      // Contenu valide d'un événement (création et modification).
+      // Capacité absente ou null = places illimitées.
+      function validEvent(d) {
+        let end = d.get('endDate', d.startDate + duration.value(2, 'h'));
+        let cap = d.get('capacity', null);
+        let status = d.get('status', 'active');
+        let reason = d.get('cancelReason', '');
+        return d.title is string && d.title.size() >= 3 && d.title.size() <= 80 &&
+          d.description is string && d.description.size() >= 10 && d.description.size() <= 1000 &&
+          d.location is string && d.location.size() >= 3 && d.location.size() <= 100 &&
+          d.category in ['Conférence', 'Job Fair', 'Sport', 'Culture', 'Associatif'] &&
+          d.startDate is timestamp && end is timestamp &&
+          end > d.startDate && end <= d.startDate + duration.value(72, 'h') &&
+          (cap == null || (cap is int && cap >= 1 && cap <= 5000)) &&
+          (status == 'active' ||
+            (status == 'cancelled' && reason is string && reason.size() >= 5 && reason.size() <= 200));
       }
 
-      // Autre utilisateur : ne touche qu'à registeredUserIds, et seulement
-      // pour ajouter OU retirer son propre uid (une seule entrée de différence).
+      // Organisateur ou admin : modifie le contenu, annule, gère la présence ;
+      // jamais organizerId ni createdAt ; capacité >= nombre d'inscrits ;
+      // un événement annulé ne redevient pas actif.
+      function isOrganizerEdit() {
+        let after = request.resource.data;
+        let cap = after.get('capacity', null);
+        return (resource.data.organizerId == request.auth.uid || isAdmin()) &&
+          !changedKeys().hasAny(['organizerId', 'createdAt']) &&
+          validEvent(after) &&
+          (cap == null || cap >= after.get('registeredUserIds', []).size()) &&
+          !(resource.data.get('status', 'active') == 'cancelled' && after.get('status', 'active') == 'active');
+      }
+
+      // Autre utilisateur : ne touche qu'à registeredUserIds, pour ajouter OU
+      // retirer son propre uid, seulement si l'événement est actif, avant son
+      // début (heure du serveur), et sans dépasser la capacité.
       function isOwnRegistrationChange() {
         let before = resource.data.get('registeredUserIds', []);
         let after = request.resource.data.get('registeredUserIds', []);
         let me = [request.auth.uid].toSet();
-        return changedKeys().hasOnly(['registeredUserIds']) && (
-          // inscription : avant + moi
-          (!(request.auth.uid in before) &&
-            after.size() == before.size() + 1 &&
-            after.toSet() == before.toSet().union(me)) ||
-          // désinscription : avant - moi
-          ((request.auth.uid in before) &&
-            after.size() == before.size() - 1 &&
-            after.toSet() == before.toSet().difference(me))
-        );
+        let cap = resource.data.get('capacity', null);
+        return changedKeys().hasOnly(['registeredUserIds']) &&
+          resource.data.get('status', 'active') == 'active' &&
+          request.time < resource.data.startDate && (
+            // inscription : avant + moi, dans la limite des places
+            (!(request.auth.uid in before) &&
+              after.size() == before.size() + 1 &&
+              after.toSet() == before.toSet().union(me) &&
+              (cap == null || after.size() <= cap)) ||
+            // désinscription : avant - moi
+            ((request.auth.uid in before) &&
+              after.size() == before.size() - 1 &&
+              after.toSet() == before.toSet().difference(me))
+          );
       }
 
       allow read: if true;
-      allow create: if isSignedIn() && request.resource.data.organizerId == request.auth.uid;
+      allow create: if isSignedIn() &&
+        request.resource.data.organizerId == request.auth.uid &&
+        validEvent(request.resource.data) &&
+        request.resource.data.startDate > request.time &&
+        request.resource.data.get('status', 'active') == 'active' &&
+        request.resource.data.get('registeredUserIds', []).size() == 0 &&
+        request.resource.data.get('checkedInUserIds', []).size() == 0;
       allow update: if isSignedIn() && (isOrganizerEdit() || isOwnRegistrationChange());
-      allow delete: if isSignedIn() &&
-        (resource.data.organizerId == request.auth.uid || isAdmin());
+      // Organisateur : seulement sans inscrits (sinon il annule). Admin : toujours.
+      allow delete: if isSignedIn() && (
+        (resource.data.organizerId == request.auth.uid &&
+          resource.data.get('registeredUserIds', []).size() == 0) ||
+        isAdmin());
     }
 
     // --- Gestion Stage & Emploi ---

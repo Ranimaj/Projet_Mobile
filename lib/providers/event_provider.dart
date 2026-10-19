@@ -5,6 +5,7 @@ import '../core/constants/app_constants.dart';
 import '../core/utils/local_cache_service.dart';
 import '../core/utils/offline_queue_service.dart';
 import '../models/event_model.dart';
+import '../screens/evenements/event_rules.dart';
 import '../screens/evenements/event_validators.dart';
 import '../services/firestore_repository.dart';
 
@@ -15,6 +16,12 @@ class EventActionException implements Exception {
 
   @override
   String toString() => message;
+}
+
+/// Suppression refusée car l'événement a des inscrits : l'écran propose
+/// alors d'annuler l'événement à la place.
+class EventHasRegistrantsException extends EventActionException {
+  const EventHasRegistrantsException(super.message);
 }
 
 /// Traduit les codes d'erreur Firebase en messages compréhensibles.
@@ -33,9 +40,14 @@ String friendlyFirebaseMessage(FirebaseException e) {
   }
 }
 
-/// Gestion des Événements — CRUD + synchronisation calendrier natif +
-/// vue carte géolocalisée (fonctionnalités avancées).
+/// Gestion des Événements : lecture (cache hors-ligne), création,
+/// modification, annulation, suppression, inscription et filtres.
+///
+/// Les écritures passent directement par Firestore quand on est en ligne.
+/// La file d'attente hors-ligne n'est utilisée que pour une panne réseau
+/// (« unavailable » ou pas de connexion), jamais pour un refus du serveur.
 class EventProvider extends ChangeNotifier {
+  // Le dépôt partagé sert à la lecture avec repli sur le cache Hive.
   final _repo = FirestoreRepository<EventModel>(
     collectionName: AppConstants.eventsCollection,
     cacheBoxName: AppConstants.hiveEventsBox,
@@ -46,6 +58,7 @@ class EventProvider extends ChangeNotifier {
   final _firestore = FirebaseFirestore.instance;
   final _cache = LocalCacheService();
   final _queue = OfflineQueueService();
+  static const _timeout = Duration(seconds: 15);
 
   bool _isOnline = true;
   bool get isOnline => _isOnline;
@@ -59,24 +72,42 @@ class EventProvider extends ChangeNotifier {
   /// Tous les événements chargés (lecture seule), pour les contrôles du formulaire.
   List<EventModel> get all => List.unmodifiable(_all);
   bool isLoading = false;
+
+  DocumentReference<Map<String, dynamic>> _doc(String id) =>
+      _firestore.collection(AppConstants.eventsCollection).doc(id);
+
+  // ---------------------------------------------------------------- Filtres
+
+  EventFilter filter = EventFilter.upcoming;
   String? categoryFilter;
+  DateTime? selectedDay;
 
-  List<EventModel> get upcoming {
-    final now = DateTime.now();
-    var list = _all.where((e) => e.startDate.isAfter(now)).toList();
-    if (categoryFilter != null) {
-      list = list.where((e) => e.category == categoryFilter).toList();
-    }
-    list.sort((a, b) => a.startDate.compareTo(b.startDate));
-    return list;
+  void setFilter(EventFilter value) {
+    filter = value;
+    notifyListeners();
   }
 
-  List<EventModel> eventsOnDay(DateTime day) {
-    return _all.where((e) =>
-        e.startDate.year == day.year &&
-        e.startDate.month == day.month &&
-        e.startDate.day == day.day).toList();
+  void setCategoryFilter(String? category) {
+    categoryFilter = category;
+    notifyListeners();
   }
+
+  void setSelectedDay(DateTime? day) {
+    selectedDay = day;
+    notifyListeners();
+  }
+
+  /// Liste affichée : filtre principal + catégorie + jour, triée par début.
+  List<EventModel> visibleEvents(String? userId) => EventRules.filter(_all,
+      filter: filter, now: DateTime.now(), userId: userId, category: categoryFilter, day: selectedDay);
+
+  /// À venir (ni annulés ni terminés), filtrés par catégorie.
+  List<EventModel> get upcoming =>
+      EventRules.filter(_all, filter: EventFilter.upcoming, now: DateTime.now(), category: categoryFilter);
+
+  /// À venir ce jour-là, en tenant compte de la catégorie, triés par début.
+  List<EventModel> eventsOnDay(DateTime day) => EventRules.filter(_all,
+      filter: EventFilter.upcoming, now: DateTime.now(), category: categoryFilter, day: day);
 
   List<EventModel> get publicPreview => upcoming.take(5).toList();
 
@@ -96,30 +127,90 @@ class EventProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setCategoryFilter(String? category) {
-    categoryFilter = category;
+  /// Remplace un événement dans la liste locale et dans le cache Hive
+  /// (valeurs simples uniquement, jamais de FieldValue).
+  Future<void> _replaceLocal(EventModel updated) async {
+    _all = [for (final e in _all) e.id == updated.id ? updated : e];
+    await _cache.upsert(AppConstants.hiveEventsBox, updated.id, updated.toMap());
     notifyListeners();
   }
+
+  // --------------------------------------------------------------- Création
+
+  /// Date de création gardée par id : un nouvel essai réécrit exactement le
+  /// même createdAt (les règles interdisent de le changer ensuite).
+  final Map<String, DateTime> _createdAtById = {};
 
   /// Création. [draft.id] est généré UNE fois à l'ouverture du formulaire et
   /// réutilisé à chaque nouvel essai : réécrire le même document ne crée
   /// jamais de doublon, même si le premier essai a réussi sans réponse.
-  /// Hors-ligne, le dépôt met la création en file d'attente.
-  Future<String> createEvent(EventModel draft) async {
+  /// Renvoie true si envoyé au serveur, false si mis en file d'attente.
+  Future<bool> createEvent(EventModel draft) async {
     // Horloge du téléphone (pas de serverTimestamp : la file Hive ne peut
     // pas stocker un FieldValue).
-    final now = DateTime.now();
-    final id = await _repo.create(
-      draft.copyWith(createdAt: now, updatedAt: now),
-      isOnline: _isOnline,
-      explicitId: draft.id.isEmpty ? null : draft.id,
-    );
+    final createdAt = _createdAtById.putIfAbsent(draft.id, DateTime.now);
+    final data = draft.copyWith(createdAt: createdAt, updatedAt: createdAt).toMap();
+
+    var sentOnline = _isOnline;
+    if (_isOnline) {
+      try {
+        await _doc(draft.id).set(data).timeout(_timeout);
+      } on FirebaseException catch (e) {
+        debugPrint('Création événement ${draft.id} : ${e.code}');
+        if (e.code != 'unavailable') throw EventActionException(friendlyFirebaseMessage(e));
+        sentOnline = false;
+      }
+      // TimeoutException remonte telle quelle : l'écran propose de réessayer
+      // avec le même id.
+    }
+    if (!sentOnline) {
+      _queue.enqueue(
+        type: QueueActionType.create,
+        collection: AppConstants.eventsCollection,
+        payload: data,
+        docId: draft.id,
+      );
+    }
+    _createdAtById.remove(draft.id);
+    await _cache.upsert(AppConstants.hiveEventsBox, draft.id, data);
     await load();
-    return id;
+    return sentOnline;
   }
 
-  /// Modification : envoie SEULEMENT les champs changés (+ updatedAt) avec
-  /// update(), jamais un set() du document entier, sinon les inscriptions
+  // ---------------------------------------------- Modification / annulation
+
+  /// Envoie un patch partiel : update() en ligne, file d'attente seulement si
+  /// le réseau est absent ou « unavailable ». Renvoie true si envoyé.
+  Future<bool> _sendPatch(String id, Map<String, dynamic> patch) async {
+    if (_isOnline) {
+      try {
+        await _doc(id).update(patch).timeout(_timeout);
+        return true;
+      } on FirebaseException catch (e) {
+        debugPrint('Mise à jour événement $id : ${e.code}');
+        // Un refus (permission-denied...) serait refusé à nouveau à chaque essai.
+        if (e.code != 'unavailable') throw EventActionException(friendlyFirebaseMessage(e));
+      } on TimeoutException {
+        throw const EventActionException('Le serveur ne répond pas. Vérifiez votre connexion et réessayez.');
+      }
+    }
+    // Le patch partiel est rejoué plus tard avec merge : il ne touche que ces champs.
+    _queue.enqueue(
+      type: QueueActionType.update,
+      collection: AppConstants.eventsCollection,
+      payload: patch,
+      docId: id,
+    );
+    return false;
+  }
+
+  /// Applique un patch sur la version locale la plus récente.
+  Future<void> _applyPatchLocally(EventModel current, Map<String, dynamic> patch, bool sentOnline) =>
+      _replaceLocal(EventModel.fromMap(current.id, {...current.toMap(), ...patch})
+          .copyWith(pendingSync: !sentOnline));
+
+  /// Modification (règle 5) : envoie SEULEMENT les champs changés (+ updatedAt)
+  /// avec update(), jamais un set() du document entier, sinon les inscriptions
   /// faites entre-temps seraient effacées. organizerId n'est jamais envoyé.
   /// Renvoie true si envoyé au serveur, false si mis en file d'attente.
   Future<bool> updateEvent(EventModel original, EventModel edited) async {
@@ -136,78 +227,113 @@ class EventProvider extends ChangeNotifier {
     if (changes.isEmpty) return true; // rien à enregistrer
     final patch = {...changes, 'updatedAt': Timestamp.fromDate(now)};
 
-    var sentOnline = _isOnline;
-    if (_isOnline) {
-      try {
-        await _firestore
-            .collection(AppConstants.eventsCollection)
-            .doc(original.id)
-            .update(patch)
-            .timeout(const Duration(seconds: 15));
-      } on FirebaseException catch (e) {
-        debugPrint('Modification événement ${original.id} : ${e.code}');
-        // Seule une panne réseau justifie la file d'attente. Un refus
-        // (permission-denied...) serait refusé à nouveau à chaque essai.
-        if (e.code != 'unavailable') throw EventActionException(friendlyFirebaseMessage(e));
-        sentOnline = false;
-      } on TimeoutException {
-        throw const EventActionException('Le serveur ne répond pas. Vérifiez votre connexion et réessayez.');
-      }
-    }
-    if (!sentOnline) {
-      // Le patch partiel est rejoué plus tard avec merge : il ne touche que ces champs.
-      _queue.enqueue(
-        type: QueueActionType.update,
-        collection: AppConstants.eventsCollection,
-        payload: patch,
-        docId: original.id,
-      );
-    }
-
-    // Mise à jour locale : on applique le patch sur la version la plus récente
-    // (les inscriptions restent celles du serveur, pas celles du formulaire).
-    final updated = EventModel.fromMap(original.id, {...current.toMap(), ...patch})
-        .copyWith(pendingSync: !sentOnline);
-    _all = [for (final e in _all) e.id == updated.id ? updated : e];
-    final cached = _cache.readCollection(AppConstants.hiveEventsBox)[original.id] ?? current.toMap();
-    await _cache.upsert(AppConstants.hiveEventsBox, original.id, {...cached, ...patch});
-    notifyListeners();
+    final sentOnline = await _sendPatch(original.id, patch);
+    await _applyPatchLocally(current, patch, sentOnline);
     return sentOnline;
   }
 
-  /// Inscription / désinscription atomique, en ligne uniquement.
+  /// Annulation (règle 6) : motif de 5 à 200 caractères ; les inscriptions
+  /// sont conservées. Renvoie true si envoyé au serveur.
+  Future<bool> cancelEvent(EventModel event, String reason) async {
+    final now = DateTime.now();
+    final current = findById(event.id) ?? event;
+    final blocked = EventRules.cancelBlocked(current, now) ?? EventValidators.cancelReason(reason);
+    if (blocked != null) throw EventActionException(blocked);
+
+    final patch = {
+      'status': EventStatus.cancelled.name,
+      'cancelReason': EventValidators.normalize(reason),
+      'cancelledAt': Timestamp.fromDate(now),
+      'updatedAt': Timestamp.fromDate(now),
+    };
+    final sentOnline = await _sendPatch(event.id, patch);
+    await _applyPatchLocally(current, patch, sentOnline);
+    return sentOnline;
+  }
+
+  // ------------------------------------------------------------ Suppression
+
+  /// Suppression (règle 7) : refusée à l'organisateur si des personnes sont
+  /// inscrites ([EventHasRegistrantsException] → l'écran propose d'annuler) ;
+  /// l'admin peut toujours supprimer. Connexion requise : une suppression
+  /// mise en file pourrait être refusée plus tard sans que personne ne le voie.
+  Future<void> deleteEvent(EventModel event, {required bool isAdmin}) async {
+    final current = findById(event.id) ?? event;
+    final blocked = EventRules.deleteBlocked(current, isAdmin: isAdmin);
+    if (blocked != null) throw EventHasRegistrantsException(blocked);
+    if (!_isOnline) throw const EventActionException('Connexion requise pour supprimer un événement.');
+
+    try {
+      await _doc(event.id).delete().timeout(_timeout);
+    } on FirebaseException catch (e) {
+      debugPrint('Suppression événement ${event.id} : ${e.code}');
+      throw EventActionException(friendlyFirebaseMessage(e));
+    } on TimeoutException {
+      throw const EventActionException('Le serveur ne répond pas. Vérifiez votre connexion et réessayez.');
+    }
+    _all = _all.where((e) => e.id != event.id).toList();
+    await _cache.removeFromCache(AppConstants.hiveEventsBox, event.id);
+    notifyListeners();
+  }
+
+  // ------------------------------------------------------------ Inscription
+
+  /// Inscription / désinscription (règles 1, 2 et 4), en ligne uniquement.
   ///
-  /// arrayUnion / arrayRemove demandent au serveur d'ajouter ou retirer
-  /// UN uid : deux inscriptions simultanées ne s'écrasent plus. On n'utilise
-  /// pas la file d'attente : elle est stockée dans Hive, qui ne sait pas
-  /// enregistrer un FieldValue, et une liste complète rejouée plus tard
-  /// effacerait les inscriptions faites entre-temps.
+  /// - Sans capacité : arrayUnion / arrayRemove, le serveur ajoute ou retire
+  ///   UN uid, deux inscriptions simultanées ne s'écrasent plus.
+  /// - Avec capacité : transaction (lire, vérifier, écrire). Si deux
+  ///   personnes visent la dernière place, Firestore rejoue la transaction de
+  ///   la seconde, qui voit alors l'événement complet.
+  /// Pas de file d'attente : Hive ne sait pas stocker un FieldValue, et une
+  /// place limitée ne peut pas être promise sans le serveur.
   /// Renvoie true si l'utilisateur est maintenant inscrit, false s'il est
   /// désinscrit, null si le tap est ignoré (requête déjà en cours).
-  Future<bool?> toggleRegistration(EventModel event, String userId) async {
+  Future<bool?> toggleRegistration(EventModel event, String? userId) async {
     if (_busyEventIds.contains(event.id)) return null; // double tap ignoré
-    if (!_isOnline) {
-      throw const EventActionException('Connexion requise pour vous inscrire ou vous désinscrire.');
-    }
 
     final current = findById(event.id) ?? event;
-    final register = !current.isUserRegistered(userId);
+    final register = userId == null || !current.isUserRegistered(userId);
+    final now = DateTime.now();
+    final blocked = register
+        ? EventRules.registrationBlocked(current, userId, now)
+        : EventRules.unregistrationBlocked(current, userId, now);
+    if (blocked != null) throw EventActionException(blocked);
+    if (!_isOnline) {
+      throw EventActionException(current.capacity != null
+          ? 'Connexion requise : places limitées.'
+          : 'Connexion requise pour vous inscrire ou vous désinscrire.');
+    }
+
+    final uid = userId!;
     _busyEventIds.add(event.id);
     notifyListeners();
     try {
-      await _firestore.collection(AppConstants.eventsCollection).doc(event.id).update({
-        'registeredUserIds':
-            register ? FieldValue.arrayUnion([userId]) : FieldValue.arrayRemove([userId]),
-      }).timeout(const Duration(seconds: 15));
-
-      // Succès : on met à jour la liste locale et le cache avec des valeurs
-      // simples (List<String>), jamais avec le FieldValue.
-      final updated = current.copyWithRegistration(userId, register);
-      _all = [for (final e in _all) e.id == updated.id ? updated : e];
-      final cached = _cache.readCollection(AppConstants.hiveEventsBox)[event.id] ?? {};
-      await _cache.upsert(AppConstants.hiveEventsBox, event.id,
-          {...cached, 'registeredUserIds': updated.registeredUserIds});
+      EventModel updated;
+      if (register && current.capacity != null) {
+        final fresh = await _firestore.runTransaction<EventModel>((tx) async {
+          final snap = await tx.get(_doc(event.id));
+          if (!snap.exists) throw const EventActionException("Cet événement n'existe plus.");
+          final latest = EventModel.fromMap(snap.id, snap.data()!);
+          final reason = EventRules.registrationBlocked(latest, uid, DateTime.now());
+          if (reason != null) throw EventActionException(reason);
+          tx.update(_doc(event.id), {
+            'registeredUserIds': FieldValue.arrayUnion([uid]),
+          });
+          return latest;
+        }).timeout(_timeout);
+        updated = fresh.copyWithRegistration(uid, true);
+      } else {
+        await _doc(event.id).update({
+          'registeredUserIds': register ? FieldValue.arrayUnion([uid]) : FieldValue.arrayRemove([uid]),
+        }).timeout(_timeout);
+        updated = current.copyWithRegistration(uid, register);
+      }
+      await _replaceLocal(updated);
       return register;
+    } on EventActionException {
+      await load(); // la transaction a vu un état plus récent : on se resynchronise
+      rethrow;
     } on FirebaseException catch (e) {
       debugPrint('Inscription événement ${event.id} refusée : ${e.code}');
       await load(); // on resynchronise avec le serveur avant de réessayer
@@ -220,20 +346,13 @@ class EventProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> deleteEvent(String id) async {
-    await _repo.delete(id, isOnline: _isOnline);
-    await load();
-  }
+  // ------------------------------------------------------------- Calendrier
 
-  /// Synchronisation avec le calendrier natif du téléphone — fonctionnalité
-  /// avancée : ajoute l'événement + un rappel 30 min avant.
-  ///
-  /// Génère un lien Google Calendar (ouvert dans le navigateur/l'app
-  /// Calendrier) plutôt que d'utiliser un plugin natif, pour rester
-  /// compatible avec toutes les plateformes sans dépendance Kotlin.
+  /// Lien Google Calendar pré-rempli (la vraie synchronisation avec le
+  /// calendrier du téléphone arrive à l'étape 9).
   String buildCalendarLink(EventModel event) {
     final start = event.startDate.toUtc();
-    final end = event.startDate.add(const Duration(hours: 2)).toUtc();
+    final end = event.endDate.toUtc();
     String fmt(DateTime d) =>
         '${d.year.toString().padLeft(4, '0')}${d.month.toString().padLeft(2, '0')}${d.day.toString().padLeft(2, '0')}'
         'T${d.hour.toString().padLeft(2, '0')}${d.minute.toString().padLeft(2, '0')}${d.second.toString().padLeft(2, '0')}Z';
