@@ -146,6 +146,8 @@ class _EvenementsListScreenState extends State<EvenementsListScreen> with Ticker
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
+      // Hauteur selon le contenu (et défilement si l'écran est petit).
+      isScrollControlled: true,
       builder: (_) => const _CategorySheet(),
     ).then((_) {
       if (mounted) WidgetsBinding.instance.addPostFrameCallback((_) => _scrollStripToFocusDay());
@@ -553,9 +555,11 @@ class _CategorySheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<EventProvider>();
+    // Le contenu défile si la place manque (petit écran, clavier ouvert) :
+    // les boutons du bas ne sont jamais coupés.
     return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+      child: SingleChildScrollView(
+        padding: EdgeInsets.fromLTRB(20, 0, 20, 16 + MediaQuery.viewInsetsOf(context).bottom),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
