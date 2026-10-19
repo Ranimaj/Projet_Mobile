@@ -33,7 +33,8 @@ class EventModel {
   final EventStatus status;
   final String? cancelReason;
   final DateTime? cancelledAt;
-  final List<String> checkedInUserIds;
+  final List<String> checkedInUserIds; // présents (pointés par l'organisateur)
+  final List<String> paidUserIds; // ont payé sur place (prix informatif)
   final DateTime createdAt;
   final DateTime updatedAt;
   final bool pendingSync;
@@ -60,6 +61,7 @@ class EventModel {
     this.cancelReason,
     this.cancelledAt,
     this.checkedInUserIds = const [],
+    this.paidUserIds = const [],
     DateTime? createdAt,
     DateTime? updatedAt,
     this.pendingSync = false,
@@ -108,6 +110,7 @@ class EventModel {
       cancelReason: map['cancelReason'],
       cancelledAt: _parseDate(map['cancelledAt']),
       checkedInUserIds: List<String>.from(map['checkedInUserIds'] ?? []),
+      paidUserIds: List<String>.from(map['paidUserIds'] ?? []),
       createdAt: _parseDate(map['createdAt']),
       updatedAt: _parseDate(map['updatedAt']),
     );
@@ -144,6 +147,7 @@ class EventModel {
       'cancelReason': cancelReason,
       'cancelledAt': cancelledAt == null ? null : Timestamp.fromDate(cancelledAt!),
       'checkedInUserIds': checkedInUserIds,
+      'paidUserIds': paidUserIds,
       'createdAt': Timestamp.fromDate(createdAt),
       'updatedAt': Timestamp.fromDate(updatedAt),
     };
@@ -194,6 +198,7 @@ class EventModel {
     String? cancelReason,
     DateTime? cancelledAt,
     List<String>? checkedInUserIds,
+    List<String>? paidUserIds,
     DateTime? createdAt,
     DateTime? updatedAt,
     bool? pendingSync,
@@ -218,6 +223,7 @@ class EventModel {
       cancelReason: cancelReason ?? this.cancelReason,
       cancelledAt: cancelledAt ?? this.cancelledAt,
       checkedInUserIds: checkedInUserIds ?? this.checkedInUserIds,
+      paidUserIds: paidUserIds ?? this.paidUserIds,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       pendingSync: pendingSync ?? this.pendingSync,
@@ -230,9 +236,14 @@ class EventModel {
     final updated = List<String>.from(registeredUserIds);
     if (register) {
       if (!updated.contains(userId)) updated.add(userId);
-    } else {
-      updated.remove(userId);
+      return copyWith(registeredUserIds: updated);
     }
-    return copyWith(registeredUserIds: updated);
+    updated.remove(userId);
+    // Désinscrit : il n'est plus ni « présent » ni « payé ».
+    return copyWith(
+      registeredUserIds: updated,
+      checkedInUserIds: checkedInUserIds.where((id) => id != userId).toList(),
+      paidUserIds: paidUserIds.where((id) => id != userId).toList(),
+    );
   }
 }

@@ -62,6 +62,10 @@ service cloud.firestore {
     // dépend de l'heure : un téléphone mal réglé ne peut pas tricher.
     // v3 : nouvelles catégories (une ancienne valeur reste acceptée si elle
     // n'est pas modifiée) et prix informatif optionnel de 0 à 1000 TND.
+    // v4 : présences (checkedInUserIds) et paiements (paidUserIds) gérés
+    // seulement par l'organisateur ou un admin, une personne inscrite à la
+    // fois, dans une écriture à part ; à la désinscription, chacun peut se
+    // retirer lui-même de ces deux listes.
     match /events/{eventId} {
       // Champs modifiés par la requête (ajoutés, supprimés ou changés).
       function changedKeys() {
@@ -129,15 +133,16 @@ service cloud.firestore {
           after.get('cancelledAt', null) is timestamp;
       }
 
-      // Organisateur ou admin : modifie le contenu, annule, gère la présence ;
-      // jamais organizerId ni createdAt ; inscrits modifiables seulement comme
-      // n'importe qui (sa propre inscription) ; capacité >= nombre d'inscrits ;
-      // un événement annulé ne redevient pas actif.
+      // Organisateur ou admin : modifie le contenu ou annule ; jamais
+      // organizerId ni createdAt ; jamais les présences / paiements ici (voir
+      // isAttendanceChange) ; inscrits modifiables seulement comme n'importe
+      // qui (sa propre inscription) ; capacité >= nombre d'inscrits ; un
+      // événement annulé ne redevient pas actif.
       function isOrganizerEdit() {
         let after = request.resource.data;
         let cap = after.get('capacity', null);
         return (resource.data.organizerId == request.auth.uid || isAdmin()) &&
-          !changedKeys().hasAny(['organizerId', 'createdAt']) &&
+          !changedKeys().hasAny(['organizerId', 'createdAt', 'checkedInUserIds', 'paidUserIds']) &&
           (!changedKeys().hasAny(['registeredUserIds']) || isOwnRegistrationDelta()) &&
           !(resource.data.get('status', 'active') == 'cancelled' && after.get('status', 'active') == 'active') &&
           (isCancelOnly() ||
@@ -145,10 +150,50 @@ service cloud.firestore {
               (cap == null || cap >= after.get('registeredUserIds', []).size())));
       }
 
-      // Autre utilisateur : ne touche qu'à registeredUserIds, et seulement sa
-      // propre inscription.
+      // [field] ne change que d'UN uid, ajouté OU retiré, et cet uid est inscrit.
+      function isSingleRegistrantDelta(field) {
+        let before = resource.data.get(field, []);
+        let after = request.resource.data.get(field, []);
+        let registered = resource.data.get('registeredUserIds', []).toSet();
+        let added = after.toSet().difference(before.toSet());
+        let removed = before.toSet().difference(after.toSet());
+        return (added.size() == 1 && removed.size() == 0 && after.size() == before.size() + 1 &&
+            registered.hasAll(added)) ||
+          (removed.size() == 1 && added.size() == 0 && after.size() == before.size() - 1 &&
+            registered.hasAll(removed));
+      }
+
+      // Organisateur ou admin : pointe UNE personne inscrite présente / payée
+      // (ou retire ce pointage). Aucun autre champ dans la même écriture.
+      // « Payé » seulement si l'événement est payant (prix > 0).
+      function isAttendanceChange() {
+        let price = resource.data.get('price', null);
+        return (resource.data.organizerId == request.auth.uid || isAdmin()) && (
+          (changedKeys().hasOnly(['checkedInUserIds']) && isSingleRegistrantDelta('checkedInUserIds')) ||
+          (changedKeys().hasOnly(['paidUserIds']) && price != null && price > 0 &&
+            isSingleRegistrantDelta('paidUserIds'))
+        );
+      }
+
+      // Retrait de MON uid d'une liste (présents / payés), et rien d'autre.
+      function isOwnRemovalFrom(field) {
+        let before = resource.data.get(field, []);
+        let after = request.resource.data.get(field, []);
+        return after.toSet() == before.toSet().difference([request.auth.uid].toSet()) &&
+          after.size() < before.size();
+      }
+
+      // N'importe quel utilisateur : sa propre inscription / désinscription.
+      // En se désinscrivant, il peut aussi se retirer des présents et des
+      // payés dans la même écriture (sinon il y resterait sans être inscrit).
+      // Il ne peut jamais s'y AJOUTER.
       function isOwnRegistrationChange() {
-        return changedKeys().hasOnly(['registeredUserIds']) && isOwnRegistrationDelta();
+        let unregistering = request.auth.uid in resource.data.get('registeredUserIds', []);
+        return changedKeys().hasOnly(['registeredUserIds', 'checkedInUserIds', 'paidUserIds']) &&
+          changedKeys().hasAny(['registeredUserIds']) &&
+          isOwnRegistrationDelta() &&
+          (!changedKeys().hasAny(['checkedInUserIds']) || (unregistering && isOwnRemovalFrom('checkedInUserIds'))) &&
+          (!changedKeys().hasAny(['paidUserIds']) || (unregistering && isOwnRemovalFrom('paidUserIds')));
       }
 
       allow read: if true;
@@ -158,8 +203,9 @@ service cloud.firestore {
         request.resource.data.startDate > request.time &&
         request.resource.data.get('status', 'active') == 'active' &&
         request.resource.data.get('registeredUserIds', []).size() == 0 &&
-        request.resource.data.get('checkedInUserIds', []).size() == 0;
-      allow update: if isSignedIn() && (isOrganizerEdit() || isOwnRegistrationChange());
+        request.resource.data.get('checkedInUserIds', []).size() == 0 &&
+        request.resource.data.get('paidUserIds', []).size() == 0;
+      allow update: if isSignedIn() && (isOrganizerEdit() || isAttendanceChange() || isOwnRegistrationChange());
       // Organisateur : seulement sans inscrits (sinon il annule). Admin : toujours.
       allow delete: if isSignedIn() && (
         (resource.data.organizerId == request.auth.uid &&

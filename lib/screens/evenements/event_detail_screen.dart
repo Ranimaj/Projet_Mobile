@@ -9,6 +9,7 @@ import '../../providers/auth_provider.dart';
 import '../../providers/event_provider.dart';
 import '../../widgets/primary_button.dart';
 import 'add_event_screen.dart';
+import 'attendees_screen.dart';
 import 'event_calendar_launcher.dart';
 import 'event_calendar_sync.dart';
 import 'event_map.dart';
@@ -19,7 +20,7 @@ import 'event_style.dart';
 import 'event_validators.dart';
 
 /// Actions du menu organisateur / admin.
-enum _MenuAction { edit, cancel, delete }
+enum _MenuAction { attendees, edit, cancel, delete }
 
 /// Détail d'un événement (règles 5, 6, 7 et 10) : données EN DIRECT
 /// (events/{id}.snapshots()), en-tête affiche ou couleur de catégorie,
@@ -235,6 +236,8 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
       icon: const Icon(Icons.more_vert_rounded),
       onSelected: (action) {
         switch (action) {
+          case _MenuAction.attendees:
+            Navigator.of(context).push(MaterialPageRoute(builder: (_) => AttendeesScreen(event: event)));
           case _MenuAction.edit:
             _edit(event);
           case _MenuAction.cancel:
@@ -244,6 +247,10 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
         }
       },
       itemBuilder: (_) => [
+        const PopupMenuItem(
+          value: _MenuAction.attendees,
+          child: ListTile(leading: Icon(Icons.people_alt_outlined), title: Text('Participants')),
+        ),
         const PopupMenuItem(
           value: _MenuAction.edit,
           child: ListTile(leading: Icon(Icons.edit_outlined), title: Text('Modifier')),

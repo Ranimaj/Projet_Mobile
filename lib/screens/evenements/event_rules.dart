@@ -1,4 +1,5 @@
 import '../../models/event_model.dart';
+import '../../models/user_model.dart';
 import 'event_validators.dart';
 
 /// Filtre principal de la liste des événements.
@@ -6,6 +7,9 @@ enum EventFilter { upcoming, past, myRegistrations, myEvents }
 
 /// Filtre de prix (feuille des filtres), combinable avec les autres.
 enum PriceFilter { all, free, paid }
+
+/// Filtre de la liste des participants (écran organisateur).
+enum AttendeeFilter { all, present, absent, unpaid }
 
 /// Règles métier du module Événements (addendum, section 4).
 ///
@@ -168,6 +172,92 @@ class EventRules {
 
   /// Le prix change-t-il ? (null et 0 comptent tous deux comme « gratuit ».)
   static bool priceChanged(double? before, double? after) => (before ?? 0) != (after ?? 0);
+
+  // ---------------------------------------------------------- Participants
+
+  /// Gérer la liste des participants : l'organisateur ou un admin seulement.
+  static bool canManageAttendees(EventModel event, AppUser? user) =>
+      user != null && (user.id == event.organizerId || user.role == UserRole.admin);
+
+  /// Raison pour laquelle on ne peut PAS pointer [uid] présent, ou null.
+  /// Pointage à partir d'1 h avant le début ; annulé ou terminé : lecture seule.
+  static String? presentBlockedReason(EventModel event, String uid, DateTime now) {
+    if (!event.isUserRegistered(uid)) return "Cette personne n'est pas inscrite.";
+    if (event.status == EventStatus.cancelled) return 'Événement annulé : liste en lecture seule.';
+    if (!now.isBefore(event.endDate)) return 'Événement terminé : présences en lecture seule.';
+    if (now.isBefore(event.startDate.subtract(const Duration(hours: 1)))) {
+      return "Pointage possible à partir d'1 h avant le début.";
+    }
+    return null;
+  }
+
+  static bool canMarkPresent(EventModel event, String uid, DateTime now) =>
+      presentBlockedReason(event, uid, now) == null;
+
+  /// Raison pour laquelle on ne peut PAS marquer [uid] « payé », ou null.
+  /// Encore possible après la fin (paiement noté plus tard), pas si annulé.
+  static String? paidBlockedReason(EventModel event, String uid) {
+    if (isFree(event)) return 'Événement gratuit : rien à payer.';
+    if (!event.isUserRegistered(uid)) return "Cette personne n'est pas inscrite.";
+    if (event.status == EventStatus.cancelled) return 'Événement annulé : liste en lecture seule.';
+    return null;
+  }
+
+  static bool canMarkPaid(EventModel event, String uid) => paidBlockedReason(event, uid) == null;
+
+  /// Chiffres du résumé. Présents et payés ne comptent que des personnes
+  /// encore inscrites (une ancienne entrée isolée est ignorée).
+  static ({int registered, int? capacity, int present, int paid, double expectedRevenue, double? fillRatio})
+      attendeeStats(EventModel event) {
+    final registered = event.registeredUserIds.toSet();
+    final present = event.checkedInUserIds.where(registered.contains).toSet().length;
+    final paid = event.paidUserIds.where(registered.contains).toSet().length;
+    final revenue = isFree(event) ? 0.0 : ((event.price! * paid) * 100).round() / 100;
+    return (
+      registered: registered.length,
+      capacity: event.capacity,
+      present: present,
+      paid: paid,
+      expectedRevenue: revenue,
+      fillRatio: capacityRatio(event),
+    );
+  }
+
+  /// Nom de repli quand le profil est introuvable : « Étudiant » + les 4
+  /// derniers caractères de l'uid.
+  static String fallbackName(String uid) => 'Étudiant ${uid.length <= 4 ? uid : uid.substring(uid.length - 4)}';
+
+  /// Liste des participants affichée : inscrits (sans doublon) avec leur
+  /// nom, filtre + recherche sans accents, triés par nom.
+  static List<({String uid, String name})> filterAttendees(
+    EventModel event,
+    Map<String, String> names, {
+    AttendeeFilter filter = AttendeeFilter.all,
+    String query = '',
+  }) {
+    final present = event.checkedInUserIds.toSet();
+    final paid = event.paidUserIds.toSet();
+    bool matchesFilter(String uid) {
+      switch (filter) {
+        case AttendeeFilter.all:
+          return true;
+        case AttendeeFilter.present:
+          return present.contains(uid);
+        case AttendeeFilter.absent:
+          return !present.contains(uid);
+        case AttendeeFilter.unpaid:
+          return !paid.contains(uid);
+      }
+    }
+
+    final q = foldForSearch(query);
+    final list = [
+      for (final uid in event.registeredUserIds.toSet())
+        if (matchesFilter(uid)) (uid: uid, name: names[uid] ?? fallbackName(uid)),
+    ].where((a) => q.isEmpty || foldForSearch(a.name).contains(q)).toList()
+      ..sort((a, b) => foldForSearch(a.name).compareTo(foldForSearch(b.name)));
+    return list;
+  }
 
   /// Confirmation demandée dans le formulaire : le prix change alors que des
   /// personnes sont déjà inscrites.

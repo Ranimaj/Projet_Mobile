@@ -336,6 +336,82 @@ class EventProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ----------------------------------------------- Participants (organisateur)
+
+  /// Pointages en cours, par « événement|liste|uid » : bloque le double tap.
+  final Set<String> _busyAttendance = {};
+  bool isAttendanceBusy(String eventId, String field, String uid) => _busyAttendance.contains('$eventId|$field|$uid');
+
+  /// Noms des inscrits, mis en cache (uid → nom complet).
+  final Map<String, String> _names = {};
+
+  /// Noms des [uids] depuis users/{uid} (lisibles par tous d'après les
+  /// règles). Par paquets de 30 (limite d'une requête « in » Firestore).
+  /// En cas d'échec : on renvoie ce qu'on a ; l'écran utilise un nom de repli.
+  Future<Map<String, String>> attendeeNames(List<String> uids) async {
+    final missing = uids.toSet().where((u) => !_names.containsKey(u)).toList();
+    for (var i = 0; i < missing.length; i += 30) {
+      final chunk = missing.sublist(i, i + 30 > missing.length ? missing.length : i + 30);
+      try {
+        final snap = await _firestore
+            .collection(AppConstants.usersCollection)
+            .where(FieldPath.documentId, whereIn: chunk)
+            .get()
+            .timeout(_timeout);
+        for (final doc in snap.docs) {
+          final name = (doc.data()['fullName'] ?? '').toString().trim();
+          if (name.isNotEmpty) _names[doc.id] = name;
+        }
+      } catch (e) {
+        debugPrint('Lecture des noms des inscrits échouée : $e');
+      }
+    }
+    return {for (final u in uids) if (_names.containsKey(u)) u: _names[u]!};
+  }
+
+  /// Bascule « présent » (checkedInUserIds) pour [uid].
+  Future<void> togglePresent(String eventId, String uid) => _toggleAttendance(eventId, 'checkedInUserIds', uid);
+
+  /// Bascule « payé » (paidUserIds) pour [uid].
+  Future<void> togglePaid(String eventId, String uid) => _toggleAttendance(eventId, 'paidUserIds', uid);
+
+  /// arrayUnion / arrayRemove sur UNE seule liste et UN seul uid : on ne
+  /// réécrit jamais la liste entière (deux organisateurs qui pointent en même
+  /// temps ne s'écrasent pas). Connexion requise, jamais de file d'attente.
+  Future<void> _toggleAttendance(String eventId, String field, String uid) async {
+    final key = '$eventId|$field|$uid';
+    if (_busyAttendance.contains(key)) return; // double tap ignoré
+    final current = findById(eventId);
+    if (current == null) throw const EventActionException("Cet événement n'existe plus.");
+    final isPresentList = field == 'checkedInUserIds';
+    final blocked = isPresentList
+        ? EventRules.presentBlockedReason(current, uid, DateTime.now())
+        : EventRules.paidBlockedReason(current, uid);
+    if (blocked != null) throw EventActionException(blocked);
+    if (!_isOnline) throw const EventActionException('Connexion requise pour modifier la liste.');
+
+    final list = isPresentList ? current.checkedInUserIds : current.paidUserIds;
+    final add = !list.contains(uid);
+    _busyAttendance.add(key);
+    notifyListeners();
+    try {
+      await _doc(eventId)
+          .update({field: add ? FieldValue.arrayUnion([uid]) : FieldValue.arrayRemove([uid])})
+          .timeout(_timeout);
+      final newList = add ? [...list, uid] : list.where((id) => id != uid).toList();
+      await _replaceLocal(
+          isPresentList ? current.copyWith(checkedInUserIds: newList) : current.copyWith(paidUserIds: newList));
+    } on FirebaseException catch (e) {
+      debugPrint('Pointage $field $uid : ${e.code}');
+      throw EventActionException(friendlyFirebaseMessage(e));
+    } on TimeoutException {
+      throw const EventActionException('Le serveur ne répond pas. Vérifiez votre connexion.');
+    } finally {
+      _busyAttendance.remove(key);
+      notifyListeners();
+    }
+  }
+
   // ------------------------------------------------------------ Inscription
 
   /// Inscription / désinscription (règles 1, 2 et 4), en ligne uniquement.
@@ -386,6 +462,11 @@ class EventProvider extends ChangeNotifier {
       } else {
         await _doc(event.id).update({
           'registeredUserIds': register ? FieldValue.arrayUnion([uid]) : FieldValue.arrayRemove([uid]),
+          // Désinscription : on le retire aussi des présents / payés, dans la
+          // MÊME écriture (les règles l'autorisent seulement dans ce cas).
+          if (!register && current.checkedInUserIds.contains(uid))
+            'checkedInUserIds': FieldValue.arrayRemove([uid]),
+          if (!register && current.paidUserIds.contains(uid)) 'paidUserIds': FieldValue.arrayRemove([uid]),
         }).timeout(_timeout);
         updated = current.copyWithRegistration(uid, register);
       }
