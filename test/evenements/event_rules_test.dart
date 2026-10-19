@@ -144,6 +144,28 @@ void main() {
     });
   });
 
+  group('recherche (sans accents, titre et lieu)', () {
+    test('foldForSearch : minuscules, sans accents, espaces réduits', () {
+      expect(EventRules.foldForSearch('  École   Supérieure '), 'ecole superieure');
+      expect(EventRules.foldForSearch('ÇA Œuvre'), 'ca oeuvre');
+    });
+    final e = EventModel(
+      id: 'x',
+      organizerId: 'org',
+      organizerName: 'Club',
+      title: 'Journée portes ouvertes',
+      description: 'Description',
+      category: 'Associatif',
+      startDate: DateTime(2026, 11, 1, 9, 0),
+      location: 'École Polytechnique',
+    );
+    test('« ecole » trouve « École » (lieu)', () => expect(EventRules.matchesSearch(e, 'ecole'), isTrue));
+    test('« JOURNEE » trouve « Journée » (titre)', () => expect(EventRules.matchesSearch(e, 'JOURNEE'), isTrue));
+    test('requête vide : tout correspond', () => expect(EventRules.matchesSearch(e, '   '), isTrue));
+    test('mot absent : pas de correspondance', () => expect(EventRules.matchesSearch(e, 'piscine'), isFalse));
+    test('la description n’est pas cherchée', () => expect(EventRules.matchesSearch(e, 'description'), isFalse));
+  });
+
   group('filtres combinés', () {
     final day1 = DateTime(2026, 11, 1, 18, 0);
     final day2 = DateTime(2026, 11, 2, 9, 0);
@@ -197,6 +219,12 @@ void main() {
               category: 'Sport',
               day: DateTime(2026, 11, 1))),
           ['futurSport1', 'annule']);
+    });
+    test('À venir + catégorie + recherche', () {
+      expect(
+          ids(EventRules.filter(all,
+              filter: EventFilter.upcoming, now: now, category: 'Sport', query: 'evenement FUTURSPORT2')),
+          ['futurSport2']);
     });
     test('aucun résultat : liste vide', () {
       expect(EventRules.filter(all, filter: EventFilter.past, now: now, category: 'Culture'), isEmpty);

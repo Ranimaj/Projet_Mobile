@@ -69,8 +69,35 @@ class EventRules {
 
   static bool _sameDay(DateTime a, DateTime b) => a.year == b.year && a.month == b.month && a.day == b.day;
 
-  /// Règles 6, 8 et 12 : filtre principal + catégorie + jour, triés par date
-  /// de début. Tous les filtres se combinent.
+  static const Map<String, String> _accents = {
+    'à': 'a', 'â': 'a', 'ä': 'a', 'á': 'a', 'ã': 'a', 'å': 'a',
+    'ç': 'c',
+    'é': 'e', 'è': 'e', 'ê': 'e', 'ë': 'e',
+    'î': 'i', 'ï': 'i', 'í': 'i', 'ì': 'i',
+    'ô': 'o', 'ö': 'o', 'ó': 'o', 'ò': 'o', 'õ': 'o',
+    'ù': 'u', 'û': 'u', 'ü': 'u', 'ú': 'u',
+    'ÿ': 'y', 'ý': 'y', 'ñ': 'n', 'œ': 'oe', 'æ': 'ae',
+  };
+
+  /// Texte comparable pour la recherche : minuscules, sans accents, espaces
+  /// réduits. « École » et « ecole » deviennent identiques.
+  static String foldForSearch(String text) {
+    final buffer = StringBuffer();
+    for (final char in text.toLowerCase().split('')) {
+      buffer.write(_accents[char] ?? char);
+    }
+    return buffer.toString().trim().replaceAll(RegExp(r'\s+'), ' ');
+  }
+
+  /// Recherche dans le titre et le lieu (requête vide = tout correspond).
+  static bool matchesSearch(EventModel event, String query) {
+    final q = foldForSearch(query);
+    if (q.isEmpty) return true;
+    return foldForSearch(event.title).contains(q) || foldForSearch(event.location).contains(q);
+  }
+
+  /// Règles 6, 8 et 12 : filtre principal + catégorie + jour + recherche,
+  /// triés par date de début. Tous les filtres se combinent.
   /// - À venir : ni annulés, ni terminés (les événements en cours restent visibles).
   /// - Passés : terminés et non annulés (lecture seule).
   /// - Mes inscriptions / Mes événements : tout, y compris annulés et passés.
@@ -81,6 +108,7 @@ class EventRules {
     String? userId,
     String? category,
     DateTime? day,
+    String query = '',
   }) {
     bool matchesFilter(EventModel e) {
       switch (filter) {
@@ -99,6 +127,7 @@ class EventRules {
         .where(matchesFilter)
         .where((e) => category == null || e.category == category)
         .where((e) => day == null || _sameDay(e.startDate, day))
+        .where((e) => matchesSearch(e, query))
         .toList()
       ..sort((a, b) => a.startDate.compareTo(b.startDate));
     return list;

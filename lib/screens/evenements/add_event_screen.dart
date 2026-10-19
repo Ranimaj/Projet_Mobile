@@ -21,6 +21,9 @@ class AddEventScreen extends StatefulWidget {
   State<AddEventScreen> createState() => _AddEventScreenState();
 }
 
+/// Champs du formulaire, pour savoir lesquels ont été « touchés ».
+enum _Field { title, description, location, capacity, category, start, end }
+
 class _AddEventScreenState extends State<AddEventScreen> {
   final _formKey = GlobalKey<FormState>();
   final _endFieldKey = GlobalKey<FormFieldState<DateTime>>();
@@ -28,9 +31,30 @@ class _AddEventScreenState extends State<AddEventScreen> {
   final _descCtrl = TextEditingController();
   final _locationCtrl = TextEditingController();
   final _capacityCtrl = TextEditingController();
+  final _titleFocus = FocusNode();
   final _descFocus = FocusNode();
   final _locationFocus = FocusNode();
   final _capacityFocus = FocusNode();
+
+  /// Affichage des erreurs : un champ montre son erreur seulement s'il a été
+  /// modifié PUIS quitté (« touché »), ou après une première tentative
+  /// d'envoi. Ensuite l'erreur se met à jour en direct pendant la saisie.
+  /// À l'ouverture, aucun champ n'affiche d'erreur.
+  final Set<_Field> _edited = {};
+  final Set<_Field> _touched = {};
+  bool _submitAttempted = false;
+
+  AutovalidateMode _modeFor(_Field field) => (_submitAttempted || _touched.contains(field))
+      ? AutovalidateMode.always
+      : AutovalidateMode.disabled;
+
+  /// Quand le champ perd le focus après avoir été modifié, il devient « touché ».
+  void _watchFocus(FocusNode node, _Field field) {
+    node.addListener(() {
+      if (!mounted || node.hasFocus || !_edited.contains(field) || _touched.contains(field)) return;
+      setState(() => _touched.add(field));
+    });
+  }
 
   /// Id généré une seule fois à l'ouverture et réutilisé à chaque nouvel
   /// essai : un réseau lent ne peut jamais créer deux fois l'événement.
@@ -49,6 +73,10 @@ class _AddEventScreenState extends State<AddEventScreen> {
     super.initState();
     final e = widget.existing;
     _eventId = e?.id ?? const Uuid().v4();
+    _watchFocus(_titleFocus, _Field.title);
+    _watchFocus(_descFocus, _Field.description);
+    _watchFocus(_locationFocus, _Field.location);
+    _watchFocus(_capacityFocus, _Field.capacity);
     if (e != null) {
       _titleCtrl.text = e.title;
       _descCtrl.text = e.description;
@@ -72,7 +100,7 @@ class _AddEventScreenState extends State<AddEventScreen> {
     for (final c in [_titleCtrl, _descCtrl, _locationCtrl, _capacityCtrl]) {
       c.dispose();
     }
-    for (final f in [_descFocus, _locationFocus, _capacityFocus]) {
+    for (final f in [_titleFocus, _descFocus, _locationFocus, _capacityFocus]) {
       f.dispose();
     }
     super.dispose();
@@ -145,6 +173,7 @@ class _AddEventScreenState extends State<AddEventScreen> {
     setState(() {
       _start = picked;
       _end = picked.add(duration);
+      _touched.add(_Field.start);
     });
     field.didChange(picked);
     _endFieldKey.currentState?.didChange(_end);
@@ -154,7 +183,10 @@ class _AddEventScreenState extends State<AddEventScreen> {
     final first = DateTime(_start.year, _start.month, _start.day);
     final picked = await _pickDateTime(_end, first: first, last: first.add(const Duration(days: 4)));
     if (picked == null) return;
-    setState(() => _end = picked);
+    setState(() {
+      _end = picked;
+      _touched.add(_Field.end);
+    });
     field.didChange(picked);
   }
 
@@ -169,6 +201,8 @@ class _AddEventScreenState extends State<AddEventScreen> {
       _showMessage('Connectez-vous pour enregistrer un événement.');
       return;
     }
+    // Après la première tentative, tous les champs affichent leurs erreurs.
+    setState(() => _submitAttempted = true);
     if (!_formKey.currentState!.validate()) return;
 
     final provider = context.read<EventProvider>();
@@ -255,22 +289,26 @@ class _AddEventScreenState extends State<AddEventScreen> {
           padding: const EdgeInsets.all(20),
           child: Form(
             key: _formKey,
-            autovalidateMode: AutovalidateMode.onUserInteraction,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 TextFormField(
                   controller: _titleCtrl,
+                  focusNode: _titleFocus,
+                  autovalidateMode: _modeFor(_Field.title),
+                  onChanged: (_) => _edited.add(_Field.title),
                   maxLength: EventValidators.titleMax,
                   textInputAction: TextInputAction.next,
                   onFieldSubmitted: (_) => _descFocus.requestFocus(),
-                  decoration: const InputDecoration(labelText: "Titre de l'événement"),
+                  decoration: const InputDecoration(labelText: "Titre de l'événement", errorMaxLines: 2),
                   validator: EventValidators.title,
                 ),
                 const SizedBox(height: 8),
                 TextFormField(
                   controller: _descCtrl,
                   focusNode: _descFocus,
+                  autovalidateMode: _modeFor(_Field.description),
+                  onChanged: (_) => _edited.add(_Field.description),
                   minLines: 3,
                   maxLines: 6,
                   maxLength: EventValidators.descriptionMax, // compteur « 123/1000 »
@@ -278,24 +316,29 @@ class _AddEventScreenState extends State<AddEventScreen> {
                   // suivant en touchant « Lieu ».
                   keyboardType: TextInputType.multiline,
                   textInputAction: TextInputAction.newline,
-                  decoration: const InputDecoration(labelText: 'Description'),
+                  decoration: const InputDecoration(labelText: 'Description', errorMaxLines: 2),
                   validator: EventValidators.description,
                 ),
                 const SizedBox(height: 8),
                 TextFormField(
                   controller: _locationCtrl,
                   focusNode: _locationFocus,
+                  autovalidateMode: _modeFor(_Field.location),
+                  onChanged: (_) => _edited.add(_Field.location),
                   maxLength: EventValidators.locationMax,
                   textInputAction: TextInputAction.next,
                   onFieldSubmitted: (_) => _capacityFocus.requestFocus(),
-                  decoration: const InputDecoration(labelText: 'Lieu', prefixIcon: Icon(Icons.place_outlined)),
+                  decoration: const InputDecoration(
+                      labelText: 'Lieu', prefixIcon: Icon(Icons.place_outlined), errorMaxLines: 2),
                   validator: EventValidators.location,
                 ),
                 const SizedBox(height: 8),
                 TextFormField(
                   controller: _capacityCtrl,
                   focusNode: _capacityFocus,
-                  maxLength: 4,
+                  autovalidateMode: _modeFor(_Field.capacity),
+                  onChanged: (_) => _edited.add(_Field.capacity),
+                  maxLength: 4, // 5000 max : 4 chiffres suffisent
                   keyboardType: TextInputType.number,
                   inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                   textInputAction: TextInputAction.done,
@@ -305,21 +348,28 @@ class _AddEventScreenState extends State<AddEventScreen> {
                         ? 'Vide = illimitée · minimum $registeredCount (déjà inscrits)'
                         : 'Vide = places illimitées',
                     prefixIcon: const Icon(Icons.event_seat_outlined),
+                    counterText: '', // pas de compteur « 0/4 » pour un nombre
+                    errorMaxLines: 2,
                   ),
                   validator: (v) => EventValidators.capacity(v, registeredCount: registeredCount),
                 ),
                 const SizedBox(height: 8),
                 DropdownButtonFormField<String>(
                   initialValue: _category,
-                  decoration: const InputDecoration(labelText: 'Catégorie'),
+                  autovalidateMode: _modeFor(_Field.category),
+                  decoration: const InputDecoration(labelText: 'Catégorie', errorMaxLines: 2),
                   items: AppConstants.eventCategories
                       .map((c) => DropdownMenuItem(value: c, child: Text(c)))
                       .toList(),
-                  onChanged: (v) => setState(() => _category = v),
+                  onChanged: (v) => setState(() {
+                    _category = v;
+                    _touched.add(_Field.category);
+                  }),
                   validator: EventValidators.category,
                 ),
                 const SizedBox(height: 16),
                 FormField<DateTime>(
+                  autovalidateMode: _modeFor(_Field.start),
                   initialValue: _start,
                   // En modification, un début inchangé n'est pas revérifié
                   // (sinon on ne pourrait plus corriger le titre 10 min avant).
@@ -336,6 +386,7 @@ class _AddEventScreenState extends State<AddEventScreen> {
                 const SizedBox(height: 10),
                 FormField<DateTime>(
                   key: _endFieldKey,
+                  autovalidateMode: _modeFor(_Field.end),
                   initialValue: _end,
                   validator: (v) => EventValidators.end(_start, v),
                   builder: (field) => _DateTimeButton(
@@ -386,7 +437,8 @@ class _DateTimeButton extends StatelessWidget {
         if (error != null)
           Padding(
             padding: const EdgeInsets.only(top: 6, left: 12),
-            child: Text(error!, style: TextStyle(color: errorColor, fontSize: 12)),
+            child: Text(error!,
+                maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(color: errorColor, fontSize: 12)),
           ),
       ],
     );

@@ -7,7 +7,6 @@ import '../core/utils/offline_queue_service.dart';
 import '../models/event_model.dart';
 import '../screens/evenements/event_rules.dart';
 import '../screens/evenements/event_validators.dart';
-import '../services/firestore_repository.dart';
 
 /// Erreur d'action sur un événement, avec un message prêt à afficher.
 class EventActionException implements Exception {
@@ -47,14 +46,6 @@ String friendlyFirebaseMessage(FirebaseException e) {
 /// La file d'attente hors-ligne n'est utilisée que pour une panne réseau
 /// (« unavailable » ou pas de connexion), jamais pour un refus du serveur.
 class EventProvider extends ChangeNotifier {
-  // Le dépôt partagé sert à la lecture avec repli sur le cache Hive.
-  final _repo = FirestoreRepository<EventModel>(
-    collectionName: AppConstants.eventsCollection,
-    cacheBoxName: AppConstants.hiveEventsBox,
-    fromMap: EventModel.fromMap,
-    toMap: (e) => e.toMap(),
-  );
-
   final _firestore = FirebaseFirestore.instance;
   final _cache = LocalCacheService();
   final _queue = OfflineQueueService();
@@ -97,9 +88,14 @@ class EventProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Liste affichée : filtre principal + catégorie + jour, triée par début.
-  List<EventModel> visibleEvents(String? userId) => EventRules.filter(_all,
-      filter: filter, now: DateTime.now(), userId: userId, category: categoryFilter, day: selectedDay);
+  /// Liste affichée : filtre principal + catégorie + jour + recherche, triée par début.
+  List<EventModel> visibleEvents(String? userId, {String query = ''}) => EventRules.filter(_all,
+      filter: filter,
+      now: DateTime.now(),
+      userId: userId,
+      category: categoryFilter,
+      day: selectedDay,
+      query: query);
 
   /// À venir (ni annulés ni terminés), filtrés par catégorie.
   List<EventModel> get upcoming =>
@@ -119,10 +115,39 @@ class EventProvider extends ChangeNotifier {
     return null;
   }
 
+  /// Message d'erreur du dernier chargement (null = OK). En cas d'échec, la
+  /// liste affichée est celle du cache Hive.
+  String? loadError;
+
+  List<EventModel> _readCache() => _cache
+      .readCollection(AppConstants.hiveEventsBox)
+      .entries
+      .map((e) => EventModel.fromMap(e.key, e.value))
+      .toList();
+
+  /// Lecture : Firestore si en ligne (puis mise en cache), sinon le cache.
+  /// On lit Firestore ici plutôt que via le dépôt partagé pour pouvoir
+  /// afficher une erreur avec « Réessayer » au lieu de l'avaler en silence.
   Future<void> load() async {
     isLoading = true;
+    loadError = null;
     notifyListeners();
-    _all = await _repo.fetchAll(isOnline: _isOnline);
+    if (_isOnline) {
+      try {
+        final snapshot = await _firestore.collection(AppConstants.eventsCollection).get().timeout(_timeout);
+        final byId = {for (final doc in snapshot.docs) doc.id: doc.data()};
+        await _cache.cacheCollection(AppConstants.hiveEventsBox, byId);
+        _all = byId.entries.map((e) => EventModel.fromMap(e.key, e.value)).toList();
+      } catch (e) {
+        debugPrint('Chargement des événements échoué : $e');
+        loadError = e is FirebaseException
+            ? friendlyFirebaseMessage(e)
+            : "Impossible d'actualiser les événements. Vérifiez votre connexion.";
+        _all = _readCache();
+      }
+    } else {
+      _all = _readCache();
+    }
     isLoading = false;
     notifyListeners();
   }
