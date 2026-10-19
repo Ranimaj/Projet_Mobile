@@ -1,6 +1,7 @@
 import 'package:campusconnect/models/event_model.dart';
 import 'package:campusconnect/screens/evenements/event_rules.dart';
 import 'package:campusconnect/screens/evenements/event_validators.dart';
+import 'package:campusconnect/screens/evenements/nominatim_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -187,6 +188,43 @@ void main() {
     });
     test('déjà commencé : en cours', () {
       expect(EventRules.countdown(t.subtract(const Duration(minutes: 5)), t), 'en cours');
+    });
+  });
+
+  group('géocodage : quand et quoi enregistrer', () {
+    test('création (pas d’ancien lieu) : toujours géocoder', () {
+      expect(EventRules.locationChanged('ESPRIT Ghazela', null), isTrue);
+    });
+    test('modification, même lieu (espaces en trop) : ne pas regéocoder', () {
+      expect(EventRules.locationChanged('  ESPRIT   Ghazela ', 'ESPRIT Ghazela'), isFalse);
+    });
+    test('modification, autre lieu : regéocoder', () {
+      expect(EventRules.locationChanged('Technopole El Ghazela', 'ESPRIT Ghazela'), isTrue);
+    });
+    test('succès valide : coordonnées, pas de note', () {
+      final r = EventRules.coordinatesFrom(
+          const GeocodeSuccess(GeocodeResult(lat: 36.8987, lng: 10.1897, displayName: 'ESPRIT')));
+      expect(r.lat, 36.8987);
+      expect(r.lng, 10.1897);
+      expect(r.note, isNull);
+    });
+    test('succès mais coordonnées impossibles : rejetées par le validateur', () {
+      final r = EventRules.coordinatesFrom(
+          const GeocodeSuccess(GeocodeResult(lat: 123, lng: 10, displayName: 'bizarre')));
+      expect(r.lat, isNull);
+      expect(r.note, 'Lieu introuvable sur la carte');
+    });
+    test('introuvable : note « Lieu introuvable sur la carte »', () {
+      final r = EventRules.coordinatesFrom(
+          const GeocodeFailure(GeocodeError.notFound, 'Lieu introuvable sur la carte'));
+      expect(r.lat, isNull);
+      expect(r.note, 'Lieu introuvable sur la carte');
+    });
+    test('panne réseau : enregistré sans position, avec la raison', () {
+      final r = EventRules.coordinatesFrom(
+          const GeocodeFailure(GeocodeError.timeout, 'Le service de carte ne répond pas.'));
+      expect(r.lat, isNull);
+      expect(r.note, 'Le service de carte ne répond pas. Événement enregistré sans position.');
     });
   });
 

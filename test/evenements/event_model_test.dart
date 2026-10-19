@@ -218,6 +218,13 @@ void main() {
     test('clearCapacity remet la capacité à illimitée', () {
       expect(full.copyWith(clearCapacity: true).capacity, isNull);
     });
+
+    test('clearCoordinates efface la position, le reste est gardé', () {
+      final c = full.copyWith(clearCoordinates: true);
+      expect(c.latitude, isNull);
+      expect(c.longitude, isNull);
+      expect(c.location, 'Stade');
+    });
   });
 
   group('changedFieldsSince (patch envoyé en modification)', () {
@@ -238,6 +245,13 @@ void main() {
           .changedFieldsSince(original);
       expect(patch.keys, unorderedEquals(['startDate', 'endDate']));
       expect(patch['startDate'], Timestamp.fromDate(later));
+    });
+
+    test('lieu changé et regéocodé → lieu + coordonnées envoyés', () {
+      final patch = original
+          .copyWith(location: 'Technopole', latitude: 36.9, longitude: 10.19)
+          .changedFieldsSince(original);
+      expect(patch, {'location': 'Technopole', 'latitude': 36.9, 'longitude': 10.19});
     });
 
     test('capacité remise à illimitée → null envoyé', () {

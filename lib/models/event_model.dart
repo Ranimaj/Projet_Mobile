@@ -147,6 +147,7 @@ class EventModel {
   /// organizerId, registeredUserIds, status... n'y sont volontairement pas.
   static const List<String> editableFields = [
     'title', 'description', 'category', 'startDate', 'endDate', 'location', 'capacity',
+    'latitude', 'longitude', // recalculées quand le lieu change (géocodage)
   ];
 
   /// Seulement les champs modifiables qui diffèrent de [original] : c'est ce
@@ -161,7 +162,8 @@ class EventModel {
   }
 
   /// Copie avec certains champs changés. Pour remettre la capacité à
-  /// « illimitée » (null), passer [clearCapacity] à true.
+  /// « illimitée » (null), passer [clearCapacity] à true ; pour effacer la
+  /// position (lieu changé mais introuvable), passer [clearCoordinates].
   EventModel copyWith({
     String? id,
     String? organizerName,
@@ -173,6 +175,7 @@ class EventModel {
     String? location,
     double? latitude,
     double? longitude,
+    bool clearCoordinates = false,
     List<String>? registeredUserIds,
     String? posterUrl,
     int? capacity,
@@ -195,8 +198,8 @@ class EventModel {
       startDate: startDate ?? this.startDate,
       endDate: endDate ?? this.endDate,
       location: location ?? this.location,
-      latitude: latitude ?? this.latitude,
-      longitude: longitude ?? this.longitude,
+      latitude: clearCoordinates ? null : (latitude ?? this.latitude),
+      longitude: clearCoordinates ? null : (longitude ?? this.longitude),
       registeredUserIds: registeredUserIds ?? this.registeredUserIds,
       posterUrl: posterUrl ?? this.posterUrl,
       capacity: clearCapacity ? null : (capacity ?? this.capacity),

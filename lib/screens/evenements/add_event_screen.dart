@@ -9,7 +9,9 @@ import '../../models/event_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/event_provider.dart';
 import '../../widgets/primary_button.dart';
+import 'event_rules.dart';
 import 'event_validators.dart';
+import 'nominatim_service.dart';
 
 /// BF8.3 / BF8.4 — un seul formulaire pour créer OU modifier un événement.
 /// Création si [existing] est null, modification sinon.
@@ -194,6 +196,23 @@ class _AddEventScreenState extends State<AddEventScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
+  /// Position du lieu (BF9.1) : géocodée seulement si le lieu a changé (et
+  /// toujours à la création), et seulement en ligne. Le géocodage ne bloque
+  /// jamais l'enregistrement plus que son délai (10 s) ; en cas d'échec on
+  /// enregistre sans coordonnées. Hors-ligne : pas de coordonnées et rien en
+  /// file d'attente (le géocodage n'est pas rejoué plus tard).
+  Future<({double? lat, double? lng, String? note, bool changed})> _locate(String location, bool isOnline) async {
+    final existing = widget.existing;
+    if (!EventRules.locationChanged(location, existing?.location)) {
+      return (lat: existing!.latitude, lng: existing.longitude, note: null, changed: false);
+    }
+    if (!isOnline) {
+      return (lat: null, lng: null, note: 'Hors ligne : enregistré sans position sur la carte.', changed: true);
+    }
+    final r = EventRules.coordinatesFrom(await NominatimService.instance.geocode(location));
+    return (lat: r.lat, lng: r.lng, note: r.note, changed: true);
+  }
+
   Future<void> _submit() async {
     if (_submitting) return;
     final user = context.read<AuthProvider>().currentUser;
@@ -208,21 +227,29 @@ class _AddEventScreenState extends State<AddEventScreen> {
     final provider = context.read<EventProvider>();
     final now = DateTime.now();
     final title = EventValidators.normalize(_titleCtrl.text);
+    final location = EventValidators.normalize(_locationCtrl.text);
 
     setState(() => _submitting = true);
     try {
       String message;
+      String? geoNote;
       if (_isEdit) {
         final original = widget.existing!;
+        final geo = await _locate(location, provider.isOnline);
+        geoNote = geo.note;
         final edited = original.copyWith(
           title: title,
           description: EventValidators.normalize(_descCtrl.text),
-          location: EventValidators.normalize(_locationCtrl.text),
+          location: location,
           category: _category,
           startDate: _start,
           endDate: _end,
           capacity: _capacityValue,
           clearCapacity: _capacityValue == null,
+          latitude: geo.lat,
+          longitude: geo.lng,
+          // Lieu changé mais introuvable : l'ancienne position serait fausse.
+          clearCoordinates: geo.changed && geo.lat == null,
         );
         final sentOnline = await provider.updateEvent(original, edited);
         message = sentOnline
@@ -237,6 +264,9 @@ class _AddEventScreenState extends State<AddEventScreen> {
         final limit = EventValidators.dailyLimit(organizerId: user.id, existing: others, now: now);
         if (limit != null) throw EventActionException(limit);
 
+        // Géocodage après les contrôles : pas d'appel réseau pour un doublon.
+        final geo = await _locate(location, provider.isOnline);
+        geoNote = geo.note;
         final draft = EventModel(
           id: _eventId,
           organizerId: user.id,
@@ -246,7 +276,9 @@ class _AddEventScreenState extends State<AddEventScreen> {
           category: _category!,
           startDate: _start,
           endDate: _end,
-          location: EventValidators.normalize(_locationCtrl.text),
+          location: location,
+          latitude: geo.lat,
+          longitude: geo.lng,
           capacity: _capacityValue,
         );
         // Le provider applique un délai max de 15 s (TimeoutException ci-dessous).
@@ -255,7 +287,7 @@ class _AddEventScreenState extends State<AddEventScreen> {
       }
       if (!mounted) return;
       _saved = true;
-      _showMessage(message);
+      _showMessage(geoNote == null ? message : '$message $geoNote');
       Navigator.pop(context);
     } on EventActionException catch (e) {
       if (mounted) _showMessage(e.message);

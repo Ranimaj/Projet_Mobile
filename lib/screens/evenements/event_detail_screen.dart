@@ -11,6 +11,7 @@ import '../../widgets/primary_button.dart';
 import 'add_event_screen.dart';
 import 'event_calendar_launcher.dart';
 import 'event_calendar_sync.dart';
+import 'event_map.dart';
 import 'event_rules.dart';
 import 'event_style.dart';
 import 'event_validators.dart';
@@ -146,7 +147,17 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                     subtitle: _timeSubtitle(event),
                   ),
                   const SizedBox(height: 10),
-                  _InfoCard(icon: Icons.place_outlined, color: color, title: event.location, subtitle: 'Lieu'),
+                  _InfoCard(
+                    icon: Icons.place_outlined,
+                    color: color,
+                    title: event.location,
+                    // Sans coordonnées (lieu introuvable ou ajouté hors-ligne).
+                    subtitle: event.latitude == null || event.longitude == null ? 'Lieu non localisé' : 'Lieu',
+                  ),
+                  if (event.latitude != null && event.longitude != null) ...[
+                    const SizedBox(height: 10),
+                    EventMapCard(event: event, isOnline: context.watch<EventProvider>().isOnline),
+                  ],
                   const SizedBox(height: 10),
                   _InfoCard(
                       icon: Icons.person_outline_rounded,
