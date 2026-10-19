@@ -222,6 +222,17 @@ void main() {
       expect(EventRules.daysInMonth(DateTime(2028, 2)), 29);
       expect(EventRules.daysInMonth(DateTime(2026, 12)), 31);
     });
+    test('catégories par jour : distinctes, dans l’ordre', () {
+      final byDay = EventRules.categoriesByDay([
+        ev('a', start: DateTime(2026, 11, 1, 9, 0), category: 'Sport'),
+        ev('b', start: DateTime(2026, 11, 1, 12, 0), category: 'Culture'),
+        ev('c', start: DateTime(2026, 11, 1, 18, 0), category: 'Sport'),
+        ev('d', start: DateTime(2026, 11, 2, 9, 0), category: 'Associatif'),
+      ]);
+      expect(byDay[DateTime(2026, 11, 1)], ['Sport', 'Culture']);
+      expect(byDay[DateTime(2026, 11, 2)], ['Associatif']);
+      expect(byDay[DateTime(2026, 11, 3)], isNull);
+    });
     test('jours avec événements : sans l’heure, sans doublon', () {
       final days = EventRules.eventDays([
         ev('a', start: DateTime(2026, 11, 1, 9, 0)),

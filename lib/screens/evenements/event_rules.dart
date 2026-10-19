@@ -109,6 +109,17 @@ class EventRules {
   static int activeFilterCount({String? category, DateTime? day}) =>
       (category == null ? 0 : 1) + (day == null ? 0 : 1);
 
+  /// Pour chaque jour : les catégories distinctes des événements qui y
+  /// commencent, dans l'ordre d'apparition (un point de couleur par catégorie).
+  static Map<DateTime, List<String>> categoriesByDay(List<EventModel> events) {
+    final byDay = <DateTime, List<String>>{};
+    for (final e in events) {
+      final categories = byDay.putIfAbsent(dateOnly(e.startDate), () => []);
+      if (!categories.contains(e.category)) categories.add(e.category);
+    }
+    return byDay;
+  }
+
   /// Jours (sans l'heure) où commence au moins un des [events] : on y met un point.
   static Set<DateTime> eventDays(List<EventModel> events) => {for (final e in events) dateOnly(e.startDate)};
 
