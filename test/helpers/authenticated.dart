@@ -1,3 +1,4 @@
+import 'package:campusconnect/core/theme/app_theme.dart';
 import 'dart:async';
 
 import 'package:campusconnect/models/user_model.dart';
@@ -77,7 +78,7 @@ class AuthHarness {
           ChangeNotifierProvider<ConnectivityProvider>.value(value: connectivity),
         ],
         child: MaterialApp(
-          theme: ThemeData(useMaterial3: true),
+          theme: AppTheme.light,
           home: push ? _Launcher(screen) : screen,
         ),
       ),

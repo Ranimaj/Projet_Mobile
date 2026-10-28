@@ -1,3 +1,4 @@
+import 'package:campusconnect/core/theme/app_theme.dart';
 import 'package:campusconnect/core/constants/layout.dart';
 import 'package:campusconnect/core/theme/app_colors.dart';
 import 'package:campusconnect/models/annonce_model.dart';
@@ -175,6 +176,7 @@ void main() {
           ChangeNotifierProvider<AuthProvider>.value(value: auth),
         ],
         child: MaterialApp(
+            theme: AppTheme.light,
             home: VisitorHomeScreen(studentsCount: () async => students)),
       ),
     );
