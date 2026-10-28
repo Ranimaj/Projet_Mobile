@@ -105,9 +105,13 @@ class FeaturedCard extends StatelessWidget {
                                       Icon(m.icon,
                                           size: 14, color: Colors.white),
                                       const SizedBox(width: 4),
-                                      Text(m.text,
-                                          style: text.labelMedium!
-                                              .copyWith(color: Colors.white)),
+                                      Flexible(
+                                        child: Text(m.text,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: text.labelMedium!
+                                                .copyWith(color: Colors.white)),
+                                      ),
                                     ],
                                   ),
                               ],

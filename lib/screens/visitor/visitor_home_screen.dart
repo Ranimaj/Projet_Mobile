@@ -22,20 +22,23 @@ import '../../widgets/status_chip.dart';
 import '../auth/login_screen.dart';
 import '../auth/register_screen.dart';
 
-/// Accueil Visiteur (non connecté) — BF3 : héro photo avec pastilles de
-/// chiffres, puis une section par gestion (Vente & Don, Annonces, Événements,
-/// Stage & Emploi) avec « Voir tout », et l'appel à l'inscription dans une barre
-/// fixe en pied d'écran. Les chiffres sont réels (jamais inventés).
 /// Voile sombre posé sur la photo du héro (seul littéral de couleur permis :
 /// il doit rester noir quel que soit le thème pour garder le texte lisible).
 const _scrimTop = Color(0x33000000);
 const _scrimBottom = Color(0xCC000000);
 
-/// Hauteur des rails de cartes (image 100 + titre sur 2 lignes + méta).
-const double _railHeight = 212;
 const double _cardWidth = 168;
 const double _cardImageHeight = 100;
 
+/// Hauteur d'un rail de cartes : image + marges de la carte + bloc de texte
+/// (titre sur 2 lignes et méta) qui grandit avec la taille de texte.
+double _railHeight(BuildContext context) =>
+    _cardImageHeight + 24 + MediaQuery.textScalerOf(context).scale(88);
+
+/// Accueil Visiteur (non connecté) — BF3 : héro photo avec pastilles de
+/// chiffres, puis une section par gestion (Vente & Don, Annonces, Événements,
+/// Stage & Emploi) avec « Voir tout », et l'appel à l'inscription dans une barre
+/// fixe en pied d'écran. Les chiffres sont réels (jamais inventés).
 class VisitorHomeScreen extends StatefulWidget {
   /// Nombre d'étudiants inscrits (pastille du héro). Injectable dans les tests ;
   /// par défaut, comptage Firestore de la collection `users`.
@@ -153,7 +156,11 @@ class _VisitorHomeScreenState extends State<VisitorHomeScreen> {
             const SizedBox(height: kSectionGap),
             const _InfoBox(),
             // Clears the fixed bottom bar.
-            SizedBox(height: 168 + media.padding.bottom),
+            SizedBox(
+                height: MediaQuery.textScalerOf(context)
+                        .scale(kBottomActionBarTwoRowHeight) +
+                    media.padding.bottom +
+                    kSectionGap),
           ],
         );
         if (wide) {
@@ -384,11 +391,11 @@ class _Rail extends StatelessWidget {
     final items = loading
         ? List<Widget>.filled(
             3,
-            const SkeletonBox(
-                width: _cardWidth, height: _railHeight, radius: 20))
+            SkeletonBox(
+                width: _cardWidth, height: _railHeight(context), radius: 20))
         : children;
     return SizedBox(
-      height: _railHeight + 16,
+      height: _railHeight(context) + 16,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.fromLTRB(kPagePadding, 8, kPagePadding, 8),
@@ -487,8 +494,10 @@ class _Events extends StatelessWidget {
             title: first.title,
             meta: [
               FeaturedMeta(Icons.event_rounded, _date(first.startDate)),
-              FeaturedMeta(Icons.place_rounded, first.location),
+              if (first.location.trim().isNotEmpty)
+                FeaturedMeta(Icons.place_rounded, first.location),
             ],
+            height: MediaQuery.textScalerOf(context).scale(170),
             actionLabel: 'Voir',
             onAction: onOpen,
             onTap: onOpen,
