@@ -33,12 +33,16 @@ class _AppShellState extends State<AppShell> {
   }
 
   /// Laisse de la place à la barre flottante sans toucher aux écrans de module.
-  Widget _clearBar(Widget screen) => MediaQuery.removePadding(
+  /// Clavier ouvert : la barre est masquée, la marge aussi.
+  Widget _clearBar(Widget screen, {required bool keyboard}) =>
+      MediaQuery.removePadding(
         context: context,
         removeBottom: true,
         child: Padding(
           padding: EdgeInsets.only(
-              bottom: kFloatingNavInset + MediaQuery.viewPaddingOf(context).bottom),
+              bottom: keyboard
+                  ? 0
+                  : kFloatingNavInset + MediaQuery.viewPaddingOf(context).bottom),
           child: screen,
         ),
       );
@@ -52,21 +56,26 @@ class _AppShellState extends State<AppShell> {
       const EvenementsListScreen(),
       const StagesListScreen(),
     ];
+    // A docked keyboard shrinks the body: the bar would ride on top of it.
+    final keyboard = MediaQuery.viewInsetsOf(context).bottom > 0;
     return Scaffold(
       extendBody: true,
       body: Stack(
         children: [
           IndexedStack(
             index: _index,
-            children: [for (final s in screens) _clearBar(s)],
+            children: [
+              for (final s in screens) _clearBar(s, keyboard: keyboard)
+            ],
           ),
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: FloatingNavBar(
-                index: _index, onChanged: _select, items: _items),
-          ),
+          if (!keyboard)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: FloatingNavBar(
+                  index: _index, onChanged: _select, items: _items),
+            ),
         ],
       ),
     );

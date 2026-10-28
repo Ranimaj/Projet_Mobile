@@ -144,4 +144,21 @@ void main() {
         .first);
     expect((padded.padding as EdgeInsets).bottom, kFloatingNavInset + 34);
   });
+
+  testWidgets('an open keyboard hides the bar and drops the tab padding',
+      (tester) async {
+    await pumpShell(tester);
+    tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+    addTearDown(tester.view.resetViewInsets);
+    await tester.pump();
+    expect(find.byType(FloatingNavBar), findsNothing);
+    final padding = tester.widget<Padding>(find
+        .ancestor(of: find.byType(HomeScreen), matching: find.byType(Padding))
+        .first);
+    expect((padding.padding as EdgeInsets).bottom, 0);
+
+    tester.view.resetViewInsets();
+    await tester.pump();
+    expect(find.byType(FloatingNavBar), findsOneWidget);
+  });
 }
