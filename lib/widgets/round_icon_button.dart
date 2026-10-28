@@ -14,6 +14,10 @@ class RoundIconButton extends StatelessWidget {
   final String tooltip;
   final bool showDot;
 
+  /// Overrides the fill colour and renders the button flat (no border, no
+  /// shadow). Pass [Colors.transparent] for an inactive nav-bar item.
+  final Color? background;
+
   const RoundIconButton({
     super.key,
     required this.icon,
@@ -22,17 +26,20 @@ class RoundIconButton extends StatelessWidget {
     this.size = 38,
     required this.tooltip,
     this.showDot = false,
+    this.background,
   });
 
   @override
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
-    final (fill, fg) = switch (style) {
+    final (styleFill, fg) = switch (style) {
       RoundButtonStyle.surface => (t.surface, t.textPrimary),
       RoundButtonStyle.soft => (t.primarySoft, t.primary),
       RoundButtonStyle.primary => (t.primary, Colors.white),
       RoundButtonStyle.onPhoto => (Colors.white, AppTokens.light.textPrimary),
     };
+    final fill = background ?? styleFill;
+    final raised = background == null && style == RoundButtonStyle.surface;
     final enabled = onPressed != null;
     final hit = size < 48 ? 48.0 : size;
 
@@ -58,11 +65,8 @@ class RoundIconButton extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: fill,
                   shape: BoxShape.circle,
-                  border: style == RoundButtonStyle.surface
-                      ? Border.all(color: t.outline)
-                      : null,
-                  boxShadow:
-                      style == RoundButtonStyle.surface ? t.cardShadow : null,
+                  border: raised ? Border.all(color: t.outline) : null,
+                  boxShadow: raised ? t.cardShadow : null,
                 ),
                 child: Icon(icon,
                     size: size * 0.5, color: enabled ? fg : t.textSecondary),
