@@ -40,4 +40,22 @@ void main() {
     expect(AppTokens.light.cardShadow, isNotEmpty);
     expect(AppTokens.dark.cardShadow, isEmpty);
   });
+
+  test('no text style in either theme is below 13 px', () {
+    for (final (name, theme) in [('light', AppTheme.light), ('dark', AppTheme.dark)]) {
+      final tt = theme.textTheme;
+      for (final (style, s) in [
+        ('displayLarge', tt.displayLarge), ('displayMedium', tt.displayMedium), ('displaySmall', tt.displaySmall),
+        ('headlineLarge', tt.headlineLarge), ('headlineMedium', tt.headlineMedium), ('headlineSmall', tt.headlineSmall),
+        ('titleLarge', tt.titleLarge), ('titleMedium', tt.titleMedium), ('titleSmall', tt.titleSmall),
+        ('bodyLarge', tt.bodyLarge), ('bodyMedium', tt.bodyMedium), ('bodySmall', tt.bodySmall),
+        ('labelLarge', tt.labelLarge), ('labelMedium', tt.labelMedium), ('labelSmall', tt.labelSmall),
+      ]) {
+        final size = s?.fontSize;
+        if (size != null) {
+          expect(size, greaterThanOrEqualTo(13), reason: '$name.$style is $size px');
+        }
+      }
+    }
+  });
 }

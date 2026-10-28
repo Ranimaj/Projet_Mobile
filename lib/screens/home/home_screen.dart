@@ -14,6 +14,7 @@ import '../../providers/auth_provider.dart';
 import '../../providers/connectivity_provider.dart';
 import '../../providers/event_provider.dart';
 import '../../providers/job_provider.dart';
+import '../profile/profile_screen.dart';
 
 /// Onglets de [AppShell], dans l'ordre de la barre de navigation.
 abstract final class HomeTabs {
@@ -22,7 +23,6 @@ abstract final class HomeTabs {
   static const int notices = 2;
   static const int events = 3;
   static const int jobs = 4;
-  static const int profile = 5;
 }
 
 /// Hub central après connexion — BF13, d'après la maquette « CampusConnect
@@ -63,6 +63,9 @@ class _HomeScreenState extends State<HomeScreen> {
   DateTime get _now => (widget.now ?? DateTime.now)();
 
   void _go(int tab) => widget.onNavigate?.call(tab);
+
+  void _openProfile() => Navigator.of(context)
+      .push(MaterialPageRoute<void>(builder: (_) => const ProfileScreen()));
 
   Future<void> _search() async {
     final tab =
@@ -114,7 +117,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 greeting: _greeting(now),
                 unread: newNotices,
                 onBell: () => _go(HomeTabs.notices),
-                onAvatar: () => _go(HomeTabs.profile),
+                onAvatar: _openProfile,
               ),
               const SizedBox(height: 10),
               _DateLine(
@@ -141,8 +144,7 @@ class _HomeScreenState extends State<HomeScreen> {
               if (completion != null && completion.percent < 100) ...[
                 const SizedBox(height: 16),
                 _CompletionCard(
-                    completion: completion,
-                    onComplete: () => _go(HomeTabs.profile)),
+                    completion: completion, onComplete: _openProfile),
               ],
               const SizedBox(height: 22),
               _SectionTitle(
