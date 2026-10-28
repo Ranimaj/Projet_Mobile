@@ -240,6 +240,7 @@ class AppUser {
     DateTime? updatedAt,
     String? campus,
     String? studentId,
+    bool clearStudentId = false,
     StudentCard? studentCard,
   }) {
     return AppUser(
@@ -260,7 +261,7 @@ class AppUser {
       skills: skills ?? this.skills,
       updatedAt: updatedAt ?? this.updatedAt,
       campus: campus ?? this.campus,
-      studentId: studentId ?? this.studentId,
+      studentId: clearStudentId ? null : (studentId ?? this.studentId),
       disabled: disabled,
       studentCard: studentCard ?? this.studentCard,
     );
