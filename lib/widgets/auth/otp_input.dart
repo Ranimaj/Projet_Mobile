@@ -2,15 +2,16 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_tokens.dart';
 import '../../core/utils/validators.dart';
 
 /// Saisie d'un code à usage unique : [length] cases visuelles pilotées par un
 /// seul champ texte invisible (clavier numérique, collage et auto-remplissage
 /// SMS fonctionnent naturellement).
 ///
-/// Les cases sont des aplats (un ton au-dessus du fond), sans contour : la case
-/// active est plus claire, les cases en erreur prennent la teinte d'erreur.
+/// Les cases sont `surfaceMuted` avec un contour `outline` : la case active
+/// prend le contour `primary`, les cases en erreur le contour et le chiffre
+/// `danger`.
 /// Quand [hasError] passe à `true`, les cases tremblent brièvement et le
 /// téléphone vibre, pour signaler un code refusé sans lire de message.
 class OtpInput extends StatefulWidget {
@@ -18,9 +19,6 @@ class OtpInput extends StatefulWidget {
   final int length;
   final bool hasError;
   final bool enabled;
-
-  /// `true` sur un champ de couleur sombre (encre blanche), `false` sur fond clair.
-  final bool onDark;
   final ValueChanged<String>? onCompleted;
   final ValueChanged<String>? onChanged;
 
@@ -30,7 +28,6 @@ class OtpInput extends StatefulWidget {
     this.length = Validators.otpLength,
     this.hasError = false,
     this.enabled = true,
-    this.onDark = false,
     this.onCompleted,
     this.onChanged,
   });
@@ -90,25 +87,10 @@ class _OtpInputState extends State<OtpInput> with SingleTickerProviderStateMixin
     return amplitude * (1 - t) * math.sin(t * 3 * 2 * math.pi);
   }
 
-  Color _fill({required bool active}) {
-    if (widget.onDark) {
-      if (widget.hasError) return AppColors.authErrorOnGradient.withValues(alpha: 0.28);
-      if (!widget.enabled) return Colors.white.withValues(alpha: 0.08);
-      return Colors.white.withValues(alpha: active ? 0.32 : 0.16);
-    }
-    if (widget.hasError) return AppColors.danger.withValues(alpha: 0.1);
-    if (!widget.enabled) return AppColors.surfaceTone.withValues(alpha: 0.5);
-    return active ? AppColors.primary.withValues(alpha: 0.12) : AppColors.surfaceTone;
-  }
-
-  Color get _ink {
-    if (widget.onDark) return widget.hasError ? AppColors.authErrorOnGradient : Colors.white;
-    return widget.hasError ? AppColors.danger : AppColors.textPrimary;
-  }
-
   @override
   Widget build(BuildContext context) {
     final code = widget.controller.text;
+    final t = AppTokens.of(context);
 
     return Semantics(
       label: 'Code de vérification à ${widget.length} chiffres',
@@ -135,15 +117,26 @@ class _OtpInputState extends State<OtpInput> with SingleTickerProviderStateMixin
                     height: 56,
                     alignment: Alignment.center,
                     decoration: BoxDecoration(
-                      color: _fill(active: active),
+                      color: t.surfaceMuted,
                       borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: widget.hasError
+                            ? t.danger
+                            : active && widget.enabled
+                                ? t.primary
+                                : t.outline,
+                        width: active || widget.hasError ? 1.6 : 1,
+                      ),
                     ),
                     child: AnimatedSwitcher(
                       duration: const Duration(milliseconds: 90),
                       child: Text(
                         filled ? code[i] : '',
                         key: ValueKey(filled ? code[i] : ''),
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(fontSize: 24, color: _ink),
+                        style: Theme.of(context)
+                            .textTheme
+                            .headlineMedium
+                            ?.copyWith(color: widget.hasError ? t.danger : t.textPrimary),
                       ),
                     ),
                   );

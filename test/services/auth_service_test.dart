@@ -217,6 +217,72 @@ void main() {
     });
   });
 
+  group('deleteAccount and Storage', () {
+    late MockStorageService storage;
+
+    setUp(() {
+      storage = MockStorageService();
+      service = AuthService(auth: auth, firestore: firestore, storage: storage);
+    });
+
+    Future<AppUser> signUpWithFiles() async {
+      final user = await signUp();
+      await firestore.collection(AppConstants.usersCollection).doc(user.id).update({
+        'photoUrl': 'https://cdn/avatar.jpg',
+        'studentCard': {'status': 'pending', 'imagePath': 'student_cards/${user.id}/1.jpg'},
+      });
+      return user;
+    }
+
+    test('deletes the card photo and the avatar before the profile', () async {
+      final user = await signUpWithFiles();
+      when(() => storage.deleteByPath(any())).thenAnswer((_) async {});
+      when(() => storage.deleteByUrl(any())).thenAnswer((_) async {});
+
+      await service.deleteAccount(password: 'secret123');
+
+      verify(() => storage.deleteByPath('student_cards/${user.id}/1.jpg')).called(1);
+      verify(() => storage.deleteByUrl('https://cdn/avatar.jpg')).called(1);
+      expect(await userDoc(user.id), isNull);
+    });
+
+    test('Storage failures are ignored', () async {
+      final user = await signUpWithFiles();
+      when(() => storage.deleteByPath(any())).thenThrow(Exception('storage down'));
+      when(() => storage.deleteByUrl(any())).thenThrow(Exception('storage down'));
+
+      await service.deleteAccount(password: 'secret123');
+
+      expect(await userDoc(user.id), isNull);
+    });
+
+    test('nothing to delete when the profile has no files', () async {
+      await signUp();
+      await service.deleteAccount(password: 'secret123');
+      verifyNever(() => storage.deleteByPath(any()));
+      verifyNever(() => storage.deleteByUrl(any()));
+    });
+  });
+
+  group('watchProfile', () {
+    test('emits the profile and its later changes', () async {
+      final user = await signUp();
+      final doc = firestore.collection(AppConstants.usersCollection).doc(user.id);
+      final events = <AppUser?>[];
+      final sub = service.watchProfile(user.id).listen(events.add);
+      await Future<void>.delayed(Duration.zero);
+      await doc.update({'disabled': true});
+      await Future<void>.delayed(Duration.zero);
+      await sub.cancel();
+      expect(events.first!.fullName, 'Amel Test');
+      expect(events.last!.disabled, isTrue);
+    });
+
+    test('emits null for a missing document', () async {
+      expect(await service.watchProfile('nobody').first, isNull);
+    });
+  });
+
   group('updateProfile', () {
     test('writes only editable fields; protected ones stay as stored', () async {
       await firestore.collection(AppConstants.usersCollection).doc('u1').set({

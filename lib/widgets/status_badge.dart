@@ -1,52 +1,35 @@
 import 'package:flutter/material.dart';
+import 'status_chip.dart';
 
-/// Petit badge coloré de statut (Gratuit, Réservé, Inscrit, Vue, Accepté…)
-/// réutilisé dans les 4 modules pour un langage visuel cohérent.
+/// Status badge shared by the 4 modules; a thin wrapper over [StatusChip].
+/// The explicit-colour constructor is kept for compatibility.
 class StatusBadge extends StatelessWidget {
   final String label;
-  final Color background;
-  final Color foreground;
+  final Color? background;
+  final Color? foreground;
+  final StatusChipStyle? _style;
 
   const StatusBadge({
     super.key,
     required this.label,
-    required this.background,
-    required this.foreground,
-  });
+    required Color this.background,
+    required Color this.foreground,
+  }) : _style = null;
 
-  factory StatusBadge.success(String label) => StatusBadge(
-        label: label,
-        background: const Color(0xFFD1FAE5),
-        foreground: const Color(0xFF065F46),
-      );
+  const StatusBadge._styled(this.label, StatusChipStyle style)
+      : _style = style,
+        background = null,
+        foreground = null;
 
-  factory StatusBadge.warning(String label) => StatusBadge(
-        label: label,
-        background: const Color(0xFFFEF3C7),
-        foreground: const Color(0xFF92400E),
-      );
-
-  factory StatusBadge.info(String label) => StatusBadge(
-        label: label,
-        background: const Color(0xFFDBEAFE),
-        foreground: const Color(0xFF1E40AF),
-      );
-
-  factory StatusBadge.danger(String label) => StatusBadge(
-        label: label,
-        background: const Color(0xFFFEE2E2),
-        foreground: const Color(0xFF991B1B),
-      );
+  factory StatusBadge.success(String label) => StatusBadge._styled(label, StatusChipStyle.success);
+  factory StatusBadge.warning(String label) => StatusBadge._styled(label, StatusChipStyle.warning);
+  factory StatusBadge.info(String label) => StatusBadge._styled(label, StatusChipStyle.neutral);
+  factory StatusBadge.danger(String label) => StatusBadge._styled(label, StatusChipStyle.danger);
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(color: background, borderRadius: BorderRadius.circular(10)),
-      child: Text(
-        label,
-        style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: foreground),
-      ),
-    );
+    final style = _style;
+    if (style != null) return StatusChip(label: label, style: style);
+    return StatusChipBody(label: label, background: background!, foreground: foreground!);
   }
 }

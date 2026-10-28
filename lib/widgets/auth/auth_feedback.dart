@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_tokens.dart';
 
 /// Snackbar flottant cohérent pour les écrans d'authentification.
 ///
@@ -7,18 +7,19 @@ import '../../core/theme/app_colors.dart';
 /// formulaire passent par [AuthErrorBanner], qui reste visible près des
 /// champs au lieu de disparaître sous le clavier.
 void showAuthSnack(BuildContext context, String message, {bool isError = true}) {
+  final t = AppTokens.of(context);
   final messenger = ScaffoldMessenger.of(context);
   messenger
     ..hideCurrentSnackBar()
     ..showSnackBar(
       SnackBar(
         behavior: SnackBarBehavior.floating,
-        backgroundColor: isError ? AppColors.danger : AppColors.success,
+        backgroundColor: isError ? t.danger : t.success,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         content: Row(
           children: [
             Icon(isError ? Icons.error_outline_rounded : Icons.check_circle_outline_rounded,
-                color: Colors.white, size: 20),
+                color: t.onPrimary, size: 20),
             const SizedBox(width: 10),
             Expanded(child: Text(message)),
           ],
@@ -45,26 +46,19 @@ class AuthErrorBanner extends StatelessWidget {
   /// Action de sortie proposée sous le message (ex. « Réessayer »).
   final AuthBannerAction? action;
 
-  /// Variante pour fond dégradé sombre : bandeau translucide blanc, texte
-  /// rose pâle lisible (au lieu du rouge sur carte blanche).
-  final bool onDark;
-
   const AuthErrorBanner({
     super.key,
     required this.message,
     this.onClose,
     this.action,
-    this.onDark = false,
   });
 
   @override
   Widget build(BuildContext context) {
     final reduceMotion = MediaQuery.of(context).disableAnimations;
     final duration = reduceMotion ? Duration.zero : const Duration(milliseconds: 220);
-    final fg = onDark ? AppColors.authErrorOnGradient : const Color(0xFFB91C1C);
-    final iconColor = onDark ? AppColors.authErrorOnGradient : AppColors.danger;
-    // Séparé du fond par la teinte seule : pas de contour.
-    final bg = onDark ? Colors.white.withValues(alpha: 0.16) : AppColors.danger.withValues(alpha: 0.1);
+    final t = AppTokens.of(context);
+    final textTheme = Theme.of(context).textTheme;
 
     return AnimatedSize(
       duration: duration,
@@ -82,33 +76,29 @@ class AuthErrorBanner extends StatelessWidget {
                 child: Semantics(
                   liveRegion: true,
                   child: Container(
-                    padding: const EdgeInsets.fromLTRB(12, 10, 6, 10),
+                    padding: const EdgeInsets.fromLTRB(12, 4, 0, 4),
                     decoration: BoxDecoration(
-                      color: bg,
+                      color: t.dangerSoft,
                       borderRadius: BorderRadius.circular(16),
                     ),
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Padding(
-                          padding: const EdgeInsets.only(top: 1),
-                          child: Icon(Icons.error_outline_rounded, size: 18, color: iconColor),
+                          padding: const EdgeInsets.only(top: 12),
+                          child: Icon(Icons.error_outline_rounded, size: 18, color: t.danger),
                         ),
                         const SizedBox(width: 10),
                         Expanded(
                           child: Padding(
-                            padding: EdgeInsets.only(top: 1, right: onClose == null ? 6 : 0),
+                            padding: EdgeInsets.only(top: 11, bottom: 7, right: onClose == null ? 12 : 0),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
                                   message!,
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    height: 1.35,
-                                    fontWeight: FontWeight.w500,
-                                    color: fg,
-                                  ),
+                                  style: textTheme.bodySmall
+                                      ?.copyWith(fontWeight: FontWeight.w500, color: t.danger),
                                 ),
                                 if (action != null)
                                   Padding(
@@ -116,11 +106,10 @@ class AuthErrorBanner extends StatelessWidget {
                                     child: TextButton(
                                       onPressed: action!.onPressed,
                                       style: TextButton.styleFrom(
-                                        foregroundColor: iconColor,
-                                        padding: EdgeInsets.zero,
-                                        minimumSize: const Size(0, 32),
-                                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                        textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                                        foregroundColor: t.danger,
+                                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                                        minimumSize: const Size(48, 48),
+                                        textStyle: textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w700),
                                       ),
                                       child: Text(action!.label),
                                     ),
@@ -132,11 +121,10 @@ class AuthErrorBanner extends StatelessWidget {
                         if (onClose != null)
                           IconButton(
                             tooltip: 'Fermer',
-                            visualDensity: VisualDensity.compact,
-                            constraints: const BoxConstraints.tightFor(width: 32, height: 32),
+                            constraints: const BoxConstraints.tightFor(width: 48, height: 48),
                             padding: EdgeInsets.zero,
                             onPressed: onClose,
-                            icon: Icon(Icons.close_rounded, size: 16, color: iconColor),
+                            icon: Icon(Icons.close_rounded, size: 18, color: t.danger),
                           ),
                       ],
                     ),

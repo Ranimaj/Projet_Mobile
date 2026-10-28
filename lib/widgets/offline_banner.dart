@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../core/theme/app_colors.dart';
+import '../core/theme/app_tokens.dart';
 import '../providers/connectivity_provider.dart';
 
 /// Bandeau "mode hors-ligne" affiché en haut des écrans concernés (BNF3).
@@ -21,26 +21,31 @@ class OfflineBanner extends StatelessWidget {
                 : 'Mode hors-ligne actif — vos actions seront synchronisées au retour du réseau')
             : 'Synchronisation de ${connectivity.pendingActionsCount} action(s) en cours…';
 
+        final t = AppTokens.of(context);
         return Container(
           margin: const EdgeInsets.fromLTRB(20, 14, 20, 0),
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
-            color: const Color(0xFFFFF7ED),
-            border: Border.all(color: const Color(0xFFFED7AA)),
-            borderRadius: BorderRadius.circular(10),
+            color: t.warningSoft,
+            borderRadius: BorderRadius.circular(12),
           ),
           child: Row(
             children: [
               Icon(
-                !connectivity.isOnline ? Icons.wifi_off_rounded : Icons.sync_rounded,
-                size: 16,
-                color: AppColors.accent2,
+                !connectivity.isOnline
+                    ? Icons.wifi_off_rounded
+                    : Icons.sync_rounded,
+                size: 18,
+                color: t.warning,
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   label,
-                  style: const TextStyle(fontSize: 11.5, color: Color(0xFF9A3412)),
+                  style: Theme.of(context)
+                      .textTheme
+                      .labelMedium!
+                      .copyWith(color: t.warning),
                 ),
               ),
             ],

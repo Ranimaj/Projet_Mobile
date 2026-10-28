@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' show User;
 import 'package:flutter/foundation.dart';
 
@@ -9,6 +10,8 @@ import '../core/utils/validators.dart';
 import '../models/user_model.dart';
 import '../services/auth_service.dart';
 import '../services/storage_service.dart';
+import '../services/student_card_service.dart';
+import '../core/utils/offline_queue_service.dart';
 
 enum AuthStatus { unknown, visitor, authenticated }
 
@@ -18,12 +21,27 @@ class AuthProvider extends ChangeNotifier {
   final AuthService _authService;
   final DateTime Function() _now;
   StreamSubscription<User?>? _authSub;
+  StreamSubscription<AppUser?>? _profileSub;
+  String? _watchedUid;
 
   // Instancié à la demande : FirebaseStorage.instance exige une app Firebase
   // initialisée, ce qui n'est pas le cas dans les tests ni avant `runApp`.
   StorageService? _storage;
   final StorageService? _injectedStorage;
   StorageService get _storageService => _storage ??= _injectedStorage ?? StorageService();
+
+  // Idem : Firestore et la file hors-ligne ne sont touchés qu'à l'envoi.
+  StudentCardService? _cardService;
+  final StudentCardService? _injectedCardService;
+  StudentCardService get _studentCardService => _cardService ??= _injectedCardService ??
+      StudentCardService(
+        storage: _storageService,
+        firestore: FirebaseFirestore.instance,
+        queue: OfflineQueueService(),
+      );
+
+  /// Code d'erreur posé quand un admin a désactivé le compte à la connexion.
+  static const String accountDisabledCode = 'account-disabled';
 
   /// Délai minimal entre deux envois d'email de vérification.
   static const Duration verificationCooldown = Duration(seconds: 60);
@@ -75,29 +93,89 @@ class AuthProvider extends ChangeNotifier {
   AuthProvider({
     AuthService? authService,
     StorageService? storageService,
+    StudentCardService? studentCardService,
     DateTime Function()? clock,
   })  : _authService = authService ?? AuthService(),
         _injectedStorage = storageService,
+        _injectedCardService = studentCardService,
         _now = clock ?? DateTime.now {
     _authSub = _authService.authStateChanges.listen(_onAuthStateChanged);
   }
 
   Future<void> _onAuthStateChanged(User? firebaseUser) async {
     if (firebaseUser == null) {
+      _stopProfileWatch();
       status = AuthStatus.visitor;
       currentUser = null;
       emailVerified = false;
       hasPasswordProvider = false;
     } else {
       _syncAccountFlags(firebaseUser);
+      AppUser? profile;
       try {
-        currentUser = await _authService.fetchProfile(firebaseUser.uid) ?? currentUser;
+        profile = await _authService.fetchProfile(firebaseUser.uid);
       } on AuthFailure {
         // Profil indisponible (hors-ligne...) : on garde la session ouverte.
       }
+      if (profile?.disabled == true) {
+        await _signOutDisabled();
+        return;
+      }
+      currentUser = profile ?? currentUser;
       status = AuthStatus.authenticated;
+      _watchProfile(firebaseUser.uid);
     }
     notifyListeners();
+  }
+
+  /// Un admin a désactivé le compte : session fermée, message expliqué.
+  Future<void> _signOutDisabled() async {
+    _stopProfileWatch();
+    try {
+      await _authService.signOut();
+    } catch (_) {
+      // La session sera de toute façon masquée : l'app repasse en visiteur.
+    }
+    currentUser = null;
+    emailVerified = false;
+    hasPasswordProvider = false;
+    status = AuthStatus.visitor;
+    errorCode = accountDisabledCode;
+    errorMessage = "Compte désactivé. Contacte l'administration.";
+    notifyListeners();
+  }
+
+  /// Écoute le profil tant que la session est ouverte : la décision d'un
+  /// admin sur la carte étudiant apparaît en direct et une désactivation
+  /// ferme la session immédiatement.
+  void _watchProfile(String uid) {
+    if (_watchedUid == uid && _profileSub != null) return;
+    _stopProfileWatch();
+    Stream<AppUser?> stream;
+    try {
+      stream = _authService.watchProfile(uid);
+    } catch (_) {
+      return; // Firestore indisponible : la lecture ponctuelle suffit.
+    }
+    _watchedUid = uid;
+    _profileSub = stream.listen((profile) {
+      if (profile == null || status != AuthStatus.authenticated) return;
+      if (profile.id != uid) return;
+      if (profile.disabled) {
+        _signOutDisabled();
+        return;
+      }
+      currentUser = profile;
+      notifyListeners();
+    }, onError: (Object _) {
+      // Lecture refusée (session en cours de fermeture) ou hors-ligne.
+    });
+  }
+
+  void _stopProfileWatch() {
+    _profileSub?.cancel();
+    _profileSub = null;
+    _watchedUid = null;
   }
 
   void _syncAccountFlags(User firebaseUser) {
@@ -109,6 +187,7 @@ class AuthProvider extends ChangeNotifier {
   @override
   void dispose() {
     _authSub?.cancel();
+    _stopProfileWatch();
     super.dispose();
   }
 
@@ -230,6 +309,32 @@ class AuthProvider extends ChangeNotifier {
         }
       });
 
+  /// Envoie la carte étudiant pour validation ; hors-ligne, elle est mise en
+  /// file et partira au retour du réseau (voir [pendingCardQueued]).
+  Future<bool> submitStudentCard(File photo, {required bool isOnline}) => _run(() async {
+        final user = currentUser;
+        if (user == null) throw AuthFailure.fromCode('no-session');
+        final card = await _studentCardService.submit(
+          uid: user.id,
+          photo: photo,
+          isOnline: isOnline,
+          now: _now,
+        );
+        currentUser = user.copyWith(studentCard: card);
+      });
+
+  /// Une carte attend la connexion dans la file hors-ligne.
+  bool get pendingCardQueued {
+    final user = currentUser;
+    if (user == null) return false;
+    try {
+      return _studentCardService.hasQueuedSubmission(user.id);
+    } catch (_) {
+      // Firebase ou la file Hive non initialisés (tests) : rien en attente.
+      return false;
+    }
+  }
+
   Future<bool> changePassword({
     required String currentPassword,
     required String newPassword,
@@ -256,7 +361,16 @@ class AuthProvider extends ChangeNotifier {
   // --- Session / compte ----------------------------------------------------------
 
   Future<bool> logout() => _run(() async {
+        final uid = currentUser?.id;
+        if (uid != null) {
+          try {
+            // L'envoi de carte en attente appartient à ce compte : il ne doit
+            // pas être rejoué (et refusé) sous une autre session.
+            await _studentCardService.discardQueued(uid);
+          } catch (_) {}
+        }
         await _authService.signOut();
+        _stopProfileWatch();
         currentUser = null;
         status = AuthStatus.visitor;
       });
@@ -265,7 +379,16 @@ class AuthProvider extends ChangeNotifier {
   /// mot de passe (ré-authentification) ; les comptes Google se ré-authentifient
   /// via Google.
   Future<bool> deleteAccount({String? password}) => _run(() async {
+        final uid = currentUser?.id;
+        if (uid != null) {
+          try {
+            // Comme à la déconnexion : la carte en file ne doit pas partir
+            // après la suppression du compte.
+            await _studentCardService.discardQueued(uid);
+          } catch (_) {}
+        }
         await _authService.deleteAccount(password: password);
+        _stopProfileWatch();
         currentUser = null;
         status = AuthStatus.visitor;
       });

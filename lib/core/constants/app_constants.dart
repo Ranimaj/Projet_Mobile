@@ -63,6 +63,19 @@ class AppConstants {
   ];
   static const int maxSkills = 10;
 
+  /// Campus par défaut des nouveaux profils.
+  static const String defaultCampus = 'ESPRIT Ghazela';
+
+  static const List<String> departments = [
+    'Génie Informatique',
+    'Génie Civil',
+    'Génie Électromécanique',
+    'Génie Télécom',
+    'Génie Industriel',
+    'Business',
+    'Autre',
+  ];
+
   // --- Types d'offres Stage & Emploi ---
   static const List<String> jobTypes = ['Stage', 'Emploi'];
 

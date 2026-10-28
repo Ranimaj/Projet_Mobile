@@ -1,5 +1,5 @@
+import 'package:campusconnect/core/theme/app_theme.dart';
 import 'package:campusconnect/core/constants/layout.dart';
-import 'package:campusconnect/core/theme/app_colors.dart';
 import 'package:campusconnect/models/annonce_model.dart';
 import 'package:campusconnect/models/article_model.dart';
 import 'package:campusconnect/models/event_model.dart';
@@ -12,6 +12,12 @@ import 'package:campusconnect/providers/job_provider.dart';
 import 'package:campusconnect/screens/auth/login_screen.dart';
 import 'package:campusconnect/screens/auth/register_screen.dart';
 import 'package:campusconnect/screens/visitor/visitor_home_screen.dart';
+import 'package:campusconnect/widgets/bottom_action_bar.dart';
+import 'package:campusconnect/widgets/featured_card.dart';
+import 'package:campusconnect/widgets/photo_card.dart';
+import 'package:campusconnect/widgets/pill_button.dart';
+import 'package:campusconnect/widgets/setting_row.dart';
+import 'package:campusconnect/widgets/skeleton_box.dart';
 import 'package:firebase_auth/firebase_auth.dart' hide AuthProvider;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -19,6 +25,7 @@ import 'package:mocktail/mocktail.dart';
 import 'package:provider/provider.dart';
 
 import '../helpers/mocks.dart';
+import '../helpers/pump_themed.dart';
 
 class _MockArticles extends Mock implements ArticleProvider {}
 
@@ -160,7 +167,11 @@ void main() {
   tearDown(() => auth.dispose());
 
   Future<void> pump(WidgetTester tester,
-      {int students = 2400, Size size = const Size(420, 1000)}) async {
+      {int students = 2400,
+      Size size = const Size(420, 1000),
+      Brightness brightness = Brightness.light,
+      double textScale = 1,
+      bool settle = true}) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -175,36 +186,64 @@ void main() {
           ChangeNotifierProvider<AuthProvider>.value(value: auth),
         ],
         child: MaterialApp(
+            theme: AppTheme.light,
+            darkTheme: AppTheme.dark,
+            themeMode: brightness == Brightness.dark
+                ? ThemeMode.dark
+                : ThemeMode.light,
+            builder: (context, app) => MediaQuery(
+                data: MediaQuery.of(context)
+                    .copyWith(textScaler: TextScaler.linear(textScale)),
+                child: app!),
             home: VisitorHomeScreen(studentsCount: () async => students)),
       ),
     );
-    await tester.pumpAndSettle();
+    // Skeletons shimmer forever: only pump a few frames while loading.
+    if (settle) {
+      await tester.pumpAndSettle();
+    } else {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
   }
 
   Finder rich(String fragment) => find.byWidgetPredicate(
       (w) => w is RichText && w.text.toPlainText().contains(fragment));
 
   group('hero (maquette)', () {
-    testWidgets(
-        'shows the icon chip, wordmark, headline, subtitle and the gradient',
+    testWidgets('shows the campus photo, wordmark, headline and no gradient',
         (tester) async {
       await pump(tester);
 
-      expect(find.byIcon(Icons.home_rounded), findsOneWidget);
       expect(find.text('CampusConnect'), findsOneWidget);
       expect(find.text('Tout ton campus,\ndans une seule app'), findsOneWidget);
       expect(find.textContaining('Échange, informe-toi'), findsOneWidget);
 
-      final hero = tester
-          .widgetList<Container>(find.byType(Container))
-          .firstWhere((c) =>
-              c.decoration is BoxDecoration &&
-              (c.decoration as BoxDecoration).gradient ==
-                  AppColors.brandGradient);
-      expect((hero.decoration as BoxDecoration).borderRadius,
-          const BorderRadius.vertical(bottom: Radius.circular(24)));
-      expect(AppColors.brandGradient.colors,
-          [const Color(0xFF4F46E5), const Color(0xFF7C3AED)]);
+      final image = tester.widget<Image>(find.byWidgetPredicate((w) =>
+          w is Image &&
+          w.image is ResizeImage &&
+          ((w.image as ResizeImage).imageProvider is AssetImage) &&
+          ((w.image as ResizeImage).imageProvider as AssetImage).assetName ==
+              'assets/images/onboarding/campus_2.jpg'));
+      expect(image.fit, BoxFit.cover);
+
+      final gradientBoxes = tester
+          .widgetList<DecoratedBox>(find.byType(DecoratedBox))
+          .where((d) =>
+              d.decoration is BoxDecoration &&
+              (d.decoration as BoxDecoration).gradient != null);
+      // Only the dark scrim on the photo; no brand gradient.
+      expect(gradientBoxes.length, 1);
+      final scrim = (gradientBoxes.single.decoration as BoxDecoration).gradient
+          as LinearGradient;
+      expect(scrim.colors.every((c) => c.toARGB32() & 0x00FFFFFF == 0), isTrue,
+          reason: 'scrim is black with alpha');
+      expect(
+          find.byWidgetPredicate((w) =>
+              w is ClipRRect &&
+              w.borderRadius ==
+                  const BorderRadius.vertical(
+                      bottom: Radius.circular(kHeroBottomRadius))),
+          findsOneWidget);
     });
 
     testWidgets(
@@ -251,7 +290,7 @@ void main() {
     });
 
     testWidgets(
-        'cards show price or "Gratuit", pinned official notice, date tile, company initial',
+        'articles are photo cards, first event is featured, notices are rows, offers are photo cards',
         (tester) async {
       stub(
           a: [_article, _gift],
@@ -260,40 +299,62 @@ void main() {
           j: [_offer]);
       await pump(tester);
 
-      expect(find.text('Calculatrice TI-83'), findsOneWidget);
+      // Articles.
+      expect(
+          find.widgetWithText(PhotoCard, 'Calculatrice TI-83'), findsOneWidget);
+      expect(find.widgetWithText(PhotoCard, 'Livre Algo'), findsOneWidget);
       expect(find.text('45 DT'), findsOneWidget);
       expect(find.text('Gratuit'), findsOneWidget);
+      expect(find.text('Vente'), findsOneWidget);
+      expect(find.text('Don'), findsOneWidget);
 
-      expect(find.text('Épinglé · Officiel'), findsOneWidget);
-      expect(find.byIcon(Icons.push_pin_rounded), findsOneWidget);
-      expect(find.text('Perdu & Trouvé'), findsOneWidget);
+      // Notices.
       expect(find.text('Suspension des cours le 15 octobre'), findsOneWidget);
+      expect(find.text('Trousseau de clés trouvé'), findsOneWidget);
+      expect(find.byIcon(Icons.push_pin_rounded), findsOneWidget);
+      expect(find.textContaining('Scolarité'), findsOneWidget);
 
-      expect(find.text('OCT'), findsOneWidget);
-      expect(find.text('14'), findsOneWidget);
-      expect(find.text('NOV'), findsOneWidget);
-      expect(find.text('Forum Entreprises ESPRIT'), findsOneWidget);
+      // Events: first one featured, the other one in the rail.
+      expect(find.byType(FeaturedCard), findsOneWidget);
+      expect(find.widgetWithText(FeaturedCard, 'Forum Entreprises ESPRIT'),
+          findsOneWidget);
+      expect(find.widgetWithText(FeaturedCard, 'Carrière'), findsOneWidget);
+      expect(find.widgetWithText(PhotoCard, 'Hackathon IA'), findsOneWidget);
 
-      expect(find.text('V'), findsOneWidget);
-      expect(find.text('Vermeg · Stage'), findsOneWidget);
+      // Offers.
+      expect(find.widgetWithText(PhotoCard, 'Stage développeur Flutter'),
+          findsOneWidget);
+      expect(find.text('Vermeg · Lac 2'), findsOneWidget);
 
       final rails = tester
           .widgetList<ListView>(find.byType(ListView))
           .where((l) => l.scrollDirection == Axis.horizontal);
-      expect(rails.length, 4, reason: 'un rail horizontal par gestion');
+      expect(rails.length, 3, reason: 'articles, autres événements, offres');
+    });
+
+    testWidgets('tapping a notice row or the featured action opens the login',
+        (tester) async {
+      stub(n: [_notice], e: [_event]);
+      await pump(tester);
+      await tester.tap(find.text('Suspension des cours le 15 octobre'));
+      await tester.pumpAndSettle();
+      expect(find.byType(LoginScreen), findsOneWidget);
+      await tester.tap(find.byTooltip('Retour'));
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(find.text('Voir').first);
+      await tester.tap(find.text('Voir').first);
+      await tester.pumpAndSettle();
+      expect(find.byType(LoginScreen), findsOneWidget);
     });
 
     testWidgets('skeletons while loading, honest text when empty',
         (tester) async {
       stub(loading: true);
-      await pump(tester);
+      await pump(tester, settle: false);
       expect(find.text('Aucun objet proposé pour l\'instant.'), findsNothing);
-      final skeletons = tester
-          .widgetList<Container>(find.byType(Container))
-          .where((c) =>
-              c.decoration is BoxDecoration &&
-              (c.decoration as BoxDecoration).color == AppColors.surfaceTone);
-      expect(skeletons.length, greaterThanOrEqualTo(3));
+      expect(
+          find.byType(SkeletonBox).evaluate().length, greaterThanOrEqualTo(3));
 
       stub();
       await pump(tester);
@@ -321,6 +382,11 @@ void main() {
       await pump(tester);
       expect(find.textContaining("Ceci n'est qu'un aperçu", findRichText: true),
           findsOneWidget);
+
+      final ctas = tester.widgetList<PillButton>(find.byType(PillButton));
+      expect(ctas.map((b) => b.label),
+          ['Créer un compte étudiant', 'Se connecter']);
+      expect(ctas.last.style, PillStyle.ghost);
 
       await tester.tap(find.text('Créer un compte étudiant'));
       await tester.pumpAndSettle();
@@ -367,6 +433,73 @@ void main() {
           kPagePadding);
       expect(tester.getTopLeft(find.text('Vente & Don')).dx, kPagePadding);
     });
+
+    testWidgets('no overflow at 360 px wide in dark mode', (tester) async {
+      stub(
+          a: [_article, _gift],
+          n: [_notice, _notice2],
+          e: [_event, _event2],
+          j: [_offer, _offer2]);
+      await pump(tester,
+          size: const Size(360, 640), brightness: Brightness.dark);
+      expect(tester.takeException(), isNull);
+    });
+
+    for (final scale in [1.3, 2.0]) {
+      testWidgets('no overflow at 360 px with text scale $scale',
+          (tester) async {
+        stub(
+            a: [_article, _gift],
+            n: [_notice, _notice2],
+            e: [_event, _event2],
+            j: [_offer, _offer2]);
+        await pump(tester, size: const Size(360, 640), textScale: scale);
+        expect(tester.takeException(), isNull);
+        await tester.drag(
+            find.byType(SingleChildScrollView), const Offset(0, -3000));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+      });
+    }
+
+    for (final scale in [1.0, 1.3]) {
+      testWidgets('the last section clears the bottom bar at scale $scale',
+          (tester) async {
+        stub(
+            a: [_article, _gift],
+            n: [_notice, _notice2],
+            e: [_event, _event2],
+            j: [_offer, _offer2]);
+        await pump(tester, size: const Size(360, 640), textScale: scale);
+        await tester.drag(
+            find.byType(SingleChildScrollView), const Offset(0, -5000));
+        await tester.pumpAndSettle();
+        final info = tester.getRect(find.byType(SettingGroup).last);
+        final bar = tester.getRect(find.byType(BottomActionBar));
+        expect(info.bottom, lessThanOrEqualTo(bar.top));
+      });
+    }
+
+    testWidgets('wide screens centre the content at kContentMaxWidth',
+        (tester) async {
+      stub(a: [_article], n: [_notice], e: [_event], j: [_offer]);
+      await pump(tester, size: const Size(1000, 800));
+      expect(tester.takeException(), isNull);
+      final box = tester.getRect(find.text('Annonces du campus'));
+      expect(box.left, greaterThanOrEqualTo((1000 - kContentMaxWidth) / 2));
+    });
+
+    for (final b in Brightness.values) {
+      testWidgets('no text under 13 px (${b.name})', (tester) async {
+        stub(
+            a: [_article, _gift],
+            n: [_notice, _notice2],
+            e: [_event, _event2],
+            j: [_offer]);
+        await pump(tester, brightness: b);
+        expectNoSmallText(tester);
+      });
+    }
 
     testWidgets('no text under 13 px', (tester) async {
       stub(

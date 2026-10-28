@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
-import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_tokens.dart';
 
 /// Champ de formulaire avec libellé au-dessus, icône et (optionnel) bouton
-/// afficher/masquer pour les mots de passe.
+/// afficher/masquer pour les mots de passe. Le fond, les bordures, les textes
+/// d'aide et d'erreur viennent de l'`InputDecorationTheme` du thème.
 class AuthTextField extends StatefulWidget {
   final String label;
   final String? hint;
@@ -52,16 +53,16 @@ class _AuthTextFieldState extends State<AuthTextField> {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           widget.label,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            color: widget.enabled ? AppColors.textPrimary : AppColors.textSecondary,
-          ),
+          style: Theme.of(context)
+              .textTheme
+              .labelLarge
+              ?.copyWith(color: widget.enabled ? t.textPrimary : t.textSecondary),
         ),
         const SizedBox(height: 6),
         TextFormField(
@@ -85,7 +86,7 @@ class _AuthTextFieldState extends State<AuthTextField> {
             helperText: widget.helper,
             helperMaxLines: 2,
             errorMaxLines: 2,
-            prefixIcon: Icon(widget.icon, size: 20, color: AppColors.lavender),
+            prefixIcon: Icon(widget.icon, size: 20, color: t.textSecondary),
             suffixIcon: widget.isPassword
                 ? IconButton(
                     tooltip: _obscure ? 'Afficher le mot de passe' : 'Masquer le mot de passe',

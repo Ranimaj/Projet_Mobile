@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../../core/theme/auth_text_styles.dart';
+import '../../core/theme/app_tokens.dart';
 import '../../core/utils/validators.dart';
 import '../../providers/auth_provider.dart';
 import '../../widgets/auth/auth_feedback.dart';
-import '../../widgets/gradient_scaffold.dart';
 import '../../widgets/pill_button.dart';
-import '../../widgets/underline_text_field.dart';
+import '../../widgets/auth/auth_hero.dart';
+import '../../widgets/auth/auth_link.dart';
+import '../../widgets/auth/auth_text_field.dart';
+import '../../widgets/hero_sheet_scaffold.dart';
+import '../../widgets/round_icon_button.dart';
 
 /// Réinitialisation du mot de passe par email.
 ///
@@ -55,30 +58,45 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     final auth = context.watch<AuthProvider>();
     final reduceMotion = MediaQuery.of(context).disableAnimations;
 
-    return GradientScaffold(
-      title: _sent ? 'Lien envoyé' : 'Mot de passe oublié',
-      subtitle: _sent
-          ? 'Vérifie ta boîte mail, et tes courriers indésirables.'
-          : 'Nous t\'enverrons un lien pour choisir un nouveau mot de passe.',
-      icon: _sent ? Icons.mark_email_read_outlined : Icons.mark_email_unread_outlined,
-      child: AnimatedSize(
-        duration: reduceMotion ? Duration.zero : const Duration(milliseconds: 260),
-        curve: Curves.easeOutCubic,
-        alignment: Alignment.topCenter,
-        child: AnimatedSwitcher(
-          duration: reduceMotion ? Duration.zero : const Duration(milliseconds: 260),
-          switchInCurve: Curves.easeOut,
-          switchOutCurve: Curves.easeIn,
-          transitionBuilder: (child, animation) => FadeTransition(
-            opacity: animation,
-            child: SlideTransition(
-              position: Tween(begin: const Offset(0, 0.04), end: Offset.zero).animate(animation),
-              child: child,
-            ),
-          ),
-          child: _sent ? _buildSent() : _buildForm(auth),
-        ),
+    final subtitle = _sent
+        ? 'Vérifie ta boîte mail, et tes courriers indésirables.'
+        : 'Nous t\'enverrons un lien pour choisir un nouveau mot de passe.';
+
+    return HeroSheetScaffold(
+      hero: AuthHero(
+        title: _sent ? 'Lien envoyé' : 'Mot de passe oublié',
+        subtitle: subtitle,
+        icon: _sent ? Icons.mark_email_read_outlined : Icons.mark_email_unread_outlined,
       ),
+      heroLeading: Navigator.of(context).canPop()
+          ? RoundIconButton(
+              style: RoundButtonStyle.onPhoto,
+              icon: Icons.arrow_back_rounded,
+              tooltip: 'Retour',
+              onPressed: () => Navigator.of(context).maybePop(),
+            )
+          : null,
+      children: [
+        AuthCompactNote(subtitle),
+        AnimatedSize(
+          duration: reduceMotion ? Duration.zero : const Duration(milliseconds: 260),
+          curve: Curves.easeOutCubic,
+          alignment: Alignment.topCenter,
+          child: AnimatedSwitcher(
+            duration: reduceMotion ? Duration.zero : const Duration(milliseconds: 260),
+            switchInCurve: Curves.easeOut,
+            switchOutCurve: Curves.easeIn,
+            transitionBuilder: (child, animation) => FadeTransition(
+              opacity: animation,
+              child: SlideTransition(
+                position: Tween(begin: const Offset(0, 0.04), end: Offset.zero).animate(animation),
+                child: child,
+              ),
+            ),
+            child: _sent ? _buildSent() : _buildForm(auth),
+          ),
+        ),
+      ],
     );
   }
 
@@ -89,8 +107,8 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
         key: const ValueKey('form'),
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          UnderlineTextField(
-            hint: 'Email académique',
+          AuthTextField(
+            label: 'Email académique',
             icon: Icons.mail_outline_rounded,
             controller: _emailCtrl,
             keyboardType: TextInputType.emailAddress,
@@ -101,36 +119,30 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
             onChanged: (_) => _clearError(),
             onSubmitted: (_) => _submit(),
           ),
-          const SizedBox(height: 30),
-          AuthErrorBanner(message: _error, onClose: _clearError, onDark: true),
-          Center(
-            child: PillButton(
-              label: 'Envoyer le lien',
-              icon: Icons.send_rounded,
-              isLoading: auth.isLoading,
-              onPressed: _submit,
-            ),
+          const SizedBox(height: 24),
+          AuthErrorBanner(message: _error, onClose: _clearError),
+          PillButton(
+            label: 'Envoyer le lien',
+            icon: Icons.send_rounded,
+            isLoading: auth.isLoading,
+            onPressed: _submit,
           ),
-          const SizedBox(height: 16),
-          Center(
-            child: TextButton(
-              onPressed: () => Navigator.of(context).maybePop(),
-              style: TextButton.styleFrom(foregroundColor: Colors.white),
-              child: const Text('Retour à la connexion', style: AuthTextStyles.footerLink),
-            ),
-          ),
+          const SizedBox(height: 8),
+          Center(child: AuthLink(label: 'Retour à la connexion', onPressed: () => Navigator.of(context).maybePop())),
         ],
       ),
     );
   }
 
   Widget _buildSent() {
+    final t = AppTokens.of(context);
     final email = Validators.normalizeEmail(_emailCtrl.text);
+    final body = Theme.of(context).textTheme.bodyLarge;
     return Column(
       key: const ValueKey('sent'),
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Icon(Icons.check_circle_rounded, size: 44, color: Colors.white),
+        Icon(Icons.check_circle_rounded, size: 44, color: t.success),
         const SizedBox(height: 16),
         Text.rich(
           TextSpan(
@@ -140,23 +152,15 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
               const TextSpan(text: ', un email de réinitialisation vient d\'être envoyé.'),
             ],
           ),
-          style: const TextStyle(color: Colors.white, fontSize: 15, height: 1.45),
+          style: body,
         ),
-        const SizedBox(height: 30),
-        Center(
-          child: PillButton(
-            label: 'Retour à la connexion',
-            onPressed: () => Navigator.of(context).maybePop(),
-          ),
+        const SizedBox(height: 24),
+        PillButton(
+          label: 'Retour à la connexion',
+          onPressed: () => Navigator.of(context).maybePop(),
         ),
-        const SizedBox(height: 12),
-        Center(
-          child: TextButton(
-            onPressed: () => setState(() => _sent = false),
-            style: TextButton.styleFrom(foregroundColor: Colors.white),
-            child: const Text('Utiliser une autre adresse', style: AuthTextStyles.link),
-          ),
-        ),
+        const SizedBox(height: 8),
+        Center(child: AuthLink(label: 'Utiliser une autre adresse', onPressed: () => setState(() => _sent = false))),
       ],
     );
   }

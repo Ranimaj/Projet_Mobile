@@ -1,10 +1,16 @@
 import 'package:campusconnect/core/utils/auth_failure.dart';
+import 'package:campusconnect/core/theme/app_tokens.dart';
 import 'package:campusconnect/screens/profile/change_password_screen.dart';
+import 'package:campusconnect/widgets/auth/auth_hero.dart';
+import 'package:campusconnect/widgets/hero_sheet_scaffold.dart';
+import 'package:campusconnect/widgets/pill_button.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../helpers/authenticated.dart';
 import '../helpers/pump_app.dart';
+import '../helpers/pump_themed.dart';
 
 void main() {
   late AuthHarness h;
@@ -92,5 +98,34 @@ void main() {
 
     expect(find.text('Email ou mot de passe incorrect.'), findsOneWidget);
     expect(find.byType(ChangePasswordScreen), findsOneWidget);
+  });
+
+  group('UI contract (hero sheet)', () {
+    testWidgets('is a HeroSheetScaffold with an AuthHero and a primary PillButton', (tester) async {
+      await open(tester);
+
+      expect(find.byType(HeroSheetScaffold), findsOneWidget);
+      expect(find.byType(AuthHero), findsOneWidget);
+      expect(find.text('Changer le mot de passe'), findsOneWidget);
+      final pill = find.widgetWithText(PillButton, 'Mettre à jour');
+      await tester.ensureVisible(pill);
+      expect(tester.widget<PillButton>(pill).style, PillStyle.primary);
+    });
+
+    testWidgets('field errors use the danger token', (tester) async {
+      await open(tester);
+      await tapText(tester, 'Mettre à jour');
+      await tester.pump();
+
+      expect(tester.widget<Text>(find.text('Confirmation requise')).style!.color, AppTokens.light.danger);
+    });
+
+    for (final brightness in Brightness.values) {
+      testWidgets('no text under 13 px in ${brightness.name}', (tester) async {
+        await h.signIn(tester);
+        await h.pump(tester, const ChangePasswordScreen(), brightness: brightness);
+        expectNoSmallText(tester);
+      });
+    }
   });
 }

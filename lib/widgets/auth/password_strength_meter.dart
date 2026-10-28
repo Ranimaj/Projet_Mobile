@@ -1,35 +1,24 @@
 import 'package:flutter/material.dart';
-import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_tokens.dart';
 import '../../core/utils/validators.dart';
 
-/// Barre à 4 segments indiquant la robustesse du mot de passe saisi.
-///
-/// [onDark] adapte la palette à un fond dégradé (segments vides blancs
-/// translucides, teintes pastel lisibles sur bleu).
+/// Barre à 4 segments indiquant la robustesse du mot de passe saisi
+/// (danger, warning puis success selon le score).
 class PasswordStrengthMeter extends StatelessWidget {
   final String password;
-  final bool onDark;
-  const PasswordStrengthMeter({super.key, required this.password, this.onDark = false});
+  const PasswordStrengthMeter({super.key, required this.password});
 
   static const _labels = ['', 'Faible', 'Moyen', 'Bon', 'Excellent'];
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
     final score = Validators.passwordStrength(password);
-    final color = onDark
-        ? switch (score) {
-            <= 1 => const Color(0xFFFFB4B4),
-            2 => const Color(0xFFFFE08A),
-            3 => Colors.white,
-            _ => const Color(0xFFB9F6CA),
-          }
-        : switch (score) {
-            <= 1 => AppColors.danger,
-            2 => AppColors.warning,
-            3 => AppColors.primary2,
-            _ => AppColors.success,
-          };
-    final empty = onDark ? Colors.white.withValues(alpha: 0.3) : AppColors.surfaceTone;
+    final color = switch (score) {
+      <= 1 => t.danger,
+      2 => t.warning,
+      _ => t.success,
+    };
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -42,7 +31,7 @@ class PasswordStrengthMeter extends StatelessWidget {
                 height: 4,
                 margin: EdgeInsets.only(right: i == 3 ? 0 : 4),
                 decoration: BoxDecoration(
-                  color: i < score ? color : empty,
+                  color: i < score ? color : t.outline,
                   borderRadius: BorderRadius.circular(4),
                 ),
               ),
@@ -53,7 +42,7 @@ class PasswordStrengthMeter extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             'Robustesse : ${_labels[score]}',
-            style: TextStyle(fontSize: 13, color: color, fontWeight: FontWeight.w600),
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(color: t.textSecondary, fontWeight: FontWeight.w600),
           ),
         ],
       ],
