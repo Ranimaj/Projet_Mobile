@@ -18,6 +18,10 @@ class AdminUsersProvider extends ChangeNotifier {
   List<AppUser> users = const [];
   bool isLoading = true;
   String? error;
+
+  /// Message posé quand la dernière revue a échoué parce que la carte a
+  /// changé entre-temps (l'écran se referme).
+  String? reviewConflict;
   String query = '';
   UserRole? roleFilter;
   StudentCardStatus? cardFilter;
@@ -94,14 +98,30 @@ class AdminUsersProvider extends ChangeNotifier {
     return _run(() => _service.setDisabled(user.id, disabled));
   }
 
+  /// Décide sur la carte telle que l'admin l'a vue ([user]).
   Future<bool> reviewCard(AppUser user,
-          {required bool approve, String? reason}) =>
-      _run(() => _service.reviewCard(
-            uid: user.id,
-            approve: approve,
-            reason: reason,
-            reviewerUid: currentAdminUid,
-          ));
+      {required bool approve, String? reason}) async {
+    reviewConflict = null;
+    try {
+      await _service.reviewCard(
+        uid: user.id,
+        approve: approve,
+        reason: reason,
+        reviewerUid: currentAdminUid,
+        expectedImagePath: user.studentCard.imagePath,
+      );
+      return true;
+    } on AdminReviewConflict catch (e) {
+      reviewConflict = e.message;
+      error = e.message;
+      notifyListeners();
+      return false;
+    } catch (_) {
+      error = 'Action impossible. Vérifie ta connexion et tes droits.';
+      notifyListeners();
+      return false;
+    }
+  }
 
   Future<String> cardImageUrl(String path) => _service.cardImageUrl(path);
 

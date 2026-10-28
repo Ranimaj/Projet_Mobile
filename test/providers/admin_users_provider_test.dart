@@ -172,17 +172,37 @@ void main() {
     p.dispose();
   });
 
-  test('reviewCard passes the current admin uid', () async {
+  test('reviewCard passes the current admin uid and the card seen', () async {
     when(() => service.reviewCard(
         uid: any(named: 'uid'),
         approve: any(named: 'approve'),
         reason: any(named: 'reason'),
-        reviewerUid: any(named: 'reviewerUid'))).thenAnswer((_) async {});
+        reviewerUid: any(named: 'reviewerUid'),
+        expectedImagePath: any(named: 'expectedImagePath'))).thenAnswer((_) async {});
     final p = build(users);
     await Future<void>.delayed(Duration.zero);
     expect(await p.reviewCard(users[1], approve: false, reason: 'Illisible'), isTrue);
     verify(() => service.reviewCard(
-        uid: 's1', approve: false, reason: 'Illisible', reviewerUid: 'a1')).called(1);
+        uid: 's1',
+        approve: false,
+        reason: 'Illisible',
+        reviewerUid: 'a1',
+        expectedImagePath: users[1].studentCard.imagePath)).called(1);
+    expect(p.reviewConflict, isNull);
+    p.dispose();
+  });
+
+  test('reviewCard exposes a conflict', () async {
+    when(() => service.reviewCard(
+        uid: any(named: 'uid'),
+        approve: any(named: 'approve'),
+        reason: any(named: 'reason'),
+        reviewerUid: any(named: 'reviewerUid'),
+        expectedImagePath: any(named: 'expectedImagePath'))).thenThrow(const AdminReviewConflict());
+    final p = build(users);
+    await Future<void>.delayed(Duration.zero);
+    expect(await p.reviewCard(users[1], approve: true), isFalse);
+    expect(p.reviewConflict, 'La carte a changé, rouvre-la');
     p.dispose();
   });
 }

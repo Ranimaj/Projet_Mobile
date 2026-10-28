@@ -52,6 +52,11 @@ class _AdminCardReviewScreenState extends State<AdminCardReviewScreen> {
       messenger.showSnackBar(
           SnackBar(content: Text(approve ? 'Carte validée' : 'Carte refusée')));
       navigator.pop();
+    } else if (provider.reviewConflict != null) {
+      // The student sent another photo: this screen shows a stale card.
+      messenger
+          .showSnackBar(SnackBar(content: Text(provider.reviewConflict!)));
+      navigator.pop();
     } else {
       messenger.showSnackBar(
           SnackBar(content: Text(provider.error ?? 'Action impossible.')));

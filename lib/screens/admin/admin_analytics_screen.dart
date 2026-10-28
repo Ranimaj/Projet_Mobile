@@ -102,6 +102,7 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
             children: [
               Expanded(
                 child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     StatTile(value: '${stats.signUps}', label: 'Inscrits'),
                     if (delta != null)
@@ -109,6 +110,7 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
                         padding: const EdgeInsets.only(top: 8),
                         child: Text(
                           delta,
+                          textAlign: TextAlign.center,
                           style: text.labelMedium!.copyWith(
                             color: change! >= 0 ? t.success : t.danger,
                           ),

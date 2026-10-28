@@ -43,6 +43,53 @@ void main() {
     expect(users.last.studentCard.status, StudentCardStatus.pending);
   });
 
+  test('watchAll keeps legacy users without createdAt, listed last', () async {
+    await db.collection('users').doc('legacy').set({
+      'fullName': 'Ancien',
+      'email': 'ancien@esprit.tn',
+      'role': 'student',
+    });
+    final users = await service.watchAll().first;
+    expect(users.map((u) => u.id), ['u2', 'u1', 'legacy']);
+  });
+
+  group('reviewCard conflicts', () {
+    test('a matching imagePath is written', () async {
+      await service.reviewCard(
+          uid: 'u1',
+          approve: true,
+          reviewerUid: 'admin-1',
+          expectedImagePath: 'student_cards/u1/card.jpg',
+          now: () => now);
+      final card = (await db.collection('users').doc('u1').get()).data()!['studentCard'] as Map;
+      expect(card['status'], 'verified');
+    });
+
+    test('a resubmitted card is not written and the conflict surfaces', () async {
+      await db.collection('users').doc('u1').update({
+        'studentCard': {
+          'status': 'pending',
+          'imagePath': 'student_cards/u1/new.jpg',
+          'submittedAt': Timestamp.fromDate(now),
+        },
+      });
+      await expectLater(
+        service.reviewCard(
+            uid: 'u1',
+            approve: true,
+            reviewerUid: 'admin-1',
+            expectedImagePath: 'student_cards/u1/card.jpg',
+            now: () => now),
+        throwsA(isA<AdminReviewConflict>()
+            .having((e) => e.message, 'message', 'La carte a changé, rouvre-la')),
+      );
+      final data = (await db.collection('users').doc('u1').get()).data()!;
+      expect((data['studentCard'] as Map)['status'], 'pending');
+      expect((data['studentCard'] as Map)['imagePath'], 'student_cards/u1/new.jpg');
+      expect(data.containsKey('isVerifiedStudent'), isFalse);
+    });
+  });
+
   test('setRole writes the role name', () async {
     await service.setRole('u1', UserRole.admin);
     expect((await db.collection('users').doc('u1').get()).data()!['role'], 'admin');
@@ -54,7 +101,12 @@ void main() {
   });
 
   test('approve keeps imagePath/submittedAt and verifies the student', () async {
-    await service.reviewCard(uid: 'u1', approve: true, reviewerUid: 'admin-1', now: () => now);
+    await service.reviewCard(
+        uid: 'u1',
+        approve: true,
+        reviewerUid: 'admin-1',
+        expectedImagePath: 'student_cards/u1/card.jpg',
+        now: () => now);
     final data = (await db.collection('users').doc('u1').get()).data()!;
     expect(data['isVerifiedStudent'], true);
     final card = data['studentCard'] as Map<String, dynamic>;
@@ -68,7 +120,12 @@ void main() {
 
   test('reject records the reason and does not verify', () async {
     await service.reviewCard(
-        uid: 'u1', approve: false, reason: 'Photo floue', reviewerUid: 'admin-1', now: () => now);
+        uid: 'u1',
+        approve: false,
+        reason: 'Photo floue',
+        reviewerUid: 'admin-1',
+        expectedImagePath: 'student_cards/u1/card.jpg',
+        now: () => now);
     final data = (await db.collection('users').doc('u1').get()).data()!;
     expect(data['isVerifiedStudent'], false);
     final card = data['studentCard'] as Map<String, dynamic>;
