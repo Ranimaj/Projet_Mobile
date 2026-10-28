@@ -50,6 +50,7 @@ void main() {
     when(() => annonces.categoryFilter).thenReturn(null);
     when(() => annonces.load()).thenAnswer((_) async {});
     when(() => events.upcoming).thenReturn(const []);
+    when(() => events.all).thenReturn(const []);
     when(() => events.isLoading).thenReturn(false);
     when(() => events.categoryFilter).thenReturn(null);
     when(() => events.eventsOnDay(any())).thenReturn(const []);

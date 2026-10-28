@@ -85,6 +85,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _go(int tab) => widget.onNavigate?.call(tab);
 
+  void _register(EventModel event, String userId) =>
+      context.read<EventProvider>().toggleRegistration(event, userId);
+
   void _openProfile() => Navigator.of(context)
       .push(MaterialPageRoute<void>(builder: (_) => const ProfileScreen()));
 
@@ -134,7 +137,7 @@ class _HomeScreenState extends State<HomeScreen> {
             userId: user.id,
             articles: articles,
             notices: notices,
-            events: events,
+            events: context.watch<EventProvider>().all,
             applications: jobs.myApplications,
             now: now,
           );
@@ -149,6 +152,7 @@ class _HomeScreenState extends State<HomeScreen> {
             FeaturedMeta(Icons.schedule_rounded, _relative(n.createdAt)),
           ],
           action: 'Lire',
+          onAction: () => _go(HomeTabs.notices),
         ),
       if (featured != null)
         _Slide(
@@ -161,6 +165,9 @@ class _HomeScreenState extends State<HomeScreen> {
               FeaturedMeta(Icons.place_rounded, featured.location),
           ],
           action: registered ? 'Inscrit' : 'S\'inscrire',
+          onAction: registered || user == null
+              ? null
+              : () => _register(featured, user.id),
         ),
     ];
 
@@ -233,6 +240,9 @@ class _HomeScreenState extends State<HomeScreen> {
                         event: featured,
                         registered: registered,
                         onTap: () => _go(HomeTabs.events),
+                        onRegister: user == null
+                            ? null
+                            : () => _register(featured, user.id),
                       ),
                     const SizedBox(height: kSectionGap),
                     _SectionTitle(
@@ -446,11 +456,15 @@ class _Slide {
   final String title;
   final List<FeaturedMeta> meta;
   final String action;
+
+  /// Null: the action is shown disabled (already registered).
+  final VoidCallback? onAction;
   const _Slide(
       {required this.chipLabel,
       required this.title,
       required this.meta,
-      required this.action});
+      required this.action,
+      this.onAction});
 }
 
 /// « À la une » : annonces officielles épinglées puis événement à l'affiche,
@@ -473,6 +487,7 @@ class _FeaturedState extends State<_Featured> {
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
     final height = MediaQuery.textScalerOf(context).scale(170);
+    final page = _page.clamp(0, widget.slides.length - 1);
     return Column(
       children: [
         SizedBox(
@@ -488,7 +503,7 @@ class _FeaturedState extends State<_Featured> {
                 meta: s.meta,
                 actionLabel: s.action,
                 height: height,
-                onAction: () => widget.onOpen(i),
+                onAction: s.onAction,
                 onTap: () => widget.onOpen(i),
               );
             },
@@ -506,7 +521,7 @@ class _FeaturedState extends State<_Featured> {
                   margin: const EdgeInsets.symmetric(horizontal: 3),
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: i == _page ? t.primary : t.outline,
+                    color: i == page ? t.primary : t.outline,
                   ),
                 ),
             ],
@@ -716,8 +731,12 @@ class _EventCard extends StatelessWidget {
   final EventModel event;
   final bool registered;
   final VoidCallback onTap;
+  final VoidCallback? onRegister;
   const _EventCard(
-      {required this.event, required this.registered, required this.onTap});
+      {required this.event,
+      required this.registered,
+      required this.onTap,
+      required this.onRegister});
 
   @override
   Widget build(BuildContext context) {
@@ -806,7 +825,7 @@ class _EventCard extends StatelessWidget {
                     label: 'Je participe',
                     style: PillStyle.ghost,
                     expand: false,
-                    onPressed: onTap),
+                    onPressed: onRegister),
             ]),
           ],
         ),

@@ -127,6 +127,7 @@ final _gift = ArticleModel(
 );
 
 void main() {
+  setUpAll(() => registerFallbackValue(_eventThu));
   late AuthHarness h;
   late _MockArticles articles;
   late _MockAnnonces annonces;
@@ -138,6 +139,7 @@ void main() {
     List<ArticleModel> a = const [],
     List<AnnonceModel> n = const [],
     List<EventModel> e = const [],
+    List<EventModel>? allEvents,
     List<JobOfferModel> j = const [],
     List<JobOfferModel>? recommended,
   }) {
@@ -146,6 +148,9 @@ void main() {
     when(() => annonces.items).thenReturn(n);
     when(() => annonces.load()).thenAnswer((_) async {});
     when(() => events.upcoming).thenReturn(e);
+    when(() => events.all).thenReturn(allEvents ?? e);
+    when(() => events.toggleRegistration(any(), any()))
+        .thenAnswer((_) async {});
     when(() => events.load()).thenAnswer((_) async {});
     when(() => jobs.offers).thenReturn(j);
     when(() => jobs.myApplications).thenReturn(const []);
@@ -216,6 +221,7 @@ void main() {
       expect(find.byType(InitialsAvatar), findsOneWidget);
       expect(find.byType(SyncChip), findsOneWidget);
       expect(find.text('Campus'), findsOneWidget);
+      expectTapTargets(tester);
       expect(find.text('ESPRIT Ghazela'), findsOneWidget);
 
       await pump(tester, now: DateTime(2026, 10, 19, 9));
@@ -381,6 +387,39 @@ void main() {
       expect(navigated.last, HomeTabs.events);
     });
 
+    testWidgets('"Je participe" registers through the provider',
+        (tester) async {
+      stub(e: [_eventThu]);
+      await pump(tester);
+      final week = find.byKey(const Key('week-card'));
+      await tester.ensureVisible(week);
+      await tester
+          .tap(find.descendant(of: week, matching: find.text('Je participe')));
+      await tester.pump();
+      verify(() => events.toggleRegistration(_eventThu, 'uid-1')).called(1);
+      expect(navigated, isEmpty);
+    });
+
+    testWidgets('"S\'inscrire" in À la une registers through the provider',
+        (tester) async {
+      stub(e: [_eventThu]);
+      await pump(tester);
+      await tester.tap(find.descendant(
+          of: find.byType(FeaturedCard), matching: find.text('S\'inscrire')));
+      await tester.pump();
+      verify(() => events.toggleRegistration(_eventThu, 'uid-1')).called(1);
+    });
+
+    testWidgets('shows Inscrit once the event lists the user', (tester) async {
+      stub(e: [_eventFar]);
+      await pump(tester);
+      expect(
+          find.descendant(
+              of: find.byType(FeaturedCard), matching: find.text('Inscrit')),
+          findsOneWidget);
+      verifyNever(() => events.toggleRegistration(any(), any()));
+    });
+
     testWidgets('falls back to the next event and marks registration',
         (tester) async {
       stub(e: [_eventFar]);
@@ -456,6 +495,25 @@ void main() {
       expect(find.text('Mon activité, 7 jours'), findsOneWidget);
       expect(find.text('Aucune activité cette semaine'), findsOneWidget);
       expect(find.byType(LineChart), findsNothing);
+    });
+
+    testWidgets('counts an event the user organised that is no longer upcoming',
+        (tester) async {
+      stub(allEvents: [
+        EventModel(
+          id: 'past',
+          organizerId: 'uid-1',
+          organizerName: 'Amel',
+          title: 'Atelier',
+          description: '',
+          category: 'Culture',
+          startDate: DateTime(2026, 10, 16, 10),
+          location: 'Salle 3',
+        )
+      ]);
+      await pump(tester);
+      await tester.ensureVisible(find.byType(AreaLineChart));
+      expect(find.byType(LineChart), findsOneWidget);
     });
 
     testWidgets('draws the chart once the user has published something',
