@@ -68,6 +68,19 @@ void main() {
     });
   }
 
+  testWidgets('AreaLineChart curve does not overshoot on sparse series', (t) async {
+    const sparse = [
+      ChartPoint(label: 'a', value: 0),
+      ChartPoint(label: 'b', value: 10),
+      ChartPoint(label: 'c', value: 0),
+      ChartPoint(label: 'd', value: 0),
+      ChartPoint(label: 'e', value: 8),
+    ];
+    await pumpThemed(t, const AreaLineChart(points: sparse));
+    final chart = t.widget<LineChart>(find.byType(LineChart));
+    expect(chart.data.lineBarsData.single.preventCurveOverShooting, isTrue);
+  });
+
   testWidgets('HBarChart widths are proportional to value', (t) async {
     await pumpThemed(t, const SizedBox(width: 360, child: HBarChart(bars: _bars)));
     await t.pumpAndSettle();
