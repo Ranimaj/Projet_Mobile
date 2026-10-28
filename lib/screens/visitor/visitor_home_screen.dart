@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/constants/layout.dart';
-import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_tokens.dart';
 import '../../models/annonce_model.dart';
 import '../../models/article_model.dart';
 import '../../models/event_model.dart';
@@ -12,14 +12,30 @@ import '../../providers/annonce_provider.dart';
 import '../../providers/article_provider.dart';
 import '../../providers/event_provider.dart';
 import '../../providers/job_provider.dart';
+import '../../widgets/bottom_action_bar.dart';
+import '../../widgets/featured_card.dart';
+import '../../widgets/photo_card.dart';
+import '../../widgets/pill_button.dart';
+import '../../widgets/setting_row.dart';
+import '../../widgets/skeleton_box.dart';
+import '../../widgets/status_chip.dart';
 import '../auth/login_screen.dart';
 import '../auth/register_screen.dart';
 
-/// Accueil Visiteur (non connecté) — BF3, fidèle à la maquette du cahier des
-/// charges (section 7) : héro dégradé avec pastille et pastilles de chiffres,
-/// puis un rail horizontal de cartes par gestion (Vente & Don, Annonces,
-/// Événements, Stage & Emploi) avec « Voir tout », et l'appel à l'inscription
-/// en pied d'écran. Les chiffres sont réels (jamais inventés).
+/// Accueil Visiteur (non connecté) — BF3 : héro photo avec pastilles de
+/// chiffres, puis une section par gestion (Vente & Don, Annonces, Événements,
+/// Stage & Emploi) avec « Voir tout », et l'appel à l'inscription dans une barre
+/// fixe en pied d'écran. Les chiffres sont réels (jamais inventés).
+/// Voile sombre posé sur la photo du héro (seul littéral de couleur permis :
+/// il doit rester noir quel que soit le thème pour garder le texte lisible).
+const _scrimTop = Color(0x33000000);
+const _scrimBottom = Color(0xCC000000);
+
+/// Hauteur des rails de cartes (image 100 + titre sur 2 lignes + méta).
+const double _railHeight = 212;
+const double _cardWidth = 168;
+const double _cardImageHeight = 100;
+
 class VisitorHomeScreen extends StatefulWidget {
   /// Nombre d'étudiants inscrits (pastille du héro). Injectable dans les tests ;
   /// par défaut, comptage Firestore de la collection `users`.
@@ -80,86 +96,120 @@ class _VisitorHomeScreenState extends State<VisitorHomeScreen> {
         .where((c) => c.isNotEmpty)
         .toSet();
 
+    final t = AppTokens.of(context);
+    final media = MediaQuery.of(context);
+
     return Scaffold(
-      backgroundColor: AppColors.background,
-      body: Column(
-        children: [
-          Expanded(
-            child: SingleChildScrollView(
+      backgroundColor: t.background,
+      body: LayoutBuilder(builder: (context, c) {
+        final wide = c.maxWidth > kCompactBreakpoint;
+        final heroHeight = (c.maxHeight * 0.36).clamp(220.0, 320.0);
+
+        Widget sections = Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(height: kSectionGap),
+            _Section(
+              title: 'Vente & Don',
+              onSeeAll: _openLogin,
+              child: _Rail(
+                loading: articles.isLoading && forSale.isEmpty,
+                emptyText: 'Aucun objet proposé pour l\'instant.',
+                children: [
+                  for (final a in forSale) _ArticleCard(article: a),
+                ],
+              ),
+            ),
+            const SizedBox(height: kSectionGap),
+            _Section(
+              title: 'Annonces du campus',
+              onSeeAll: _openLogin,
+              child: _Notices(
+                loading: annonces.isLoading && notices.isEmpty,
+                notices: notices.take(3).toList(),
+                onTap: _openLogin,
+              ),
+            ),
+            const SizedBox(height: kSectionGap),
+            _Section(
+              title: 'Événements à venir',
+              onSeeAll: _openLogin,
+              child: _Events(
+                loading: events.isLoading && upcoming.isEmpty,
+                events: upcoming,
+                onOpen: _openLogin,
+              ),
+            ),
+            const SizedBox(height: kSectionGap),
+            _Section(
+              title: 'Stage & Emploi',
+              onSeeAll: _openLogin,
+              child: _Rail(
+                loading: jobs.isLoading && offers.isEmpty,
+                emptyText: 'Aucune offre publiée pour l\'instant.',
+                children: [for (final j in offers) _OfferCard(offer: j)],
+              ),
+            ),
+            const SizedBox(height: kSectionGap),
+            const _InfoBox(),
+            // Clears the fixed bottom bar.
+            SizedBox(height: 168 + media.padding.bottom),
+          ],
+        );
+        if (wide) {
+          sections = Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: kContentMaxWidth),
+              child: sections,
+            ),
+          );
+        }
+
+        return Stack(
+          children: [
+            SingleChildScrollView(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _Hero(
+                    height: heroHeight,
                     students: _students,
                     notices: annonces.items.length,
                     companies: companies.length,
                   ),
-                  const SizedBox(height: kSectionGap - 8),
-                  _Section(
-                    title: 'Vente & Don',
-                    onSeeAll: _openLogin,
-                    child: _Rail(
-                      height: 150,
-                      loading: articles.isLoading && forSale.isEmpty,
-                      skeleton: const _Skeleton(width: 128, height: 150),
-                      emptyText: 'Aucun objet proposé pour l\'instant.',
-                      children: [
-                        for (var i = 0; i < forSale.length; i++)
-                          _ArticleCard(article: forSale[i], index: i)
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: kSectionGap - 8),
-                  _Section(
-                    title: 'Annonces du campus',
-                    onSeeAll: _openLogin,
-                    child: _Rail(
-                      height: 92,
-                      loading: annonces.isLoading && notices.isEmpty,
-                      skeleton: const _Skeleton(width: 220, height: 84),
-                      emptyText: 'Aucune annonce publiée pour l\'instant.',
-                      children: [
-                        for (final n in notices) _NoticeCard(notice: n)
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: kSectionGap - 8),
-                  _Section(
-                    title: 'Événements à venir',
-                    onSeeAll: _openLogin,
-                    child: _Rail(
-                      height: 72,
-                      loading: events.isLoading && upcoming.isEmpty,
-                      skeleton: const _Skeleton(width: 160, height: 70),
-                      emptyText: 'Aucun événement annoncé pour l\'instant.',
-                      children: [
-                        for (var i = 0; i < upcoming.length; i++)
-                          _EventCard(event: upcoming[i], index: i)
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: kSectionGap - 8),
-                  _Section(
-                    title: 'Stage & Emploi',
-                    onSeeAll: _openLogin,
-                    child: _Rail(
-                      height: 68,
-                      loading: jobs.isLoading && offers.isEmpty,
-                      skeleton: const _Skeleton(width: 200, height: 66),
-                      emptyText: 'Aucune offre publiée pour l\'instant.',
-                      children: [for (final j in offers) _OfferCard(offer: j)],
-                    ),
-                  ),
-                  const SizedBox(height: kSectionGap - 8),
-                  const _InfoBox(),
-                  const SizedBox(height: kSectionGap - 8),
+                  sections,
                 ],
               ),
             ),
-          ),
-          _BottomCta(onRegister: _openRegister, onLogin: _openLogin),
-        ],
-      ),
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: BottomActionBar(
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints:
+                        const BoxConstraints(maxWidth: kContentMaxWidth),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        PillButton(
+                            label: 'Créer un compte étudiant',
+                            onPressed: _openRegister),
+                        const SizedBox(height: 8),
+                        PillButton(
+                            label: 'Se connecter',
+                            style: PillStyle.ghost,
+                            onPressed: _openLogin),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      }),
     );
   }
 }
@@ -167,115 +217,97 @@ class _VisitorHomeScreenState extends State<VisitorHomeScreen> {
 // --- Héro --------------------------------------------------------------------------
 
 class _Hero extends StatelessWidget {
+  final double height;
   final Future<int> students;
   final int notices;
   final int companies;
   const _Hero(
-      {required this.students, required this.notices, required this.companies});
+      {required this.height,
+      required this.students,
+      required this.notices,
+      required this.companies});
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
     final text = Theme.of(context).textTheme;
-    const onHero = Colors.white;
 
-    return Container(
-      width: double.infinity,
-      padding: EdgeInsets.fromLTRB(kPagePadding,
-          MediaQuery.paddingOf(context).top + 12, kPagePadding, 24),
-      decoration: const BoxDecoration(
-        gradient: AppColors.brandGradient,
-        borderRadius: BorderRadius.vertical(bottom: Radius.circular(24)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    return ClipRRect(
+      borderRadius: const BorderRadius.vertical(
+          bottom: Radius.circular(kHeroBottomRadius)),
+      child: Stack(
         children: [
-          Row(children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: onHero.withValues(alpha: 0.16),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: onHero.withValues(alpha: 0.25)),
-              ),
-              child: const Icon(Icons.home_rounded, color: onHero, size: 22),
+          Positioned.fill(
+            child: Image.asset(
+              'assets/images/onboarding/campus_2.jpg',
+              fit: BoxFit.cover,
+              cacheWidth: 1080,
+              excludeFromSemantics: true,
             ),
-            const SizedBox(width: 10),
-            Text('CampusConnect',
-                style: text.titleLarge?.copyWith(color: onHero, fontSize: 18)),
-          ]),
-          const SizedBox(height: 18),
-          Text(
-            'Tout ton campus,\ndans une seule app',
-            style: text.displayMedium?.copyWith(
-                color: onHero,
-                fontSize: 26,
-                height: 1.2,
-                fontWeight: FontWeight.w800),
           ),
-          const SizedBox(height: 10),
-          Text(
-            'Échange, informe-toi, participe aux événements et trouve ton futur stage, avec les étudiants de ton école.',
-            style: text.bodyMedium?.copyWith(
-                color: onHero.withValues(alpha: 0.85),
-                fontSize: 13.5,
-                height: 1.4),
+          const Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.bottomCenter,
+                  end: Alignment.topCenter,
+                  colors: [_scrimBottom, _scrimTop],
+                ),
+              ),
+            ),
           ),
-          const SizedBox(height: 16),
-          FutureBuilder<int>(
-            future: students,
-            builder: (context, snap) {
-              final n = snap.data;
-              return Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  _StatPill(
-                      value: n == null ? '…' : '$n',
-                      label: n == 1 ? 'étudiant' : 'étudiants'),
-                  _StatPill(
-                      value: '$notices',
-                      label: notices == 1 ? 'annonce' : 'annonces'),
-                  _StatPill(
-                      value: '$companies',
-                      label: companies == 1 ? 'entreprise' : 'entreprises'),
-                ],
-              );
-            },
+          Container(
+            width: double.infinity,
+            constraints: BoxConstraints(minHeight: height),
+            alignment: Alignment.bottomLeft,
+            padding: EdgeInsets.fromLTRB(kPagePadding,
+                MediaQuery.paddingOf(context).top + 12, kPagePadding, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('CampusConnect',
+                    style: text.titleLarge?.copyWith(color: t.onPrimary)),
+                const SizedBox(height: 12),
+                Text(
+                  'Tout ton campus,\ndans une seule app',
+                  style: text.displayMedium
+                      ?.copyWith(color: t.onPrimary, height: 1.2),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Échange, informe-toi, participe aux événements et trouve ton futur stage, avec les étudiants de ton école.',
+                  style: text.bodyMedium?.copyWith(color: t.onPrimary),
+                ),
+                const SizedBox(height: 16),
+                FutureBuilder<int>(
+                  future: students,
+                  builder: (context, snap) {
+                    final n = snap.data;
+                    return Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        StatusChip(
+                            style: StatusChipStyle.onPhoto,
+                            label:
+                                '${n ?? '…'} ${n == 1 ? 'étudiant' : 'étudiants'}'),
+                        StatusChip(
+                            style: StatusChipStyle.onPhoto,
+                            label:
+                                '$notices ${notices == 1 ? 'annonce' : 'annonces'}'),
+                        StatusChip(
+                            style: StatusChipStyle.onPhoto,
+                            label:
+                                '$companies ${companies == 1 ? 'entreprise' : 'entreprises'}'),
+                      ],
+                    );
+                  },
+                ),
+              ],
+            ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-/// Pastille translucide « 12 annonces » du héro.
-class _StatPill extends StatelessWidget {
-  final String value;
-  final String label;
-  const _StatPill({required this.value, required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.16),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: RichText(
-        text: TextSpan(
-          style: const TextStyle(color: Colors.white, fontSize: 13),
-          children: [
-            TextSpan(
-                text: '$value ',
-                style:
-                    const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
-            TextSpan(
-                text: label,
-                style: TextStyle(color: Colors.white.withValues(alpha: 0.85))),
-          ],
-        ),
       ),
     );
   }
@@ -292,6 +324,7 @@ class _Section extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
     final text = Theme.of(context).textTheme;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -304,10 +337,9 @@ class _Section extends StatelessWidget {
               TextButton(
                 onPressed: onSeeAll,
                 style: TextButton.styleFrom(
-                  foregroundColor: AppColors.brandPrimary,
-                  minimumSize: const Size(48, 40),
+                  foregroundColor: t.primary,
+                  minimumSize: const Size(48, 48),
                   padding: const EdgeInsets.symmetric(horizontal: 8),
-                  textStyle: text.labelLarge?.copyWith(fontSize: 13),
                 ),
                 child: const Text('Voir tout'),
               ),
@@ -321,251 +353,77 @@ class _Section extends StatelessWidget {
   }
 }
 
-/// Rail horizontal de cartes : squelettes pendant le chargement, texte sobre
-/// quand il n'y a rien, cartes sinon.
+class _EmptyText extends StatelessWidget {
+  final String text;
+  const _EmptyText(this.text);
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding:
+            const EdgeInsets.symmetric(horizontal: kPagePadding, vertical: 8),
+        child: Text(text, style: Theme.of(context).textTheme.bodyMedium),
+      );
+}
+
+/// Horizontal rail of cards: skeletons while loading, a sober text when there
+/// is nothing, the cards otherwise.
 class _Rail extends StatelessWidget {
-  final double height;
   final bool loading;
-  final Widget skeleton;
   final String emptyText;
   final List<Widget> children;
 
   const _Rail({
-    required this.height,
     required this.loading,
-    required this.skeleton,
     required this.emptyText,
     required this.children,
   });
 
   @override
   Widget build(BuildContext context) {
-    if (!loading && children.isEmpty) {
-      return Padding(
-        padding:
-            const EdgeInsets.symmetric(horizontal: kPagePadding, vertical: 8),
-        child: Text(emptyText, style: Theme.of(context).textTheme.bodyMedium),
-      );
-    }
-    final items = loading ? List<Widget>.filled(3, skeleton) : children;
+    if (!loading && children.isEmpty) return _EmptyText(emptyText);
+    final items = loading
+        ? List<Widget>.filled(
+            3,
+            const SkeletonBox(
+                width: _cardWidth, height: _railHeight, radius: 20))
+        : children;
     return SizedBox(
-      height: height + 8,
+      height: _railHeight + 16,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.fromLTRB(kPagePadding, 4, kPagePadding, 4),
+        padding: const EdgeInsets.fromLTRB(kPagePadding, 8, kPagePadding, 8),
         itemCount: items.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 12),
+        separatorBuilder: (_, __) => const SizedBox(width: kCardGap),
         itemBuilder: (context, i) => items[i],
       ),
     );
   }
 }
 
-class _Skeleton extends StatelessWidget {
-  final double width;
-  final double height;
-  const _Skeleton({required this.width, required this.height});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: width,
-      height: height,
-      decoration: BoxDecoration(
-        color: AppColors.surfaceTone,
-        borderRadius: BorderRadius.circular(16),
-      ),
-    );
-  }
-}
-
-BoxDecoration _card({Color color = Colors.white, Color? border}) =>
-    BoxDecoration(
-      color: color,
-      borderRadius: BorderRadius.circular(16),
-      border: border == null ? null : Border.all(color: border),
-      boxShadow: const [AppColors.cardShadow],
-    );
-
 // --- Cartes ---------------------------------------------------------------------------
 
 class _ArticleCard extends StatelessWidget {
   final ArticleModel article;
-  final int index;
-  const _ArticleCard({required this.article, required this.index});
+  const _ArticleCard({required this.article});
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
     final text = Theme.of(context).textTheme;
-    return Container(
-      width: 128,
-      decoration: _card(),
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Container(
-              color: AppColors
-                  .categoryTints[index % AppColors.categoryTints.length],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(article.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: text.titleSmall?.copyWith(fontSize: 13)),
-                const SizedBox(height: 4),
-                if (article.isFree)
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    decoration: BoxDecoration(
-                        color: AppColors.successTint,
-                        borderRadius: BorderRadius.circular(8)),
-                    child: const Text('Gratuit',
-                        style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.successInk)),
-                  )
-                else
-                  Text('${article.price!.toStringAsFixed(0)} DT',
-                      style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.brandPrimary)),
-              ],
-            ),
-          ),
-        ],
+    final free = article.isFree;
+    return PhotoCard(
+      width: _cardWidth,
+      imageHeight: _cardImageHeight,
+      imageUrl: article.imageUrls.isEmpty ? null : article.imageUrls.first,
+      placeholderIcon: Icons.shopping_bag_outlined,
+      chip: StatusChip(
+        label: free ? 'Don' : 'Vente',
+        style: free ? StatusChipStyle.success : StatusChipStyle.soft,
       ),
-    );
-  }
-}
-
-class _NoticeCard extends StatelessWidget {
-  final AnnonceModel notice;
-  const _NoticeCard({required this.notice});
-
-  @override
-  Widget build(BuildContext context) {
-    final text = Theme.of(context).textTheme;
-    final official = notice.category == 'Officielle';
-    final label = [
-      if (notice.isPinned) 'Épinglé',
-      official ? 'Officiel' : notice.category
-    ].join(' · ');
-    return Container(
-      width: 220,
-      padding: const EdgeInsets.all(12),
-      decoration: _card(
-        color: official ? AppColors.officialTint : Colors.white,
-        border: official ? AppColors.officialBorder : null,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(children: [
-            if (notice.isPinned) ...[
-              Icon(Icons.push_pin_rounded,
-                  size: 13,
-                  color: official ? AppColors.accent2 : AppColors.brandPrimary),
-              const SizedBox(width: 4),
-            ],
-            Expanded(
-              child: Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: official ? AppColors.accent2 : AppColors.brandPrimary,
-                ),
-              ),
-            ),
-          ]),
-          const SizedBox(height: 4),
-          Text(notice.title,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: text.titleSmall?.copyWith(
-                  fontSize: 13,
-                  height: 1.3,
-                  color: official ? AppColors.officialInk : null)),
-        ],
-      ),
-    );
-  }
-}
-
-class _EventCard extends StatelessWidget {
-  final EventModel event;
-  final int index;
-  const _EventCard({required this.event, required this.index});
-
-  static const _months = [
-    'JANV',
-    'FÉVR',
-    'MARS',
-    'AVR',
-    'MAI',
-    'JUIN',
-    'JUIL',
-    'AOÛT',
-    'SEPT',
-    'OCT',
-    'NOV',
-    'DÉC'
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    final text = Theme.of(context).textTheme;
-    final tile =
-        index.isEven ? AppColors.accentGradient : AppColors.brandGradient;
-    return Container(
-      width: 184,
-      decoration: _card(),
-      clipBehavior: Clip.antiAlias,
-      child: Row(
-        children: [
-          Container(
-            width: 52,
-            decoration: BoxDecoration(gradient: tile),
-            alignment: Alignment.center,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(_months[event.startDate.month - 1],
-                    style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600)),
-                Text('${event.startDate.day}',
-                    style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
-                        height: 1.1)),
-              ],
-            ),
-          ),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.all(10),
-              child: Text(event.title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: text.titleSmall?.copyWith(fontSize: 13, height: 1.3)),
-            ),
-          ),
-        ],
+      title: article.title,
+      meta: Text(
+        free ? 'Gratuit' : '${article.price!.toStringAsFixed(0)} DT',
+        style: text.titleSmall?.copyWith(color: free ? t.success : t.primary),
       ),
     );
   }
@@ -578,157 +436,186 @@ class _OfferCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
-    return Container(
-      width: 200,
-      padding: const EdgeInsets.all(10),
-      decoration: _card(),
-      child: Row(
+    return PhotoCard(
+      width: _cardWidth,
+      imageHeight: _cardImageHeight,
+      placeholderIcon: Icons.work_rounded,
+      chip: StatusChip(label: offer.type == JobType.stage ? 'Stage' : 'Emploi'),
+      title: offer.title,
+      meta: Text('${offer.companyName} · ${offer.location}',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: text.labelMedium),
+    );
+  }
+}
+
+class _Events extends StatelessWidget {
+  final bool loading;
+  final List<EventModel> events;
+  final VoidCallback onOpen;
+  const _Events(
+      {required this.loading, required this.events, required this.onOpen});
+
+  static const _months = [
+    'janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', //
+    'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'
+  ];
+
+  static String _date(DateTime d) => '${d.day} ${_months[d.month - 1]}';
+
+  @override
+  Widget build(BuildContext context) {
+    if (loading) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(horizontal: kPagePadding, vertical: 8),
+        child: SkeletonBox(height: 170, radius: 24),
+      );
+    }
+    if (events.isEmpty) {
+      return const _EmptyText('Aucun événement annoncé pour l\'instant.');
+    }
+    final first = events.first;
+    final text = Theme.of(context).textTheme;
+    return Column(
+      children: [
+        Padding(
+          padding:
+              const EdgeInsets.symmetric(horizontal: kPagePadding, vertical: 8),
+          child: FeaturedCard(
+            chipLabel: first.category,
+            title: first.title,
+            meta: [
+              FeaturedMeta(Icons.event_rounded, _date(first.startDate)),
+              FeaturedMeta(Icons.place_rounded, first.location),
+            ],
+            actionLabel: 'Voir',
+            onAction: onOpen,
+            onTap: onOpen,
+          ),
+        ),
+        if (events.length > 1)
+          _Rail(
+            loading: false,
+            emptyText: '',
+            children: [
+              for (final e in events.skip(1))
+                PhotoCard(
+                  width: _cardWidth,
+                  imageHeight: _cardImageHeight,
+                  placeholderIcon: Icons.event_rounded,
+                  chip: StatusChip(label: e.category),
+                  title: e.title,
+                  meta: Text('${_date(e.startDate)} · ${e.location}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: text.labelMedium),
+                  onTap: onOpen,
+                ),
+            ],
+          ),
+      ],
+    );
+  }
+}
+
+class _Notices extends StatelessWidget {
+  final bool loading;
+  final List<AnnonceModel> notices;
+  final VoidCallback onTap;
+  const _Notices(
+      {required this.loading, required this.notices, required this.onTap});
+
+  static IconData _icon(AnnonceModel n) {
+    if (n.isPinned) return Icons.push_pin_rounded;
+    return switch (n.category) {
+      'Officielle' => Icons.verified_rounded,
+      'Perdu & Trouvé' => Icons.search_rounded,
+      _ => Icons.campaign_rounded,
+    };
+  }
+
+  static String _ago(DateTime d) {
+    final diff = DateTime.now().difference(d);
+    if (diff.inDays >= 30) return 'il y a ${diff.inDays ~/ 30} mois';
+    if (diff.inDays >= 1) return 'il y a ${diff.inDays} j';
+    if (diff.inHours >= 1) return 'il y a ${diff.inHours} h';
+    return 'à l\'instant';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (loading) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(horizontal: kPagePadding, vertical: 8),
+        child: SkeletonBox(height: 168, radius: 16),
+      );
+    }
+    if (notices.isEmpty) {
+      return const _EmptyText('Aucune annonce publiée pour l\'instant.');
+    }
+    return Padding(
+      padding:
+          const EdgeInsets.symmetric(horizontal: kPagePadding, vertical: 8),
+      child: SettingGroup(
         children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-                gradient: AppColors.brandGradient,
-                borderRadius: BorderRadius.circular(10)),
-            alignment: Alignment.center,
-            child: Text(
-                offer.companyName.isNotEmpty
-                    ? offer.companyName[0].toUpperCase()
-                    : '?',
-                style: const TextStyle(
-                    color: Colors.white, fontWeight: FontWeight.w700)),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(offer.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: text.titleSmall?.copyWith(fontSize: 13)),
-                Text(
-                    '${offer.companyName} · ${offer.type == JobType.stage ? 'Stage' : 'Emploi'}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: text.bodyMedium?.copyWith(fontSize: 13)),
-              ],
+          for (final n in notices)
+            SettingRow(
+              icon: _icon(n),
+              title: n.title,
+              subtitle: '${n.authorName} · ${_ago(n.createdAt)}',
+              onTap: onTap,
             ),
-          ),
         ],
       ),
     );
   }
 }
 
-// --- Encart d'information et appel à l'inscription ------------------------------------
+// --- Encart d'information ------------------------------------------------------------
 
 class _InfoBox extends StatelessWidget {
   const _InfoBox();
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
     final text = Theme.of(context).textTheme;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: kPagePadding),
-      child: Container(
+      child: SettingGroup(
+        dividers: false,
         padding: const EdgeInsets.all(14),
-        decoration: _card(),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Icon(Icons.info_outline_rounded,
-                size: 18, color: AppColors.brandPrimary),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text.rich(
-                TextSpan(
-                  style: text.bodyMedium?.copyWith(fontSize: 13, height: 1.5),
-                  children: const [
-                    TextSpan(text: "Ceci n'est qu'un aperçu. "),
-                    TextSpan(
-                      text: 'Crée ton compte étudiant',
-                      style: TextStyle(
-                          color: AppColors.textPrimary,
-                          fontWeight: FontWeight.w700),
-                    ),
-                    TextSpan(
-                        text:
-                            " pour publier, postuler, discuter et profiter de l'app hors-ligne."),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _BottomCta extends StatelessWidget {
-  final VoidCallback onRegister;
-  final VoidCallback onLogin;
-  const _BottomCta({required this.onRegister, required this.onLogin});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: EdgeInsets.fromLTRB(kPagePadding, 12, kPagePadding,
-          12 + MediaQuery.paddingOf(context).bottom),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-              color: Color(0x14000000), blurRadius: 16, offset: Offset(0, -4))
-        ],
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
         children: [
-          SizedBox(
-            width: double.infinity,
-            height: 50,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                  gradient: AppColors.brandGradient,
-                  borderRadius: BorderRadius.circular(14)),
-              child: Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(14),
-                  onTap: onRegister,
-                  child: const Center(
-                    child: Text('Créer un compte étudiant',
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration:
+                    BoxDecoration(color: t.primarySoft, shape: BoxShape.circle),
+                child: Icon(Icons.info_outline_rounded,
+                    size: 18, color: t.onPrimarySoft),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text.rich(
+                  TextSpan(
+                    style: text.bodyMedium,
+                    children: [
+                      const TextSpan(text: "Ceci n'est qu'un aperçu. "),
+                      TextSpan(
+                        text: 'Crée ton compte étudiant',
                         style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 15)),
+                            color: t.textPrimary, fontWeight: FontWeight.w700),
+                      ),
+                      const TextSpan(
+                          text:
+                              " pour publier, postuler, discuter et profiter de l'app hors-ligne."),
+                    ],
                   ),
                 ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 4),
-          Wrap(
-            alignment: WrapAlignment.center,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              Text('Déjà inscrit ?',
-                  style: Theme.of(context)
-                      .textTheme
-                      .bodyMedium
-                      ?.copyWith(fontSize: 13)),
-              TextButton(
-                onPressed: onLogin,
-                style: TextButton.styleFrom(
-                  foregroundColor: AppColors.brandPrimary,
-                  minimumSize: const Size(48, 44),
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                ),
-                child: const Text('Se connecter',
-                    style:
-                        TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
               ),
             ],
           ),

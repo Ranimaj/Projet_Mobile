@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../core/constants/layout.dart';
 import '../core/theme/app_tokens.dart';
+import 'bottom_action_bar.dart';
 
 /// Screen with a hero (photo or gradient) on top and a rounded white sheet
 /// pulled over its bottom edge. The hero shrinks when the keyboard is open or
@@ -133,25 +134,7 @@ class HeroSheetScaffold extends StatelessWidget {
                 right: 0,
                 // Lifted above the keyboard.
                 bottom: media.viewInsets.bottom,
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: t.surface,
-                    borderRadius:
-                        const BorderRadius.vertical(top: Radius.circular(24)),
-                    boxShadow: t.navShadow,
-                    border: Theme.of(context).brightness == Brightness.dark
-                        ? Border(top: BorderSide(color: t.outline))
-                        : null,
-                  ),
-                  child: SafeArea(
-                    top: false,
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(
-                          kPagePadding, 16, kPagePadding, 16),
-                      child: bottomBar,
-                    ),
-                  ),
-                ),
+                child: BottomActionBar(child: bottomBar!),
               ),
           ],
         );
