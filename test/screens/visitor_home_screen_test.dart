@@ -12,9 +12,11 @@ import 'package:campusconnect/providers/job_provider.dart';
 import 'package:campusconnect/screens/auth/login_screen.dart';
 import 'package:campusconnect/screens/auth/register_screen.dart';
 import 'package:campusconnect/screens/visitor/visitor_home_screen.dart';
+import 'package:campusconnect/widgets/bottom_action_bar.dart';
 import 'package:campusconnect/widgets/featured_card.dart';
 import 'package:campusconnect/widgets/photo_card.dart';
 import 'package:campusconnect/widgets/pill_button.dart';
+import 'package:campusconnect/widgets/setting_row.dart';
 import 'package:campusconnect/widgets/skeleton_box.dart';
 import 'package:firebase_auth/firebase_auth.dart' hide AuthProvider;
 import 'package:flutter/material.dart';
@@ -168,6 +170,7 @@ void main() {
       {int students = 2400,
       Size size = const Size(420, 1000),
       Brightness brightness = Brightness.light,
+      double textScale = 1,
       bool settle = true}) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
@@ -188,6 +191,10 @@ void main() {
             themeMode: brightness == Brightness.dark
                 ? ThemeMode.dark
                 : ThemeMode.light,
+            builder: (context, app) => MediaQuery(
+                data: MediaQuery.of(context)
+                    .copyWith(textScaler: TextScaler.linear(textScale)),
+                child: app!),
             home: VisitorHomeScreen(studentsCount: () async => students)),
       ),
     );
@@ -437,6 +444,41 @@ void main() {
           size: const Size(360, 640), brightness: Brightness.dark);
       expect(tester.takeException(), isNull);
     });
+
+    for (final scale in [1.3, 2.0]) {
+      testWidgets('no overflow at 360 px with text scale $scale',
+          (tester) async {
+        stub(
+            a: [_article, _gift],
+            n: [_notice, _notice2],
+            e: [_event, _event2],
+            j: [_offer, _offer2]);
+        await pump(tester, size: const Size(360, 640), textScale: scale);
+        expect(tester.takeException(), isNull);
+        await tester.drag(
+            find.byType(SingleChildScrollView), const Offset(0, -3000));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+      });
+    }
+
+    for (final scale in [1.0, 1.3]) {
+      testWidgets('the last section clears the bottom bar at scale $scale',
+          (tester) async {
+        stub(
+            a: [_article, _gift],
+            n: [_notice, _notice2],
+            e: [_event, _event2],
+            j: [_offer, _offer2]);
+        await pump(tester, size: const Size(360, 640), textScale: scale);
+        await tester.drag(
+            find.byType(SingleChildScrollView), const Offset(0, -5000));
+        await tester.pumpAndSettle();
+        final info = tester.getRect(find.byType(SettingGroup).last);
+        final bar = tester.getRect(find.byType(BottomActionBar));
+        expect(info.bottom, lessThanOrEqualTo(bar.top));
+      });
+    }
 
     testWidgets('wide screens centre the content at kContentMaxWidth',
         (tester) async {

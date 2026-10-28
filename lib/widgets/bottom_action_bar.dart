@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 import '../core/constants/layout.dart';
 import '../core/theme/app_tokens.dart';
 
+/// Height of a bar holding two stacked 52 dp [PillButton]s: 16 dp paddings,
+/// 8 dp gap (safe-area inset not included).
+const double kBottomActionBarTwoRowHeight = 16 + 52 + 8 + 52 + 16;
+
 /// Fixed bar holding the primary actions of a screen: surface fill, rounded top
 /// corners and the nav shadow (outlined instead in dark mode).
 class BottomActionBar extends StatelessWidget {
