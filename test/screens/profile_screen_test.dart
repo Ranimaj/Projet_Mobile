@@ -1,18 +1,39 @@
+import 'package:campusconnect/core/theme/app_theme.dart';
 import 'package:campusconnect/core/utils/auth_failure.dart';
+import 'package:campusconnect/models/annonce_model.dart';
+import 'package:campusconnect/models/job_offer_model.dart';
+import 'package:campusconnect/models/article_model.dart';
 import 'package:campusconnect/models/user_model.dart';
+import 'package:campusconnect/providers/annonce_provider.dart';
+import 'package:campusconnect/providers/article_provider.dart';
 import 'package:campusconnect/providers/auth_provider.dart';
+import 'package:campusconnect/providers/connectivity_provider.dart';
+import 'package:campusconnect/providers/job_provider.dart';
+import 'package:campusconnect/providers/theme_provider.dart';
 import 'package:campusconnect/screens/auth/otp_verification_screen.dart';
 import 'package:campusconnect/screens/profile/change_password_screen.dart';
 import 'package:campusconnect/screens/profile/edit_profile_screen.dart';
 import 'package:campusconnect/screens/profile/profile_screen.dart';
+import 'package:campusconnect/services/app_prefs.dart';
+import 'package:campusconnect/widgets/setting_row.dart';
+import 'package:campusconnect/widgets/stat_tile.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../helpers/authenticated.dart';
 import '../helpers/pump_app.dart';
+import '../helpers/pump_themed.dart';
+
+class _MockArticles extends Mock implements ArticleProvider {}
+
+class _MockAnnonces extends Mock implements AnnonceProvider {}
+
+class _MockJobs extends Mock implements JobProvider {}
 
 /// Même routage que `_RootRouter` dans main.dart : l'accueil connecté quand la
 /// session est ouverte, l'écran visiteur sinon. Comme dans l'app, le profil
@@ -30,12 +51,44 @@ class _Root extends StatelessWidget {
   }
 }
 
+ApplicationModel _application(String id) => ApplicationModel(
+    id: id, jobOfferId: 'o$id', jobTitle: 't', companyName: 'c', candidateId: 'uid-1', appliedAt: DateTime(2026));
+
+AppUser _admin({StudentCard studentCard = StudentCard.none}) => AppUser(
+    id: sampleUser.id,
+    fullName: sampleUser.fullName,
+    email: sampleUser.email,
+    major: sampleUser.major,
+    year: sampleUser.year,
+    role: UserRole.admin,
+    studentCard: studentCard,
+    createdAt: sampleUser.createdAt);
+
 void main() {
   late AuthHarness h;
+  late _MockArticles articles;
+  late _MockAnnonces annonces;
+  late _MockJobs jobs;
+  late AppPrefs prefs;
+  late ThemeProvider theme;
 
-  setUpAll(() => registerFallbackValue(sampleUser));
+  setUpAll(() async {
+    registerFallbackValue(sampleUser);
+    await initializeDateFormatting('fr_FR');
+  });
 
-  setUp(() => h = AuthHarness());
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    prefs = AppPrefs(await SharedPreferences.getInstance());
+    theme = ThemeProvider(prefs);
+    h = AuthHarness();
+    articles = _MockArticles();
+    annonces = _MockAnnonces();
+    jobs = _MockJobs();
+    when(() => articles.items).thenReturn(const []);
+    when(() => annonces.items).thenReturn(const []);
+    when(() => jobs.myApplications).thenReturn(const []);
+  });
   tearDown(() => h.dispose());
 
   Future<void> open(
@@ -43,17 +96,54 @@ void main() {
     AppUser? user,
     bool emailVerified = true,
     List<String> providers = const ['password'],
+    Brightness brightness = Brightness.light,
+    Size size = const Size(420, 2600),
+    double textScale = 1,
   }) async {
+    await tester.pumpWidget(const SizedBox());
     await h.signIn(tester, user: user, emailVerified: emailVerified, providers: providers);
-    await h.pump(tester, const _Root(), push: false);
+    tester.view.physicalSize = size;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<AuthProvider>.value(value: h.provider),
+          ChangeNotifierProvider<ConnectivityProvider>.value(value: h.connectivity),
+          ChangeNotifierProvider<ArticleProvider>.value(value: articles),
+          ChangeNotifierProvider<AnnonceProvider>.value(value: annonces),
+          ChangeNotifierProvider<JobProvider>.value(value: jobs),
+          Provider<AppPrefs>.value(value: prefs),
+          ChangeNotifierProvider<ThemeProvider>.value(value: theme),
+        ],
+        child: MaterialApp(
+          theme: AppTheme.light,
+          darkTheme: AppTheme.dark,
+          themeMode: brightness == Brightness.dark ? ThemeMode.dark : ThemeMode.light,
+          builder: (context, app) => MediaQuery(
+            data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(textScale)),
+            child: app!,
+          ),
+          home: const _Root(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
     Navigator.of(tester.element(find.text('HOME')))
         .push(MaterialPageRoute<void>(builder: (_) => const ProfileScreen()));
     await tester.pumpAndSettle();
   }
 
-  group('header & badges', () {
-    testWidgets('shows identity, initials and verification badges', (tester) async {
-      await open(tester, user: sampleUser.copyWith(isVerifiedStudent: true, isPhoneVerified: true));
+  AppUser withCard(StudentCardStatus status) =>
+      sampleUser.copyWith(studentCard: StudentCard(status: status));
+
+  group('header & chips', () {
+    testWidgets('shows identity, initials and verification chips', (tester) async {
+      await open(
+          tester,
+          user: sampleUser.copyWith(
+              isPhoneVerified: true, studentCard: const StudentCard(status: StudentCardStatus.verified)));
 
       expect(find.text('Amel Ben Salah'), findsOneWidget);
       expect(find.text('AS'), findsOneWidget);
@@ -64,13 +154,77 @@ void main() {
       expect(find.text('Email non vérifié'), findsNothing);
     });
 
-    testWidgets('pending states are shown when nothing is verified', (tester) async {
+    testWidgets('one chip per student-card status', (tester) async {
+      await open(tester, user: withCard(StudentCardStatus.none));
+      expect(find.text('Étudiant vérifié'), findsNothing);
+      expect(find.text('Vérification en attente'), findsNothing);
+      expect(find.text('Carte refusée'), findsNothing);
+
+      await open(tester, user: withCard(StudentCardStatus.pending));
+      expect(find.text('Vérification en attente'), findsOneWidget);
+
+      await open(tester, user: withCard(StudentCardStatus.verified));
+      expect(find.text('Étudiant vérifié'), findsOneWidget);
+
+      await open(tester, user: withCard(StudentCardStatus.rejected));
+      expect(find.text('Carte refusée'), findsOneWidget);
+    });
+
+    testWidgets('unverified email and phone are flagged', (tester) async {
       await open(tester, emailVerified: false);
 
-      expect(find.text('Vérification en attente'), findsOneWidget);
-      expect(find.text('Email non vérifié'), findsOneWidget);
+      expect(find.text('Email à vérifier'), findsOneWidget);
+      expect(find.text('Email non vérifié'), findsOneWidget); // bandeau
       expect(find.text('Aucun numéro vérifié'), findsOneWidget);
       expect(find.text('À vérifier'), findsOneWidget);
+      expect(find.text('Téléphone vérifié'), findsNothing);
+    });
+
+    testWidgets('stats come from the notices, articles and applications of the user', (tester) async {
+      AnnonceModel notice(String id, String author) => AnnonceModel(
+          id: id, authorId: author, authorName: 'x', title: 't', content: '', category: 'c', createdAt: DateTime(2026));
+      ArticleModel article(String id, String owner) => ArticleModel(
+          id: id, ownerId: owner, ownerName: 'x', title: 't', description: '', category: 'c', createdAt: DateTime(2026));
+      when(() => annonces.items).thenReturn([notice('1', 'uid-1'), notice('2', 'other'), notice('3', 'uid-1')]);
+      when(() => articles.items).thenReturn([article('1', 'uid-1')]);
+      when(() => jobs.myApplications).thenReturn([_application('1'), _application('2'), _application('3'), _application('4')]);
+      await open(tester);
+
+      String valueOf(String label) {
+        final tile = find.ancestor(of: find.text(label), matching: find.byType(StatTile));
+        return tester.widget<StatTile>(tile).value;
+      }
+
+      expect(valueOf('Annonces'), '2');
+      expect(valueOf('Ventes'), '1');
+      expect(valueOf('Candidatures'), '4');
+    });
+
+    testWidgets('bottom bar shows the member since date and the edit button', (tester) async {
+      await open(tester);
+
+      expect(find.text('Membre depuis sept. 2024'), findsOneWidget);
+      await tapText(tester, 'Modifier le profil');
+      await tester.pumpAndSettle();
+      expect(find.byType(EditProfileScreen), findsOneWidget);
+    });
+
+    testWidgets('the share action copies the profile text', (tester) async {
+      String? copied;
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        if (call.method == 'Clipboard.setData') copied = (call.arguments as Map)['text'] as String;
+        return null;
+      });
+      addTearDown(() =>
+          tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, null));
+      await open(tester);
+
+      await tester.tap(find.byTooltip('Partager'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(copied, 'Amel Ben Salah · Génie Logiciel · 3ème année');
+      expect(find.text('Profil copié'), findsOneWidget);
     });
 
     testWidgets('hides "Changer le mot de passe" for Google-only accounts', (tester) async {
@@ -129,6 +283,75 @@ void main() {
     });
   });
 
+  group('preferences & roles', () {
+    testWidgets('student card row reflects the status', (tester) async {
+      await open(tester, user: withCard(StudentCardStatus.rejected));
+      expect(find.text('Carte étudiant'), findsOneWidget);
+      expect(find.text('Carte refusée'), findsOneWidget); // chip
+      expect(find.textContaining('envoie-la à nouveau'), findsOneWidget); // sous-titre
+    });
+
+    testWidgets('the biometric switch persists through AppPrefs', (tester) async {
+      await open(tester);
+      final row = find.ancestor(of: find.text('Connexion biométrique'), matching: find.byType(SettingRow));
+      final toggle = find.descendant(of: row, matching: find.byType(Switch));
+      expect(tester.widget<Switch>(toggle).value, isTrue);
+
+      await tester.ensureVisible(toggle);
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+
+      expect(prefs.biometricUnlock, isFalse);
+      expect(tester.widget<Switch>(toggle).value, isFalse);
+    });
+
+    testWidgets('the theme sheet changes the ThemeProvider mode', (tester) async {
+      await open(tester);
+      expect(find.text('Système'), findsOneWidget);
+
+      await tapText(tester, 'Thème');
+      await tester.pumpAndSettle();
+      expect(find.byType(RadioListTile<ThemeMode>), findsNWidgets(3));
+
+      await tester.tap(find.widgetWithText(RadioListTile<ThemeMode>, 'Sombre'));
+      await tester.pumpAndSettle();
+
+      expect(theme.mode, ThemeMode.dark);
+      expect(prefs.themeMode, ThemeMode.dark);
+      expect(find.byType(RadioListTile<ThemeMode>), findsNothing);
+      expect(find.text('Sombre'), findsOneWidget);
+    });
+
+    testWidgets('the administration group is only shown to admins', (tester) async {
+      await open(tester);
+      expect(find.text('Administration'), findsNothing);
+
+      await open(tester, user: _admin());
+      await tester.ensureVisible(find.text('Administration'));
+      expect(find.text('Utilisateurs'), findsOneWidget);
+      expect(find.text('Cartes à vérifier'), findsOneWidget);
+      expect(find.text('Statistiques'), findsOneWidget);
+    });
+  });
+
+  group('layout & accessibility', () {
+    testWidgets('the bottom bar wraps without overflow at 360 x 640 and text scale 1.3', (tester) async {
+      await open(tester, size: const Size(360, 640), textScale: 1.3);
+      expect(tester.takeException(), isNull);
+      expect(find.text('Modifier le profil'), findsOneWidget);
+      expect(find.textContaining('Membre depuis'), findsOneWidget);
+    });
+
+    for (final brightness in Brightness.values) {
+      testWidgets('no small text and 48 dp tap targets (${brightness.name})', (tester) async {
+        await open(tester, brightness: brightness, emailVerified: false,
+            user: _admin(studentCard: const StudentCard(status: StudentCardStatus.pending)));
+        expectNoSmallText(tester);
+        expectTapTargets(tester);
+      });
+    }
+  });
+
   group('navigation', () {
     testWidgets('opens the edit and change-password screens', (tester) async {
       await open(tester);
@@ -172,13 +395,15 @@ void main() {
           .thenAnswer((inv) async => inv.positionalArguments.first as AppUser);
       await open(tester);
 
-      await tester.ensureVisible(find.byType(Switch));
-      await tester.tap(find.byType(Switch));
+      final row = find.ancestor(of: find.text('Authentification à deux facteurs'), matching: find.byType(SettingRow));
+      final toggle = find.descendant(of: row, matching: find.byType(Switch));
+      await tester.ensureVisible(toggle);
+      await tester.tap(toggle);
       await tester.pumpAndSettle();
 
       final saved = verify(() => h.service.updateProfile(captureAny())).captured.single as AppUser;
       expect(saved.twoFactorEnabled, isTrue);
-      expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
+      expect(tester.widget<Switch>(toggle).value, isTrue);
     });
 
     testWidgets('logout signs out and leaves the profile route', (tester) async {
