@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:campusconnect/core/theme/app_theme.dart';
 import 'package:campusconnect/models/annonce_model.dart';
 import 'package:campusconnect/models/article_model.dart';
@@ -404,10 +405,28 @@ void main() {
         (tester) async {
       stub(e: [_eventThu]);
       await pump(tester);
+      expectTapTargets(tester);
       await tester.tap(find.descendant(
           of: find.byType(FeaturedCard), matching: find.text('S\'inscrire')));
       await tester.pump();
       verify(() => events.toggleRegistration(_eventThu, 'uid-1')).called(1);
+    });
+
+    testWidgets('a double tap registers only once', (tester) async {
+      final done = Completer<void>();
+      stub(e: [_eventThu]);
+      when(() => events.toggleRegistration(any(), any()))
+          .thenAnswer((_) => done.future);
+      await pump(tester);
+      final week = find.byKey(const Key('week-card'));
+      await tester.ensureVisible(week);
+      final cta =
+          find.descendant(of: week, matching: find.text('Je participe'));
+      await tester.tap(cta);
+      await tester.tap(cta);
+      await tester.pump();
+      verify(() => events.toggleRegistration(_eventThu, 'uid-1')).called(1);
+      done.complete();
     });
 
     testWidgets('shows Inscrit once the event lists the user', (tester) async {

@@ -85,8 +85,17 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _go(int tab) => widget.onNavigate?.call(tab);
 
-  void _register(EventModel event, String userId) =>
-      context.read<EventProvider>().toggleRegistration(event, userId);
+  bool _registering = false;
+
+  Future<void> _register(EventModel event, String userId) async {
+    if (_registering) return;
+    _registering = true;
+    try {
+      await context.read<EventProvider>().toggleRegistration(event, userId);
+    } finally {
+      _registering = false;
+    }
+  }
 
   void _openProfile() => Navigator.of(context)
       .push(MaterialPageRoute<void>(builder: (_) => const ProfileScreen()));
@@ -487,7 +496,8 @@ class _FeaturedState extends State<_Featured> {
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
     final height = MediaQuery.textScalerOf(context).scale(170);
-    final page = _page.clamp(0, widget.slides.length - 1);
+    final page =
+        widget.slides.isEmpty ? 0 : _page.clamp(0, widget.slides.length - 1);
     return Column(
       children: [
         SizedBox(
