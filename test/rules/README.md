@@ -13,6 +13,13 @@ npm test
 `firebase emulators:exec --only firestore --project campusconnect-esprit "node --test firestore.rules.test.mjs"`
 (needs the `firebase` CLI and Java; the Firestore emulator uses port 8085 from `firebase.json`).
 
+If a Firestore emulator is already running on 8085, run the tests directly:
+
+```
+cd test/rules
+FIRESTORE_EMULATOR_HOST=127.0.0.1:8085 node --test firestore.rules.test.mjs
+```
+
 Storage rules (`../../storage.rules`) are not unit-tested: the `student_cards`
 read rule relies on a cross-service lookup (`firestore.get`) of the user's role,
 which must be checked by hand with both emulators running:

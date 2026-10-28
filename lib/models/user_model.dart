@@ -27,6 +27,15 @@ class StudentCard extends Equatable {
     this.rejectReason,
   });
 
+  /// Soumission par le propriétaire : seuls ces trois champs sont écrits.
+  const StudentCard.pending({
+    required String this.imagePath,
+    required DateTime this.submittedAt,
+  })  : status = StudentCardStatus.pending,
+        reviewedBy = null,
+        reviewedAt = null,
+        rejectReason = null;
+
   static const none = StudentCard();
 
   factory StudentCard.fromMap(Map<String, dynamic>? map) {
@@ -44,14 +53,16 @@ class StudentCard extends Equatable {
     );
   }
 
+  /// Les champs nuls sont omis : une écriture ne porte jamais de `null`
+  /// explicite (les règles exigent `reviewed*` / `rejectReason` absents).
   Map<String, dynamic> toMap() {
     return {
       'status': status.name,
-      'imagePath': imagePath,
-      'submittedAt': submittedAt == null ? null : Timestamp.fromDate(submittedAt!),
-      'reviewedBy': reviewedBy,
-      'reviewedAt': reviewedAt == null ? null : Timestamp.fromDate(reviewedAt!),
-      'rejectReason': rejectReason,
+      if (imagePath != null) 'imagePath': imagePath,
+      if (submittedAt != null) 'submittedAt': Timestamp.fromDate(submittedAt!),
+      if (reviewedBy != null) 'reviewedBy': reviewedBy,
+      if (reviewedAt != null) 'reviewedAt': Timestamp.fromDate(reviewedAt!),
+      if (rejectReason != null) 'rejectReason': rejectReason,
     };
   }
 
@@ -113,7 +124,6 @@ class AppUser {
     'twoFactorEnabled',
     'campus',
     'studentId',
-    'studentCard',
   };
 
   const AppUser({
@@ -207,7 +217,9 @@ class AppUser {
   }
 
   /// Sous-ensemble de [toMap] limité aux [editableFields] — c'est tout ce
-  /// qu'une mise à jour de profil côté client est autorisée à écrire.
+  /// qu'une mise à jour de profil côté client est autorisée à écrire. La
+  /// carte étudiante n'en fait pas partie : elle s'écrit uniquement via la
+  /// soumission dédiée (`update({'studentCard': ...})`).
   Map<String, dynamic> toEditableMap() {
     return {
       for (final entry in toMap().entries)

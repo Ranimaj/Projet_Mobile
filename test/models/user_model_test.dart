@@ -134,13 +134,20 @@ void main() {
       expect(StudentCard.fromMap(const {'status': 'bogus'}), StudentCard.none);
     });
 
-    test('toEditableMap contains studentCard, campus, studentId but never disabled', () {
+    test('toEditableMap contains campus, studentId but never studentCard or disabled', () {
       final editable = user.toEditableMap();
-      expect(editable, contains('studentCard'));
+      expect(editable, isNot(contains('studentCard')));
       expect(editable, contains('campus'));
       expect(editable, contains('studentId'));
       expect(editable, isNot(contains('disabled')));
-      expect(AppUser.editableFields, containsAll(['campus', 'studentId', 'studentCard']));
+      expect(AppUser.editableFields, containsAll(['campus', 'studentId']));
+    });
+
+    test('StudentCard.toMap omits null keys', () {
+      expect(StudentCard.none.toMap(), {'status': 'none'});
+      final pending = StudentCard.pending(imagePath: 'p.jpg', submittedAt: DateTime(2025));
+      expect(pending.toMap().keys.toSet(), {'status', 'imagePath', 'submittedAt'});
+      expect(pending.status, StudentCardStatus.pending);
     });
 
     test('departments list is exposed', () {
