@@ -86,6 +86,7 @@ class AreaLineChart extends StatelessWidget {
             LineChartBarData(
               spots: [for (var i = 0; i < points.length; i++) FlSpot(i.toDouble(), points[i].value)],
               isCurved: true,
+              preventCurveOverShooting: true,
               color: t.primary,
               barWidth: 2.5,
               dotData: FlDotData(
