@@ -202,7 +202,9 @@ Palette orange de marque (voir [décisions](docs/decisions.md)).
 
 ## Captures d'écran
 
-Thème clair et sombre dans `docs/screenshots/` :
+Thème clair et sombre dans `docs/screenshots/`. Les captures sont prises sur les émulateurs
+Firebase avec les données de `tool/seed.sh` (comptes et cartes de démonstration, aucun
+contenu des modules Vente & Don, Annonces, Événements ni Stages) :
 
 | Écran | Clair | Sombre |
 |---|---|---|
@@ -215,7 +217,7 @@ Thème clair et sombre dans `docs/screenshots/` :
 | Édition du profil | [clair](docs/screenshots/edit_profile_light.png) | [sombre](docs/screenshots/edit_profile_dark.png) |
 | Carte étudiante | [clair](docs/screenshots/student_card_light.png) | [sombre](docs/screenshots/student_card_dark.png) |
 | Admin : utilisateurs | [clair](docs/screenshots/admin_users_light.png) | [sombre](docs/screenshots/admin_users_dark.png) |
-| Admin : cartes à vérifier | [clair](docs/screenshots/admin_card_review_light.png) | [sombre](docs/screenshots/admin_card_review_dark.png) |
+| Admin : revue d'une carte | [clair](docs/screenshots/admin_card_review_light.png) | [sombre](docs/screenshots/admin_card_review_dark.png) |
 | Admin : statistiques | [clair](docs/screenshots/admin_analytics_light.png) | [sombre](docs/screenshots/admin_analytics_dark.png) |
 
 ## 8. Builder pour la remise (APK de démonstration)

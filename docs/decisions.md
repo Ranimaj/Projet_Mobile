@@ -71,10 +71,45 @@ résiduels sont documentés :
 - **Rétrogradation mutuelle** : deux admins qui se rétrogradent en même temps peuvent
   laisser l'app sans admin. Une transaction client ne peut pas compter les admins ;
   il faudrait une Cloud Function. Dépannage : corriger le rôle dans la console.
-- **`disabled` appliqué côté client** : le champ n'est contrôlé qu'aux changements d'état
-  d'authentification, les règles Firestore ne le lisent pas. Pour le renforcer, ajouter
-  `!isDisabled()` (lecture de `users/{uid}.disabled`) à la règle `update` de `users`
-  et aux règles d'écriture de chaque module.
+- **`disabled` appliqué côté client** : l'app écoute le profil en temps réel
+  (`AuthService.watchProfile`) et ferme la session dès que `disabled` passe à `true`,
+  mais les règles Firestore ne lisent pas ce champ : un client modifié garde l'accès en
+  écriture. Pour le renforcer côté serveur (une lecture de document par écriture) :
+
+  ```
+  function isDisabled() {
+    return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.disabled == true;
+  }
+
+  // match /users/{userId}
+  allow update: if isAdmin()
+    || (isOwner(userId) && !isDisabled() && !touchesProtectedUserFields()
+        && phoneChangeIsVerified() && studentCardChangeIsSubmission(userId));
+
+  // puis, dans chaque module : allow create, update, delete: if … && !isDisabled();
+  ```
+
+  Non appliqué ici : les règles d'écriture des modules (Vente & Don, Annonces,
+  Événements, Stages) appartiennent à leurs responsables.
+
+- **Soumission de carte liée au dossier du propriétaire** (appliqué) :
+  `studentCardChangeIsSubmission(userId)` exige un `imagePath` sous
+  `student_cards/{userId}/` et un `submittedAt` de type timestamp ; un étudiant ne peut
+  plus pointer sa carte vers la photo d'un autre.
+
+- **Lecture des profils ouverte à tous** (non appliqué, à décider par l'équipe) :
+  `match /users/{userId}` garde `allow read: if true;`, donc l'email, le téléphone et le
+  chemin de la carte de chaque compte sont lisibles sans connexion. Changement proposé :
+
+  ```
+  match /users/{userId} {
+    allow read: if isSignedIn();
+  ```
+
+  Non appliqué car le mode visiteur des autres modules doit rester fonctionnel sans
+  session : aucun écran actuel ne lit `users` directement (les noms d'auteur sont
+  copiés dans les documents des modules), mais les responsables des modules doivent le
+  confirmer avant que la règle soit resserrée.
 
 ## 10. Notifications push hors périmètre
 
@@ -102,7 +137,7 @@ remplacer par des compteurs agrégés si le volume augmente.
 - Éléments `GestureDetector` sans ripple (bouton rond, chip de filtre, avatar) ; `InitialsAvatar` sans `FittedBox`, badge sans sémantique, cas photo non testé.
 - Tests manquants : bordure/désactivé de `FilterChipPill`, `SkeletonBox`, `StatTile`, pilule ghost désactivée, ordre des imports.
 - Zone de recouvrement de 28 dp de la feuille non cliquable ; ripple de `PhotoCard` sous l'image ; titre/méta de `FeaturedCard` se chevauchent sur 2 lignes ou grande échelle de texte ; heuristique de séparateur de `SectionCard` fausse pour les lignes à retour ; indentation 60 de `SettingRow` codée en dur ; hauteur du héros non animée.
-- Graphiques : pas de `Semantics` ; `disableAnimations`, valeurs toutes nulles, point unique, pas des libellés et callback d'infobulle non testés ; boîte de valeur de `HBarChart` (36 dp) déborde à 4 chiffres ; `DonutChart` sans garde contre les valeurs négatives ; infobulle sans bordure ; `interval: 1` construit un titre par point ; galerie non protégée par `kDebugMode` et non reliée à une route ; `bodySmall` absent.
+- Graphiques : pas de `Semantics` ; `disableAnimations`, valeurs toutes nulles, point unique, pas des libellés et callback d'infobulle non testés ; boîte de valeur de `HBarChart` (36 dp) déborde à 4 chiffres ; `DonutChart` sans garde contre les valeurs négatives ; infobulle sans bordure ; `interval: 1` construit un titre par point ; galerie non protégée par `kDebugMode` et non reliée à une route (corrigé : ligne du profil en mode debug) ; `bodySmall` absent.
 
 **Navigation et coquille (tâche 6)**
 - Test de padding en `>=` et seulement sur l'onglet Accueil ; pas de test du retour ; état de chargement du profil sans bouton retour ; double appui sur `_openProfile` ; `initialIndex` non borné ; titre du profil non `Expanded`.
@@ -120,17 +155,17 @@ remplacer par des compteurs agrégés si le volume augmente.
 - Garde `_registering` globale à l'écran : un appui sur l'autre CTA est ignoré pendant une inscription en cours, sans retour visuel.
 
 **Modèle et règles (tâche 13)**
-- `StudentCard.fromMap` avec casts implicites et `_parseDate` partagé entre classes ; règle Storage des cartes sans garde de ressource nulle (le propriétaire ne peut pas supprimer l'image) ; valeurs par défaut implicites de `auth_service`.
+- `StudentCard.fromMap` avec casts implicites et `_parseDate` partagé entre classes ; règle Storage des cartes sans garde de ressource nulle (corrigé : suppression autorisée au propriétaire) ; valeurs par défaut implicites de `auth_service`.
 
 **Édition du profil (tâche 14)**
-- `dart format` réorganise deux fichiers ; icône préfixe et libellé sémantique du menu déroulant ; bouton « Ajouter » à 46 dp et tailles littérales dans `edit_profile`.
+- `dart format` réorganise deux fichiers ; icône préfixe et libellé sémantique du menu déroulant ; bouton « Ajouter » à 46 dp et tailles littérales dans `edit_profile` (corrigé : écran passé aux jetons).
 
 **Profil (tâche 15)**
-- Chip de la ligne d'avatar non `Flexible` à grande échelle ; nom long sans `maxLines` ; viewport de test 420×2600 masquant les problèmes sous la ligne de flottaison ; ordre des imports ; tests de chevauchement ne vérifiant pas la position sous le haut du héros ; avatar chevauchant le bouton retour quand le héros passe à 120 dp ; titre du groupe confidentialité non asserté.
+- Chip de la ligne d'avatar non `Flexible` à grande échelle ; nom long sans `maxLines` ; viewport de test 420×2600 masquant les problèmes sous la ligne de flottaison ; ordre des imports ; tests de chevauchement ne vérifiant pas la position sous le haut du héros ; avatar chevauchant le bouton retour quand le héros passe à 120 dp (corrigé : l'avatar suit le défilement et n'est pas affiché s'il toucherait les boutons du héros) ; titre du groupe confidentialité non asserté.
 
 **Carte étudiante et file hors-ligne (tâche 16)**
-- Le rejeu peut écraser une carte déjà décidée par un admin avec `pending` ; `pendingCardQueued` avale toutes les erreurs et désérialise la boîte à chaque build, sans rafraîchissement après synchro en arrière-plan ; un `isOnline` périmé ne bascule pas vers la file ; image héros `Image.file` sans libellé sémantique.
-- `deleteAccount` ne purge pas les actions de carte en file ; deux envois dans la même milliseconde partagent un nom de fichier ; câblage déconnexion → `discardQueued` et uid de `ConnectivityProvider` non testés.
+- Le rejeu peut écraser une carte déjà décidée par un admin avec `pending` ; `pendingCardQueued` avale toutes les erreurs et désérialise la boîte à chaque build, sans rafraîchissement après synchro en arrière-plan ; un `isOnline` périmé ne bascule pas vers la file (corrigé : délai de 20 s puis file) ; image héros `Image.file` sans libellé sémantique.
+- `deleteAccount` ne purge pas les actions de carte en file (corrigé) ; deux envois dans la même milliseconde partagent un nom de fichier ; câblage déconnexion → `discardQueued` et uid de `ConnectivityProvider` non testés.
 
 **Administration (tâches 17 et 18)**
-- « Refuser » utilise `PillStyle.danger` au lieu de ghost ; « Voir la carte » aussi pour les cartes refusées/vérifiées avec image (nom de test trompeur) ; snack « désactivé » programmé depuis `build` pouvant s'afficher deux fois ; `initialCardFilter` appliqué après la frame ; `reviewCard` lit puis écrit hors transaction ; statistiques sans état d'erreur et « − 0 % » ; `Colors.transparent` littéral ; liste filtrée recalculée à chaque build.
+- « Refuser » utilise `PillStyle.danger` au lieu de ghost ; « Voir la carte » aussi pour les cartes refusées/vérifiées avec image (nom de test trompeur) ; snack « désactivé » programmé depuis `build` pouvant s'afficher deux fois (corrigé) ; `initialCardFilter` appliqué après la frame ; `reviewCard` lit puis écrit hors transaction (corrigé : transaction et conflit si la photo a changé) ; statistiques sans état d'erreur et « − 0 % » ; `Colors.transparent` littéral ; liste filtrée recalculée à chaque build.
