@@ -51,6 +51,19 @@ une extension `AppTokens`. Aucune valeur hexadécimale ni taille de police dans 
 | danger / dangerSoft | `#DD3333` / `#FEE2E2` | `#F87171` / `#F87171` à 16 % | erreurs, refus, suppression |
 | handle | `#E2E1E8` | `#3A3A40` | poignée de feuille, points inactifs |
 
+Valeurs finales après le test de contraste AA (les jetons ci-dessus qui échouaient ont été
+ajustés au plus petit pas qui passe ; en sombre, les « à 16 % » sont pré-mélangés sur `surface`) :
+
+| Jeton | Clair | Sombre |
+|---|---|---|
+| primary | `#F9671E` | `#EC7136` |
+| onPrimarySoft | `#B75115` | `#FF9A5F` |
+| textSecondary | `#767586` | `#9A969B` |
+| primarySoft | `#FFF1E8` | `#402821` |
+| successSoft | `#E6F6EC` | `#233B30` |
+| warningSoft | `#FEF3C7` | `#403621` |
+| dangerSoft | `#FEE2E2` | `#3F2A2E` |
+
 Ombres : en clair, ombre douce `0 2 10 rgba(28,26,51,.06)` sur les cartes et `0 8 24
 rgba(28,26,51,.12)` sur la barre flottante ; en sombre, pas d'ombre, bord `outline` de 1 px.
 Les photos reçoivent un voile dégradé (noir 85 % → 0 %) quand du texte est posé dessus.

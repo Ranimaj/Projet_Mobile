@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 
 /// Palette officielle CampusConnect — reprise des maquettes de design.
+///
+/// Deprecated: ancienne palette indigo conservée pour les écrans non migrés.
+/// Utiliser `AppTokens.of(context)` (app_tokens.dart) pour tout nouveau code.
 class AppColors {
   AppColors._();
 
