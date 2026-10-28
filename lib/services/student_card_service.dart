@@ -48,17 +48,34 @@ class StudentCardService {
     }
 
     final dir = _appDir != null ? _appDir() : await getApplicationDocumentsDirectory();
-    final local = await photo.copy('${dir.path}/student_card_$uid.jpg');
+    // Un fichier par envoi : une synchro en cours ne peut pas effacer la copie
+    // d'un renvoi plus récent. Le payload ne garde que le nom relatif.
+    final file = 'student_card_${uid}_${submittedAt.millisecondsSinceEpoch}.jpg';
+    await photo.copy('${dir.path}/$file');
+    final superseded = _queued(uid).toList();
     _queue.enqueue(
       type: QueueActionType.uploadStudentCard,
       collection: 'users',
       docId: uid,
-      payload: {'localPath': local.path, 'remotePath': remotePath},
+      payload: {
+        'uid': uid,
+        'file': file,
+        'remotePath': remotePath,
+        'submittedAt': submittedAt.toIso8601String(),
+      },
     );
+    for (final old in superseded) {
+      await _queue.deleteStudentCardFile(old);
+    }
     return const StudentCard(status: StudentCardStatus.pending);
   }
 
   /// Une carte attend la connexion pour partir.
-  bool hasQueuedSubmission(String uid) => _queue.pendingActions
-      .any((a) => a.type == QueueActionType.uploadStudentCard && a.docId == uid);
+  bool hasQueuedSubmission(String uid) => _queued(uid).isNotEmpty;
+
+  Iterable<QueuedAction> _queued(String uid) => _queue.pendingActions
+      .where((a) => a.type == QueueActionType.uploadStudentCard && a.docId == uid);
+
+  /// Déconnexion : abandonne l'envoi en attente de [uid] et ses fichiers.
+  Future<void> discardQueued(String uid) => _queue.removeStudentCardActions(uid);
 }

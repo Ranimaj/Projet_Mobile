@@ -4,6 +4,7 @@ import 'package:campusconnect/models/user_model.dart';
 import 'package:campusconnect/screens/profile/student_card_screen.dart';
 import 'package:campusconnect/services/student_card_service.dart';
 import 'package:campusconnect/widgets/pill_button.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mocktail/mocktail.dart';
@@ -49,6 +50,8 @@ void main() {
     expect(find.text('Galerie'), findsOneWidget);
     expect(find.text('Appareil photo'), findsOneWidget);
     expect(sendButton(tester).onPressed, isNull);
+    expectNoSmallText(tester);
+    expectTapTargets(tester);
 
     await tester.tap(find.text('Galerie'));
     await tester.pumpAndSettle();
@@ -140,5 +143,22 @@ void main() {
     await h.pump(tester, StudentCardScreen(picker: picker));
 
     expect(find.text('En cours de validation'), findsOneWidget);
+  });
+
+  testWidgets('a failing picker shows a French snack and keeps send disabled', (tester) async {
+    when(() => picker.pickImage(
+          source: any(named: 'source'),
+          imageQuality: any(named: 'imageQuality'),
+          maxWidth: any(named: 'maxWidth'),
+        )).thenThrow(PlatformException(code: 'camera_access_denied'));
+    await h.signIn(tester);
+    await h.pump(tester, StudentCardScreen(picker: picker));
+
+    await tester.tap(find.text('Appareil photo'));
+    await tester.pumpAndSettle();
+
+    expect(find.text("Impossible d'ouvrir la galerie ou l'appareil photo. Vérifie les autorisations."),
+        findsOneWidget);
+    expect(sendButton(tester).onPressed, isNull);
   });
 }
