@@ -19,7 +19,11 @@ import 'package:campusconnect/widgets/filter_chip_pill.dart';
 import 'package:campusconnect/widgets/initials_avatar.dart';
 import 'package:campusconnect/widgets/sync_chip.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:campusconnect/providers/theme_provider.dart';
+import 'package:campusconnect/services/app_prefs.dart';
 import 'package:flutter/material.dart';
+import 'package:intl/date_symbol_data_local.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:provider/provider.dart';
@@ -128,13 +132,18 @@ final _gift = ArticleModel(
 );
 
 void main() {
-  setUpAll(() => registerFallbackValue(_eventThu));
+  setUpAll(() async {
+    registerFallbackValue(_eventThu);
+    await initializeDateFormatting('fr_FR');
+  });
   late AuthHarness h;
   late _MockArticles articles;
   late _MockAnnonces annonces;
   late _MockEvents events;
   late _MockJobs jobs;
   late List<int> navigated;
+  late AppPrefs prefs;
+  late ThemeProvider theme;
 
   void stub({
     List<ArticleModel> a = const [],
@@ -160,7 +169,10 @@ void main() {
     when(() => jobs.loadMyApplications(any())).thenAnswer((_) async {});
   }
 
-  setUp(() {
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    prefs = AppPrefs(await SharedPreferences.getInstance());
+    theme = ThemeProvider(prefs);
     h = AuthHarness();
     articles = _MockArticles();
     annonces = _MockAnnonces();
@@ -193,6 +205,8 @@ void main() {
           ChangeNotifierProvider<AnnonceProvider>.value(value: annonces),
           ChangeNotifierProvider<EventProvider>.value(value: events),
           ChangeNotifierProvider<JobProvider>.value(value: jobs),
+          Provider<AppPrefs>.value(value: prefs),
+          ChangeNotifierProvider<ThemeProvider>.value(value: theme),
         ],
         child: MaterialApp(
             theme: AppTheme.light,

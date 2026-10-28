@@ -18,6 +18,11 @@ class HeroSheetScaffold extends StatelessWidget {
   final double maxHeroHeight;
   final double keyboardHeroHeight;
 
+  /// Lets the first child poke up above the sheet's top edge (e.g. an avatar
+  /// straddling the hero): the scrolling area is extended upward by this many
+  /// dp while the children keep their natural position.
+  final double contentLift;
+
   const HeroSheetScaffold({
     super.key,
     required this.hero,
@@ -30,6 +35,7 @@ class HeroSheetScaffold extends StatelessWidget {
     this.minHeroHeight = 200,
     this.maxHeroHeight = 320,
     this.keyboardHeroHeight = 120,
+    this.contentLift = 0,
   });
 
   static const double _overlap = 28;
@@ -51,7 +57,7 @@ class HeroSheetScaffold extends StatelessWidget {
 
         Widget content = ListView(
           keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-          padding: EdgeInsets.fromLTRB(kPagePadding, 0, kPagePadding,
+          padding: EdgeInsets.fromLTRB(kPagePadding, contentLift, kPagePadding,
               (bottomBar == null ? 24 : 112) + media.viewInsets.bottom),
           children: children,
         );
@@ -88,7 +94,23 @@ class HeroSheetScaffold extends StatelessWidget {
                   )
                 else
                   const SizedBox(height: 16),
-                Expanded(child: content),
+                Expanded(
+                  child: contentLift == 0
+                      ? content
+                      : LayoutBuilder(
+                          builder: (context, box) => Transform.translate(
+                            offset: Offset(0, -contentLift),
+                            child: OverflowBox(
+                              alignment: Alignment.topCenter,
+                              minHeight: 0,
+                              maxHeight: box.maxHeight + contentLift,
+                              child: SizedBox(
+                                  height: box.maxHeight + contentLift,
+                                  child: content),
+                            ),
+                          ),
+                        ),
+                ),
               ],
             ),
           ),
