@@ -55,3 +55,4 @@ app.*.map.json
 
 # Superpowers scratch (brainstorm mockups, SDD ledgers)
 .superpowers/
+test/rules/node_modules/

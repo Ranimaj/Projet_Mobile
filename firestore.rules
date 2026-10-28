@@ -37,7 +37,8 @@ service cloud.firestore {
     // Champs du profil qu'un utilisateur ne peut jamais fixer lui-même.
     function touchesProtectedUserFields() {
       return changedKeys().hasAny([
-        'role', 'isVerifiedStudent', 'email', 'createdAt', 'ratingAverage', 'ratingCount'
+        'role', 'isVerifiedStudent', 'email', 'createdAt', 'ratingAverage', 'ratingCount',
+        'disabled'
       ]);
     }
 
@@ -50,6 +51,17 @@ service cloud.firestore {
             && request.resource.data.isPhoneVerified == true);
     }
 
+    // Le propriétaire ne peut que soumettre sa carte étudiante (status
+    // 'pending') : jamais 'verified' / 'rejected' ni les champs reviewed*,
+    // réservés à l'admin.
+    function studentCardChangeIsSubmission() {
+      return !changedKeys().hasAny(['studentCard'])
+        || (request.resource.data.studentCard.status == 'pending'
+            && !('reviewedBy' in request.resource.data.studentCard)
+            && !('reviewedAt' in request.resource.data.studentCard)
+            && !('rejectReason' in request.resource.data.studentCard));
+    }
+
     match /users/{userId} {
       allow read: if true; // profils publics (nom, filière) visibles par tous
 
@@ -60,10 +72,13 @@ service cloud.firestore {
         && request.resource.data.isVerifiedStudent == false
         && request.resource.data.isPhoneVerified == false
         && request.resource.data.ratingAverage == 0
-        && request.resource.data.ratingCount == 0;
+        && request.resource.data.ratingCount == 0
+        && request.resource.data.studentCard.status == 'none'
+        && request.resource.data.disabled == false;
 
       allow update: if isAdmin()
-        || (isOwner(userId) && !touchesProtectedUserFields() && phoneChangeIsVerified());
+        || (isOwner(userId) && !touchesProtectedUserFields() && phoneChangeIsVerified()
+            && studentCardChangeIsSubmission());
 
       allow delete: if isOwner(userId) || isAdmin();
     }
