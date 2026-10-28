@@ -1,12 +1,14 @@
 import 'dart:async';
 
-import 'package:campusconnect/core/theme/app_colors.dart';
+import 'package:campusconnect/core/theme/app_tokens.dart';
 import 'package:campusconnect/core/utils/auth_failure.dart';
 import 'package:campusconnect/widgets/auth/auth_feedback.dart';
-import 'package:campusconnect/widgets/gradient_scaffold.dart';
+import 'package:campusconnect/services/app_prefs.dart';
+import 'package:campusconnect/widgets/auth/auth_hero.dart';
+import 'package:campusconnect/widgets/auth/auth_text_field.dart';
+import 'package:campusconnect/widgets/hero_sheet_scaffold.dart';
 import 'package:campusconnect/widgets/pill_button.dart';
 import 'package:campusconnect/widgets/social_icon_row.dart';
-import 'package:campusconnect/widgets/underline_text_field.dart';
 import 'package:campusconnect/providers/auth_provider.dart';
 import 'package:campusconnect/screens/auth/forgot_password_screen.dart';
 import 'package:campusconnect/screens/auth/login_screen.dart';
@@ -15,9 +17,12 @@ import 'package:firebase_auth/firebase_auth.dart' hide AuthProvider;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../helpers/mocks.dart';
 import '../helpers/pump_app.dart';
+import '../helpers/pump_themed.dart';
 
 class _FakeCredential extends Mock implements UserCredential {}
 
@@ -340,71 +345,49 @@ void main() {
     });
   });
 
-  group('UI contract (gradient style)', () {
-    final circles = find.byWidgetPredicate((w) =>
-        w is Container && w.decoration is BoxDecoration && (w.decoration as BoxDecoration).shape == BoxShape.circle);
-
+  group('UI contract (hero sheet)', () {
     EditableText editableAt(WidgetTester tester, int index) => tester.widget<EditableText>(
         find.descendant(of: find.byType(TextFormField).at(index), matching: find.byType(EditableText)));
 
-    testWidgets('is built from the shared gradient widgets, without card or circles', (tester) async {
+    testWidgets('is built from HeroSheetScaffold with an AuthHero and no GradientScaffold', (tester) async {
       await pumpAuthScreen(tester, provider, const LoginScreen());
 
-      expect(find.byType(GradientScaffold), findsOneWidget);
-      expect(find.byType(UnderlineTextField), findsNWidgets(2));
+      expect(find.byType(HeroSheetScaffold), findsOneWidget);
+      expect(find.byType(AuthHero), findsOneWidget);
+      expect(find.byType(AuthTextField), findsNWidgets(2));
       expect(find.widgetWithText(PillButton, 'Se connecter'), findsOneWidget);
       expect(find.byType(SocialIconRow), findsOneWidget);
       expect(find.byType(AutofillGroup), findsOneWidget);
-      expect(circles, findsNothing);
 
       expect(find.text('Bon retour'), findsOneWidget);
       expect(find.text('Connecte-toi avec ton email académique'), findsOneWidget);
       expect(find.byIcon(Icons.lock_open_rounded), findsOneWidget);
-      expect(find.text('Email académique'), findsOneWidget); // hint, plus de libellé au-dessus
+      expect(find.text('Email académique'), findsOneWidget);
       expect(find.text('Mot de passe'), findsOneWidget);
-      expect(find.text('OU'), findsNothing); // plus de filet « OU »
       expect(find.text('Ou connectez-vous avec'), findsOneWidget);
       expect(find.byTooltip('Continuer avec Google'), findsOneWidget);
-      expect(find.text('Continuer avec Google'), findsNothing); // plus de bouton texte
+      // Reached from a pushed route: the hero carries a back button.
+      expect(find.byTooltip('Retour'), findsOneWidget);
     });
 
-    testWidgets('the checkbox is white-bordered, white when ticked with a blue check', (tester) async {
-      await pumpAuthScreen(tester, provider, const LoginScreen());
-      final cb = tester.widget<Checkbox>(find.byType(Checkbox));
-
-      expect(cb.value, isTrue);
-      expect(cb.side!.color, Colors.white);
-      expect(cb.checkColor, AppColors.primary);
-      expect(cb.fillColor!.resolve({WidgetState.selected}), Colors.white);
-      expect(cb.fillColor!.resolve({}), Colors.transparent);
-    });
-
-    testWidgets('links are white 13sp (the floor) and underlined', (tester) async {
+    testWidgets('the main action is a primary PillButton that spans the sheet', (tester) async {
       await pumpAuthScreen(tester, provider, const LoginScreen());
 
-      final forgot = tester.widget<Text>(find.text('Mot de passe oublié ?')).style!;
-      expect(forgot.color, Colors.white);
-      expect(forgot.fontSize, 13);
-      expect(forgot.decoration, TextDecoration.underline);
-
-      final remember = tester.widget<Text>(find.text('Se souvenir de moi')).style!;
-      expect(remember.color, Colors.white);
-      expect(remember.fontSize, 13);
-
-      final rich = tester.widget<RichText>(find.byWidgetPredicate(
-          (w) => w is RichText && w.text.toPlainText().contains('Créer un compte')));
-      final spans = <TextSpan>[];
-      rich.text.visitChildren((s) {
-        if (s is TextSpan) spans.add(s);
-        return true;
-      });
-      final link = spans.firstWhere((s) => s.text == 'Créer un compte');
-      expect(link.style!.fontWeight, FontWeight.w700);
-      expect(link.style!.decoration, TextDecoration.underline);
-      expect(link.style!.color, Colors.white);
+      final pill = tester.widget<PillButton>(find.widgetWithText(PillButton, 'Se connecter'));
+      expect(pill.style, PillStyle.primary);
+      expect(pill.expand, isTrue);
+      expect(tester.getSize(find.widgetWithText(PillButton, 'Se connecter')).width, 420 - 2 * 20);
     });
 
-    testWidgets('errors use the dark-background banner variant', (tester) async {
+    testWidgets('field errors use the danger token', (tester) async {
+      await pumpAuthScreen(tester, provider, const LoginScreen());
+      await tapText(tester, 'Se connecter');
+      await tester.pump();
+
+      expect(tester.widget<Text>(find.text('Email requis')).style!.color, AppTokens.light.danger);
+    });
+
+    testWidgets('errors are shown in the dangerSoft banner', (tester) async {
       when(() => service.signInWithEmail(any(), any())).thenThrow(AuthFailure.fromCode('invalid-credential'));
       await pumpAuthScreen(tester, provider, const LoginScreen());
 
@@ -414,17 +397,71 @@ void main() {
       await tester.pumpAndSettle();
 
       final banner = tester.widget<AuthErrorBanner>(find.byType(AuthErrorBanner));
-      expect(banner.onDark, isTrue);
       expect(banner.message, 'Email ou mot de passe incorrect.');
+      final text = tester.widget<Text>(find.text('Email ou mot de passe incorrect.'));
+      expect(text.style!.color, AppTokens.light.danger);
     });
 
-    testWidgets('field errors are drawn in the on-gradient error colour', (tester) async {
+    testWidgets('keyboard open shrinks the hero to 120 dp at 360x640', (tester) async {
+      await pumpAuthScreen(tester, provider, const LoginScreen(),
+          size: const Size(360, 640), keyboardInset: 300);
+
+      expect(tester.getSize(find.byType(AuthHero)).height, 120);
+    });
+
+    testWidgets('the links are primary, underlined text buttons; the checkbox uses the theme', (tester) async {
       await pumpAuthScreen(tester, provider, const LoginScreen());
-      await tapText(tester, 'Se connecter');
-      await tester.pump();
+      const tokens = AppTokens.light;
 
-      expect(tester.widget<Text>(find.text('Email requis')).style!.color, AppColors.authErrorOnGradient);
+      final forgot = tester.widget<Text>(find.text('Mot de passe oublié ?')).style!;
+      expect(forgot.color, tokens.primary);
+      expect(forgot.decoration, TextDecoration.underline);
+
+      final rich = tester.widget<RichText>(find.byWidgetPredicate(
+          (w) => w is RichText && w.text.toPlainText().contains('Créer un compte')));
+      final spans = <TextSpan>[];
+      rich.text.visitChildren((s) {
+        if (s is TextSpan) spans.add(s);
+        return true;
+      });
+      final link = spans.firstWhere((s) => s.text == 'Créer un compte');
+      expect(link.style!.color, tokens.primary);
+      expect(link.style!.decoration, TextDecoration.underline);
+
+      final cb = tester.widget<Checkbox>(find.byType(Checkbox));
+      expect(cb.value, isTrue);
+      expect(cb.fillColor, isNull, reason: 'default theme fill');
+      expect(cb.checkColor, isNull, reason: 'default theme check');
     });
+
+    testWidgets('the biometric button is hidden when biometric_unlock is false', (tester) async {
+      SharedPreferences.setMockInitialValues({'biometric_unlock': false});
+      final appPrefs = AppPrefs(await SharedPreferences.getInstance());
+      when(() => service.canUseBiometrics()).thenAnswer((_) async => true);
+      when(() => service.hasRestorableSession).thenReturn(true);
+      await pumpAuthScreen(tester, provider, LoginScreen(appPrefs: appPrefs));
+
+      expect(find.byTooltip('Continuer avec Google'), findsOneWidget);
+      expect(find.byTooltip('Déverrouiller par biométrie'), findsNothing);
+    });
+
+    testWidgets('the biometric button follows a provided AppPrefs when enabled', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final appPrefs = AppPrefs(await SharedPreferences.getInstance());
+      when(() => service.canUseBiometrics()).thenAnswer((_) async => true);
+      when(() => service.hasRestorableSession).thenReturn(true);
+      await pumpAuthScreen(tester, provider, const LoginScreen(),
+          wrap: (app) => Provider<AppPrefs>.value(value: appPrefs, child: app));
+
+      expect(find.byTooltip('Déverrouiller par biométrie'), findsOneWidget);
+    });
+
+    for (final brightness in Brightness.values) {
+      testWidgets('no text under 13 px in ${brightness.name}', (tester) async {
+        await pumpAuthScreen(tester, provider, const LoginScreen(), brightness: brightness);
+        expectNoSmallText(tester);
+      });
+    }
 
     testWidgets('keyboard "next" on the email focuses the password; "done" submits', (tester) async {
       when(() => service.signInWithEmail(any(), any())).thenAnswer((_) async => _FakeCredential());

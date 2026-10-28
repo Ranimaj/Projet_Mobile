@@ -2,13 +2,16 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../../core/theme/auth_text_styles.dart';
+import '../../core/theme/app_tokens.dart';
 import '../../core/utils/validators.dart';
 import '../../providers/auth_provider.dart';
 import '../../widgets/auth/auth_feedback.dart';
 import '../../widgets/auth/otp_input.dart';
-import '../../widgets/gradient_scaffold.dart';
+import '../../widgets/auth/auth_hero.dart';
+import '../../widgets/auth/auth_link.dart';
+import '../../widgets/hero_sheet_scaffold.dart';
 import '../../widgets/pill_button.dart';
+import '../../widgets/round_icon_button.dart';
 
 /// Vérification du numéro de téléphone par code SMS à 6 chiffres.
 /// Le code est envoyé dès l'ouverture de l'écran.
@@ -117,64 +120,73 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
     final canResend = _secondsLeft == 0 && !auth.isLoading;
     final status = _codeSent ? 'Code envoyé au $shownPhone' : 'Envoi du code au $shownPhone…';
 
-    return GradientScaffold(
-      title: 'Vérification',
-      // L'étape est dite dans le sous-titre, pas dans une pastille.
-      subtitle: widget.allowSkip ? 'Dernière étape. $status' : status,
-      icon: Icons.sms_outlined,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const Text(
-            'Saisis le code à 6 chiffres',
-            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Colors.white),
-          ),
-          const SizedBox(height: 4),
-          Text('Il arrive par SMS en quelques secondes.', style: AuthTextStyles.helper),
-          const SizedBox(height: 18),
-          OtpInput(
-            controller: _codeCtrl,
-            hasError: _wrongCode,
-            enabled: _codeSent && !auth.isLoading,
-            onDark: true,
-            onChanged: (_) => _clearError(),
-            onCompleted: _verify,
-          ),
-          const SizedBox(height: 30),
-          AuthErrorBanner(message: _error, onClose: _clearError, onDark: true),
-          Center(
-            child: PillButton(
+    final t = AppTokens.of(context);
+    final textTheme = Theme.of(context).textTheme;
+
+    return HeroSheetScaffold(
+      hero: AuthHero(
+        title: 'Vérification',
+        // L'étape est dite dans le sous-titre, pas dans une pastille.
+        subtitle: widget.allowSkip ? 'Dernière étape. $status' : status,
+        icon: Icons.sms_outlined,
+      ),
+      heroLeading: Navigator.of(context).canPop()
+          ? RoundIconButton(
+              style: RoundButtonStyle.onPhoto,
+              icon: Icons.arrow_back_rounded,
+              tooltip: 'Retour',
+              onPressed: () => Navigator.of(context).maybePop(),
+            )
+          : null,
+      children: [
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('Saisis le code à 6 chiffres', style: textTheme.labelLarge),
+            const SizedBox(height: 4),
+            Text('Il arrive par SMS en quelques secondes.', style: textTheme.bodyMedium),
+            const SizedBox(height: 16),
+            OtpInput(
+              controller: _codeCtrl,
+              hasError: _wrongCode,
+              enabled: _codeSent && !auth.isLoading,
+              onChanged: (_) => _clearError(),
+              onCompleted: _verify,
+            ),
+            const SizedBox(height: 24),
+            AuthErrorBanner(message: _error, onClose: _clearError),
+            PillButton(
               label: 'Vérifier',
               icon: Icons.verified_rounded,
               isLoading: auth.isLoading,
               onPressed: _codeSent ? _verify : null,
             ),
-          ),
-          const SizedBox(height: 16),
-          Center(
-            child: TextButton.icon(
-              onPressed: canResend ? _send : null,
-              style: TextButton.styleFrom(
-                foregroundColor: Colors.white,
-                disabledForegroundColor: Colors.white.withValues(alpha: 0.6),
-              ),
-              icon: const Icon(Icons.refresh_rounded, size: 18),
-              label: Text(
-                canResend ? 'Renvoyer le code' : 'Renvoyer le code dans $_secondsLeft s',
-                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-              ),
-            ),
-          ),
-          if (widget.allowSkip)
+            const SizedBox(height: 8),
             Center(
-              child: TextButton(
-                onPressed: () => Navigator.of(context).popUntil((route) => route.isFirst),
-                style: TextButton.styleFrom(foregroundColor: Colors.white),
-                child: const Text('Plus tard', style: AuthTextStyles.link),
+              child: TextButton.icon(
+                onPressed: canResend ? _send : null,
+                style: TextButton.styleFrom(
+                  foregroundColor: t.primary,
+                  disabledForegroundColor: t.textSecondary,
+                  minimumSize: const Size(48, 48),
+                ),
+                icon: const Icon(Icons.refresh_rounded, size: 18),
+                label: Text(
+                  canResend ? 'Renvoyer le code' : 'Renvoyer le code dans $_secondsLeft s',
+                  style: textTheme.bodyMedium?.copyWith(color: canResend ? t.primary : t.textSecondary, fontWeight: FontWeight.w600),
+                ),
               ),
             ),
-        ],
-      ),
+            if (widget.allowSkip)
+              Center(
+                child: AuthLink(
+                  label: 'Plus tard',
+                  onPressed: () => Navigator.of(context).popUntil((route) => route.isFirst),
+                ),
+              ),
+          ],
+        ),
+      ],
     );
   }
 }

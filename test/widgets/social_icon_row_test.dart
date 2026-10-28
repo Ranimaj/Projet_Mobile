@@ -1,4 +1,5 @@
-import 'package:campusconnect/core/theme/app_colors.dart';
+import 'package:campusconnect/core/theme/app_theme.dart';
+import 'package:campusconnect/core/theme/app_tokens.dart';
 import 'package:campusconnect/widgets/social_icon_row.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -7,8 +8,8 @@ void main() {
   Future<void> pump(WidgetTester tester, List<SocialIconItem> items, {String? caption}) async {
     await tester.pumpWidget(
       MaterialApp(
+        theme: AppTheme.light,
         home: Scaffold(
-          backgroundColor: AppColors.authGradientBottom,
           body: Center(
             child: caption == null ? SocialIconRow(items: items) : SocialIconRow(items: items, caption: caption),
           ),
@@ -17,11 +18,12 @@ void main() {
     );
   }
 
-  testWidgets('renders the caption and one flat round button per item (no outline)', (tester) async {
+  testWidgets('renders the caption and one round 48 dp surface button per item with an outline', (tester) async {
     await pump(tester, [
       SocialIconItem(tooltip: 'Continuer avec Google', onPressed: () {}, child: const Text('G')),
       SocialIconItem(tooltip: 'Déverrouiller par biométrie', onPressed: () {}, icon: Icons.fingerprint_rounded),
     ]);
+    const tokens = AppTokens.light;
 
     expect(find.text('Ou connectez-vous avec'), findsOneWidget);
     expect(find.byTooltip('Continuer avec Google'), findsOneWidget);
@@ -35,11 +37,12 @@ void main() {
     ));
     expect(materials, hasLength(2));
     for (final m in materials) {
-      expect((m.shape! as CircleBorder).side, BorderSide.none, reason: 'aplat, pas de contour 1px');
-      expect(m.color!.r, 1.0, reason: 'blanc translucide : un ton au-dessus du fond');
-      expect(m.color!.a, closeTo(0.18, 0.01));
+      expect(m.color, tokens.surface);
+      expect((m.shape! as CircleBorder).side.color, tokens.outline);
     }
-    expect(tester.getSize(find.byTooltip('Continuer avec Google')).height, 56);
+    expect(tester.getSize(find.byTooltip('Continuer avec Google')).height, greaterThanOrEqualTo(48));
+    expect(IconTheme.of(tester.element(find.byIcon(Icons.fingerprint_rounded))).color, tokens.textPrimary);
+    expect(tester.widget<Text>(find.text('Ou connectez-vous avec')).style!.color, tokens.textSecondary);
   });
 
   testWidgets('tapping an item calls its callback; a null callback is inert', (tester) async {

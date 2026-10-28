@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import '../../core/theme/auth_text_styles.dart';
 import '../../core/utils/validators.dart';
 import '../../providers/auth_provider.dart';
 import '../../widgets/auth/auth_feedback.dart';
 import '../../widgets/auth/password_strength_meter.dart';
-import '../../widgets/gradient_scaffold.dart';
 import '../../widgets/pill_button.dart';
-import '../../widgets/underline_text_field.dart';
+import '../../widgets/auth/auth_hero.dart';
+import '../../widgets/auth/auth_link.dart';
+import '../../widgets/auth/auth_text_field.dart';
+import '../../widgets/hero_sheet_scaffold.dart';
+import '../../widgets/round_icon_button.dart';
 import 'otp_verification_screen.dart';
 
 /// Inscription étudiante (BF1) — crée le compte Firebase Auth + profil Firestore.
@@ -77,94 +79,100 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
 
-    return GradientScaffold(
-      title: 'Rejoindre CampusConnect',
-      subtitle: 'Utilise ton email académique pour être vérifié',
-      icon: Icons.person_add_alt_1_rounded,
-      child: Form(
-        key: _formKey,
-        child: AutofillGroup(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              UnderlineTextField(
-                hint: 'Nom complet',
-                icon: Icons.person_outline_rounded,
-                controller: _nameCtrl,
-                textInputAction: TextInputAction.next,
-                textCapitalization: TextCapitalization.words,
-                autofillHints: const [AutofillHints.name],
-                validator: Validators.fullName,
-                onChanged: (_) => _clearError(),
-              ),
-              const SizedBox(height: 18),
-              UnderlineTextField(
-                hint: 'Email académique',
-                icon: Icons.mail_outline_rounded,
-                controller: _emailCtrl,
-                keyboardType: TextInputType.emailAddress,
-                textInputAction: TextInputAction.next,
-                autofillHints: const [AutofillHints.username, AutofillHints.email],
-                validator: Validators.email,
-                onChanged: (_) => _clearError(),
-              ),
-              const SizedBox(height: 18),
-              UnderlineTextField(
-                hint: 'Téléphone (optionnel)',
-                helper: 'Pour vérifier ton compte par SMS, juste après l\'inscription.',
-                icon: Icons.phone_outlined,
-                controller: _phoneCtrl,
-                keyboardType: TextInputType.phone,
-                textInputAction: TextInputAction.next,
-                autofillHints: const [AutofillHints.telephoneNumber],
-                validator: _optionalPhone,
-              ),
-              const SizedBox(height: 18),
-              UnderlineTextField(
-                hint: 'Mot de passe',
-                icon: Icons.lock_outline_rounded,
-                controller: _passwordCtrl,
-                isPassword: true,
-                textInputAction: TextInputAction.next,
-                autofillHints: const [AutofillHints.newPassword],
-                validator: Validators.newPassword,
-                onChanged: (_) => setState(() => _error = null),
-              ),
-              const SizedBox(height: 10),
-              PasswordStrengthMeter(password: _passwordCtrl.text, onDark: true),
-              const SizedBox(height: 18),
-              UnderlineTextField(
-                hint: 'Confirmer le mot de passe',
-                icon: Icons.verified_user_outlined,
-                controller: _confirmCtrl,
-                isPassword: true,
-                textInputAction: TextInputAction.done,
-                autofillHints: const [AutofillHints.newPassword],
-                validator: Validators.confirmPassword(() => _passwordCtrl.text),
-                onSubmitted: (_) => _submit(),
-              ),
-              const SizedBox(height: 30),
-              AuthErrorBanner(message: _error, onClose: _clearError, onDark: true),
-              Center(
-                child: PillButton(
+    return HeroSheetScaffold(
+      hero: const AuthHero(
+        title: 'Rejoindre CampusConnect',
+        subtitle: 'Utilise ton email académique pour être vérifié',
+        icon: Icons.person_add_alt_1_rounded,
+      ),
+      heroLeading: Navigator.of(context).canPop()
+          ? RoundIconButton(
+              style: RoundButtonStyle.onPhoto,
+              icon: Icons.arrow_back_rounded,
+              tooltip: 'Retour',
+              onPressed: () => Navigator.of(context).maybePop(),
+            )
+          : null,
+      children: [
+        Form(
+          key: _formKey,
+          child: AutofillGroup(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                AuthTextField(
+                  label: 'Nom complet',
+                  icon: Icons.person_outline_rounded,
+                  controller: _nameCtrl,
+                  textInputAction: TextInputAction.next,
+                  textCapitalization: TextCapitalization.words,
+                  autofillHints: const [AutofillHints.name],
+                  validator: Validators.fullName,
+                  onChanged: (_) => _clearError(),
+                ),
+                const SizedBox(height: 16),
+                AuthTextField(
+                  label: 'Email académique',
+                  icon: Icons.mail_outline_rounded,
+                  controller: _emailCtrl,
+                  keyboardType: TextInputType.emailAddress,
+                  textInputAction: TextInputAction.next,
+                  autofillHints: const [AutofillHints.username, AutofillHints.email],
+                  validator: Validators.email,
+                  onChanged: (_) => _clearError(),
+                ),
+                const SizedBox(height: 16),
+                AuthTextField(
+                  label: 'Téléphone (optionnel)',
+                  helper: 'Pour vérifier ton compte par SMS, juste après l\'inscription.',
+                  icon: Icons.phone_outlined,
+                  controller: _phoneCtrl,
+                  keyboardType: TextInputType.phone,
+                  textInputAction: TextInputAction.next,
+                  autofillHints: const [AutofillHints.telephoneNumber],
+                  validator: _optionalPhone,
+                ),
+                const SizedBox(height: 16),
+                AuthTextField(
+                  label: 'Mot de passe',
+                  icon: Icons.lock_outline_rounded,
+                  controller: _passwordCtrl,
+                  isPassword: true,
+                  textInputAction: TextInputAction.next,
+                  autofillHints: const [AutofillHints.newPassword],
+                  validator: Validators.newPassword,
+                  onChanged: (_) => setState(() => _error = null),
+                ),
+                const SizedBox(height: 10),
+                PasswordStrengthMeter(password: _passwordCtrl.text),
+                const SizedBox(height: 16),
+                AuthTextField(
+                  label: 'Confirmer le mot de passe',
+                  icon: Icons.verified_user_outlined,
+                  controller: _confirmCtrl,
+                  isPassword: true,
+                  textInputAction: TextInputAction.done,
+                  autofillHints: const [AutofillHints.newPassword],
+                  validator: Validators.confirmPassword(() => _passwordCtrl.text),
+                  onSubmitted: (_) => _submit(),
+                ),
+                const SizedBox(height: 24),
+                AuthErrorBanner(message: _error, onClose: _clearError),
+                PillButton(
                   label: 'Créer mon compte',
                   icon: Icons.arrow_forward_rounded,
                   isLoading: auth.isLoading,
                   onPressed: _submit,
                 ),
-              ),
-              const SizedBox(height: 18),
-              Center(
-                child: TextButton(
-                  onPressed: () => Navigator.of(context).maybePop(),
-                  style: TextButton.styleFrom(foregroundColor: Colors.white),
-                  child: const Text('J\'ai déjà un compte', style: AuthTextStyles.footerLink),
+                const SizedBox(height: 8),
+                Center(
+                  child: AuthLink(label: 'J\'ai déjà un compte', onPressed: () => Navigator.of(context).maybePop()),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
-      ),
+      ],
     );
   }
 }

@@ -1,6 +1,11 @@
 import 'dart:async';
 import 'package:campusconnect/core/utils/auth_failure.dart';
+import 'package:campusconnect/core/theme/app_tokens.dart';
 import 'package:campusconnect/providers/auth_provider.dart';
+import 'package:campusconnect/widgets/auth/auth_hero.dart';
+import 'package:campusconnect/widgets/auth/otp_input.dart';
+import 'package:campusconnect/widgets/hero_sheet_scaffold.dart';
+import 'package:campusconnect/widgets/pill_button.dart';
 import 'package:campusconnect/screens/auth/otp_verification_screen.dart';
 import 'package:firebase_auth/firebase_auth.dart' hide AuthProvider;
 import 'package:flutter/material.dart';
@@ -9,6 +14,7 @@ import 'package:mocktail/mocktail.dart';
 
 import '../helpers/mocks.dart';
 import '../helpers/pump_app.dart';
+import '../helpers/pump_themed.dart';
 
 void main() {
   late MockAuthService service;
@@ -170,5 +176,60 @@ void main() {
         find.descendant(of: find.byKey(const Key('otp-field')), matching: find.byType(EditableText)));
     expect(find.textContaining('Code envoyé au'), findsOneWidget); // le mock renvoie toujours +21620123456
     expect(field.focusNode.hasFocus, isTrue, reason: 'le clavier doit s\'ouvrir sans taper sur les cases');
+  });
+
+  group('UI contract (hero sheet)', () {
+    // The visible boxes are the AnimatedContainers sized 46 x 56.
+    Iterable<BoxDecoration> boxes(WidgetTester tester) => tester
+        .widgetList<AnimatedContainer>(find.descendant(of: find.byType(OtpInput), matching: find.byType(AnimatedContainer)))
+        .map((c) => c.decoration! as BoxDecoration);
+
+    testWidgets('is a HeroSheetScaffold with an AuthHero and a primary PillButton', (tester) async {
+      await pumpAuthScreen(tester, provider, const OtpVerificationScreen(phone: '20123456'));
+
+      expect(find.byType(HeroSheetScaffold), findsOneWidget);
+      expect(find.byType(AuthHero), findsOneWidget);
+      expect(find.text('Vérification'), findsOneWidget);
+      expect(tester.widget<PillButton>(find.widgetWithText(PillButton, 'Vérifier')).style, PillStyle.primary);
+    });
+
+    testWidgets('the code boxes are surfaceMuted with an outline border', (tester) async {
+      await pumpAuthScreen(tester, provider, const OtpVerificationScreen(phone: '20123456'));
+      await tester.pumpAndSettle();
+      const tokens = AppTokens.light;
+
+      final list = boxes(tester).toList();
+      expect(list, hasLength(6));
+      // Box 0 is the active one (primary border); the others are idle.
+      expect(list.first.border!.top.color, tokens.primary);
+      for (final b in list.skip(1)) {
+        expect(b.color, tokens.surfaceMuted);
+        expect(b.border!.top.color, tokens.outline);
+      }
+    });
+
+    testWidgets('digits use textPrimary; a wrong code turns the boxes and digits danger', (tester) async {
+      when(() => service.verifyPhoneOtp(any())).thenThrow(AuthFailure.fromCode('invalid-verification-code'));
+      await pumpAuthScreen(tester, provider, const OtpVerificationScreen(phone: '20123456'));
+      const tokens = AppTokens.light;
+
+      await typeCode(tester, '12');
+      expect(tester.widget<Text>(find.text('1')).style!.color, tokens.textPrimary);
+
+      await typeCode(tester, '000000');
+      await tester.pumpAndSettle();
+      expect(tester.widget<Text>(find.text('0').first).style!.color, tokens.danger);
+      for (final b in boxes(tester)) {
+        expect(b.border!.top.color, tokens.danger);
+      }
+    });
+
+    for (final brightness in Brightness.values) {
+      testWidgets('no text under 13 px in ${brightness.name}', (tester) async {
+        await pumpAuthScreen(tester, provider, const OtpVerificationScreen(phone: '20123456'), brightness: brightness);
+        await tester.pumpAndSettle();
+        expectNoSmallText(tester);
+      });
+    }
   });
 }
