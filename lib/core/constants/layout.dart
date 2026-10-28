@@ -37,3 +37,12 @@ const double kHeroCircleLarge = 180.0;
 const double kHeroCircleSmall = 110.0;
 const double kHeroSubtitleMaxWidth = 300.0;
 const double kPillHeight = 36.0;
+
+/// Espace réservé en bas d'un écran pour la barre de navigation flottante.
+const double kFloatingNavInset = 96.0;
+
+/// Au-delà de cette largeur, la mise en page passe en mode large.
+const double kCompactBreakpoint = 600.0;
+
+/// Largeur maximale du contenu en mode large.
+const double kContentMaxWidth = 720.0;
