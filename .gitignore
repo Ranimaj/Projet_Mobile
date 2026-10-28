@@ -52,3 +52,7 @@ app.*.map.json
 
 # Secrets locaux (identifiants OAuth) : ne jamais versionner
 /.env.json
+
+# Superpowers scratch (brainstorm mockups, SDD ledgers)
+.superpowers/
+test/rules/node_modules/

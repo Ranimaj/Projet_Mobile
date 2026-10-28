@@ -1,6 +1,93 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:equatable/equatable.dart';
+
+import '../core/constants/app_constants.dart';
 
 enum UserRole { student, admin, recruiter }
+
+/// Statut de vérification de la carte étudiante.
+enum StudentCardStatus { none, pending, verified, rejected }
+
+/// Carte étudiante soumise pour vérification. Seul un admin peut la faire
+/// passer à `verified` / `rejected` — voir `firestore.rules`.
+class StudentCard extends Equatable {
+  final StudentCardStatus status;
+  final String? imagePath; // chemin Storage
+  final DateTime? submittedAt;
+  final String? reviewedBy; // uid admin
+  final DateTime? reviewedAt;
+  final String? rejectReason;
+
+  const StudentCard({
+    this.status = StudentCardStatus.none,
+    this.imagePath,
+    this.submittedAt,
+    this.reviewedBy,
+    this.reviewedAt,
+    this.rejectReason,
+  });
+
+  /// Soumission par le propriétaire : seuls ces trois champs sont écrits.
+  const StudentCard.pending({
+    required String this.imagePath,
+    required DateTime this.submittedAt,
+  })  : status = StudentCardStatus.pending,
+        reviewedBy = null,
+        reviewedAt = null,
+        rejectReason = null;
+
+  static const none = StudentCard();
+
+  factory StudentCard.fromMap(Map<String, dynamic>? map) {
+    if (map == null) return none;
+    return StudentCard(
+      status: StudentCardStatus.values.firstWhere(
+        (s) => s.name == map['status'],
+        orElse: () => StudentCardStatus.none,
+      ),
+      imagePath: map['imagePath'],
+      submittedAt: AppUser._parseDate(map['submittedAt']),
+      reviewedBy: map['reviewedBy'],
+      reviewedAt: AppUser._parseDate(map['reviewedAt']),
+      rejectReason: map['rejectReason'],
+    );
+  }
+
+  /// Les champs nuls sont omis : une écriture ne porte jamais de `null`
+  /// explicite (les règles exigent `reviewed*` / `rejectReason` absents).
+  Map<String, dynamic> toMap() {
+    return {
+      'status': status.name,
+      if (imagePath != null) 'imagePath': imagePath,
+      if (submittedAt != null) 'submittedAt': Timestamp.fromDate(submittedAt!),
+      if (reviewedBy != null) 'reviewedBy': reviewedBy,
+      if (reviewedAt != null) 'reviewedAt': Timestamp.fromDate(reviewedAt!),
+      if (rejectReason != null) 'rejectReason': rejectReason,
+    };
+  }
+
+  StudentCard copyWith({
+    StudentCardStatus? status,
+    String? imagePath,
+    DateTime? submittedAt,
+    String? reviewedBy,
+    DateTime? reviewedAt,
+    String? rejectReason,
+  }) {
+    return StudentCard(
+      status: status ?? this.status,
+      imagePath: imagePath ?? this.imagePath,
+      submittedAt: submittedAt ?? this.submittedAt,
+      reviewedBy: reviewedBy ?? this.reviewedBy,
+      reviewedAt: reviewedAt ?? this.reviewedAt,
+      rejectReason: rejectReason ?? this.rejectReason,
+    );
+  }
+
+  @override
+  List<Object?> get props =>
+      [status, imagePath, submittedAt, reviewedBy, reviewedAt, rejectReason];
+}
 
 /// Modèle "Gestion des Utilisateurs" — profil, vérification, rôle.
 class AppUser {
@@ -20,6 +107,10 @@ class AppUser {
   final int ratingCount;
   final List<String> skills;
   final DateTime? updatedAt;
+  final String campus;
+  final String? studentId; // identifiant saisi par l'étudiant
+  final bool disabled; // compte désactivé, admin uniquement
+  final StudentCard studentCard;
 
   /// Champs qu'un utilisateur peut modifier lui-même. Tout le reste (rôle,
   /// statut de vérification, notes, email, téléphone) est géré côté serveur
@@ -31,6 +122,8 @@ class AppUser {
     'photoUrl',
     'skills',
     'twoFactorEnabled',
+    'campus',
+    'studentId',
   };
 
   const AppUser({
@@ -50,6 +143,10 @@ class AppUser {
     this.ratingCount = 0,
     this.skills = const [],
     this.updatedAt,
+    this.campus = AppConstants.defaultCampus,
+    this.studentId,
+    this.disabled = false,
+    this.studentCard = StudentCard.none,
   });
 
   String get initials {
@@ -80,6 +177,12 @@ class AppUser {
       ratingCount: map['ratingCount'] ?? 0,
       skills: List<String>.from(map['skills'] ?? []),
       updatedAt: _parseDate(map['updatedAt']),
+      campus: map['campus'] ?? AppConstants.defaultCampus,
+      studentId: map['studentId'],
+      disabled: map['disabled'] ?? false,
+      studentCard: StudentCard.fromMap(map['studentCard'] is Map
+          ? Map<String, dynamic>.from(map['studentCard'] as Map)
+          : null),
     );
   }
 
@@ -106,11 +209,17 @@ class AppUser {
       'ratingCount': ratingCount,
       'skills': skills,
       if (updatedAt != null) 'updatedAt': Timestamp.fromDate(updatedAt!),
+      'campus': campus,
+      'studentId': studentId,
+      'disabled': disabled,
+      'studentCard': studentCard.toMap(),
     };
   }
 
   /// Sous-ensemble de [toMap] limité aux [editableFields] — c'est tout ce
-  /// qu'une mise à jour de profil côté client est autorisée à écrire.
+  /// qu'une mise à jour de profil côté client est autorisée à écrire. La
+  /// carte étudiante n'en fait pas partie : elle s'écrit uniquement via la
+  /// soumission dédiée (`update({'studentCard': ...})`).
   Map<String, dynamic> toEditableMap() {
     return {
       for (final entry in toMap().entries)
@@ -129,6 +238,10 @@ class AppUser {
     bool? twoFactorEnabled,
     List<String>? skills,
     DateTime? updatedAt,
+    String? campus,
+    String? studentId,
+    bool clearStudentId = false,
+    StudentCard? studentCard,
   }) {
     return AppUser(
       id: id,
@@ -147,6 +260,10 @@ class AppUser {
       ratingCount: ratingCount,
       skills: skills ?? this.skills,
       updatedAt: updatedAt ?? this.updatedAt,
+      campus: campus ?? this.campus,
+      studentId: clearStudentId ? null : (studentId ?? this.studentId),
+      disabled: disabled,
+      studentCard: studentCard ?? this.studentCard,
     );
   }
 }

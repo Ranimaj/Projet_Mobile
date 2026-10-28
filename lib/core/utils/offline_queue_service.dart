@@ -1,9 +1,23 @@
+import 'dart:io';
+
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:uuid/uuid.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:path_provider/path_provider.dart';
+
+import '../../models/user_model.dart';
 import '../constants/app_constants.dart';
 
-enum QueueActionType { create, update, delete }
+enum QueueActionType {
+  create,
+  update,
+  delete,
+
+  /// Carte étudiant prise hors-ligne : payload `{uid, file, remotePath,
+  /// submittedAt}` où `file` est un nom de fichier relatif au dossier
+  /// documents de l'app (le chemin absolu change après une mise à jour iOS).
+  uploadStudentCard,
+}
 
 /// Une action en attente de synchronisation (écrite hors-ligne).
 class QueuedAction {
@@ -49,6 +63,13 @@ class QueuedAction {
 /// est stockée ici plutôt que perdue, puis rejouée vers Firestore dès que
 /// [ConnectivityProvider] détecte un retour de connexion.
 class OfflineQueueService {
+  /// Dossier documents de l'app, où vivent les copies locales des cartes.
+  final Future<Directory> Function() _appDir;
+  Future<SyncResult>? _running;
+
+  OfflineQueueService({Future<Directory> Function()? appDir})
+      : _appDir = appDir ?? getApplicationDocumentsDirectory;
+
   Box get _box => Hive.box(AppConstants.hiveOfflineQueueBox);
   static const _uuid = Uuid();
 
@@ -65,6 +86,12 @@ class OfflineQueueService {
     String? docId,
   }) {
     final id = _uuid.v4();
+    if (type == QueueActionType.uploadStudentCard && docId != null) {
+      // Un seul envoi de carte en attente par compte : le dernier remplace.
+      for (final old in pendingActions) {
+        if (old.type == type && old.docId == docId) _box.delete(old.id);
+      }
+    }
     final action = QueuedAction(
       id: id,
       type: type,
@@ -79,9 +106,49 @@ class OfflineQueueService {
 
   Future<void> remove(String actionId) async => _box.delete(actionId);
 
+  /// Chemin absolu de la copie locale d'une action `uploadStudentCard`.
+  Future<String> localPathOf(QueuedAction action) async =>
+      '${(await _appDir()).path}/${action.payload['file']}';
+
+  /// Supprime la copie locale de [action] (sans effet si déjà absente).
+  Future<void> deleteStudentCardFile(QueuedAction action) async {
+    try {
+      final file = File(await localPathOf(action));
+      if (await file.exists()) await file.delete();
+    } catch (_) {}
+  }
+
+  /// Retire les envois de carte de [uid] (déconnexion) et leurs copies locales.
+  Future<void> removeStudentCardActions(String uid) async {
+    for (final a in pendingActions) {
+      if (a.type == QueueActionType.uploadStudentCard && a.docId == uid) {
+        await remove(a.id);
+        await deleteStudentCardFile(a);
+      }
+    }
+  }
+
   /// Rejoue toutes les actions en attente contre Firestore, dans l'ordre
-  /// chronologique. Appelé automatiquement au retour du réseau.
-  Future<SyncResult> syncAll(FirebaseFirestore firestore) async {
+  /// chronologique. Appelé automatiquement au retour du réseau. Un appel
+  /// pendant qu'une synchro tourne renvoie la synchro en cours.
+  ///
+  /// [currentUid] : si fourni, les envois de carte d'un autre compte restent
+  /// en file (les règles refuseraient l'écriture sur le document d'autrui).
+  Future<SyncResult> syncAll(
+    FirebaseFirestore firestore, {
+    Future<String> Function(String localPath, String remotePath)? upload,
+    String? currentUid,
+  }) {
+    final running = _running;
+    if (running != null) return running;
+    return _running = _syncAll(firestore, upload, currentUid).whenComplete(() => _running = null);
+  }
+
+  Future<SyncResult> _syncAll(
+    FirebaseFirestore firestore,
+    Future<String> Function(String localPath, String remotePath)? upload,
+    String? currentUid,
+  ) async {
     final actions = pendingActions..sort((a, b) => a.queuedAt.compareTo(b.queuedAt));
     int success = 0;
     int failed = 0;
@@ -96,6 +163,28 @@ class OfflineQueueService {
             break;
           case QueueActionType.delete:
             await ref.delete();
+            break;
+          case QueueActionType.uploadStudentCard:
+            final owner = action.payload['uid'] ?? action.docId;
+            if (currentUid != null && owner != currentUid) continue;
+            if (upload == null) throw StateError('no uploader');
+            final localPath = await localPathOf(action);
+            if (!await File(localPath).exists()) {
+              // Fichier perdu : inutile de réessayer indéfiniment.
+              await remove(action.id);
+              continue;
+            }
+            final remotePath = action.payload['remotePath'] as String;
+            await upload(localPath, remotePath);
+            final submitted =
+                DateTime.tryParse('${action.payload['submittedAt']}') ?? DateTime.now();
+            // Remplacement complet de la carte : un merge garderait un ancien
+            // motif de refus que les règles Firestore interdisent.
+            await ref.update({
+              'studentCard':
+                  StudentCard.pending(imagePath: remotePath, submittedAt: submitted).toMap(),
+            });
+            await deleteStudentCardFile(action);
             break;
         }
         await remove(action.id);

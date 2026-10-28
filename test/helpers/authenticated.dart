@@ -1,8 +1,10 @@
+import 'package:campusconnect/core/theme/app_theme.dart';
 import 'dart:async';
 
 import 'package:campusconnect/models/user_model.dart';
 import 'package:campusconnect/providers/auth_provider.dart';
 import 'package:campusconnect/providers/connectivity_provider.dart';
+import 'package:campusconnect/services/student_card_service.dart';
 import 'package:firebase_auth/firebase_auth.dart' hide AuthProvider;
 import 'package:firebase_auth_mocks/firebase_auth_mocks.dart';
 import 'package:flutter/material.dart';
@@ -35,11 +37,18 @@ class AuthHarness {
   /// Heure courante vue par le provider (délai de renvoi d'email...).
   DateTime now = DateTime(2026, 1, 1, 12);
 
-  AuthHarness() {
+  AuthHarness({StudentCardService? studentCardService}) {
     when(() => service.authStateChanges).thenAnswer((_) => _stream.stream);
+    when(() => service.watchProfile(any()))
+        .thenAnswer((_) => const Stream<AppUser?>.empty().asBroadcastStream());
     when(() => connectivity.isOnline).thenReturn(true);
     when(() => connectivity.pendingActionsCount).thenReturn(0);
-    provider = AuthProvider(authService: service, storageService: storage, clock: () => now);
+    provider = AuthProvider(
+      authService: service,
+      storageService: storage,
+      studentCardService: studentCardService,
+      clock: () => now,
+    );
   }
 
   Future<void> signIn(
@@ -64,7 +73,8 @@ class AuthHarness {
 
   /// Monte [screen]. Avec [push], l'écran est poussé au-dessus d'une page
   /// factice pour pouvoir vérifier les `pop`.
-  Future<void> pump(WidgetTester tester, Widget screen, {bool push = true}) async {
+  Future<void> pump(WidgetTester tester, Widget screen,
+      {bool push = true, Brightness brightness = Brightness.light}) async {
     tester.view.physicalSize = const Size(420, 1000);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -77,7 +87,9 @@ class AuthHarness {
           ChangeNotifierProvider<ConnectivityProvider>.value(value: connectivity),
         ],
         child: MaterialApp(
-          theme: ThemeData(useMaterial3: true),
+          theme: AppTheme.light,
+          darkTheme: AppTheme.dark,
+          themeMode: brightness == Brightness.dark ? ThemeMode.dark : ThemeMode.light,
           home: push ? _Launcher(screen) : screen,
         ),
       ),

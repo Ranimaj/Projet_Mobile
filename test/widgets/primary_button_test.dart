@@ -1,17 +1,35 @@
+import 'package:campusconnect/core/theme/app_tokens.dart';
+import 'package:campusconnect/widgets/pill_button.dart';
 import 'package:campusconnect/widgets/primary_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../helpers/pump_themed.dart';
+
 void main() {
-  Future<void> pump(WidgetTester tester, Widget button, {double width = 160}) async {
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: Center(child: SizedBox(width: width, child: button)),
-        ),
-      ),
-    );
-  }
+  Future<void> pump(WidgetTester tester, Widget button, {double width = 160}) =>
+      pumpThemed(tester, SizedBox(width: width, child: button));
+
+  testWidgets('delegates to a primary PillButton and tints with color', (tester) async {
+    await pump(tester, PrimaryButton(label: 'Go', onPressed: () {}));
+    expect(tester.widget<PillButton>(find.byType(PillButton)).style, PillStyle.primary);
+    var d = tester.widget<Container>(find.byKey(const Key('pill-fill'))).decoration! as BoxDecoration;
+    expect(d.color, AppTokens.light.primary);
+
+    await pump(tester, PrimaryButton(label: 'Go', color: Colors.teal, onPressed: () {}));
+    d = tester.widget<Container>(find.byKey(const Key('pill-fill'))).decoration! as BoxDecoration;
+    expect(d.color, Colors.teal);
+  });
+
+  testWidgets('gradient fills with its first colour; color wins over gradient', (tester) async {
+    Color fill() =>
+        (tester.widget<Container>(find.byKey(const Key('pill-fill'))).decoration! as BoxDecoration).color!;
+    const g = LinearGradient(colors: [Colors.purple, Colors.yellow]);
+    await pump(tester, PrimaryButton(label: 'Go', gradient: g, onPressed: () {}));
+    expect(fill(), Colors.purple);
+    await pump(tester, PrimaryButton(label: 'Go', color: Colors.teal, gradient: g, onPressed: () {}));
+    expect(fill(), Colors.teal);
+  });
 
   testWidgets('a long label never overflows a narrow button', (tester) async {
     await pump(

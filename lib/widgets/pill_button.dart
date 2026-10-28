@@ -1,31 +1,27 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../core/theme/app_colors.dart';
-import '../core/theme/auth_text_styles.dart';
+import '../core/theme/app_tokens.dart';
 
-/// Bouton « pilule » blanc (entièrement arrondi) posé sur un champ de couleur :
-/// texte bleu, icône optionnelle, aplat sans ombre, spinner de la même couleur
-/// en chargement, léger rétrécissement à l'appui.
+enum PillStyle { primary, ghost, dark, danger }
+
+/// Fully rounded 52 dp button. [PillStyle.dark] is meant for use on photos.
+/// Shows a spinner while [isLoading]; disabled when [onPressed] is null.
 class PillButton extends StatefulWidget {
   final String label;
   final VoidCallback? onPressed;
+  final PillStyle style;
   final bool isLoading;
   final IconData? icon;
-  final double width;
-  final double height;
-  final Color background;
-  final Color foreground;
+  final bool expand;
 
   const PillButton({
     super.key,
     required this.label,
     required this.onPressed,
+    this.style = PillStyle.primary,
     this.isLoading = false,
     this.icon,
-    this.width = 220,
-    this.height = 50,
-    this.background = Colors.white,
-    this.foreground = AppColors.authPillText,
+    this.expand = true,
   });
 
   @override
@@ -33,6 +29,7 @@ class PillButton extends StatefulWidget {
 }
 
 class _PillButtonState extends State<PillButton> {
+  static const double _height = 52;
   bool _pressed = false;
 
   bool get _enabled => widget.onPressed != null && !widget.isLoading;
@@ -43,29 +40,40 @@ class _PillButtonState extends State<PillButton> {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
     final reduceMotion = MediaQuery.of(context).disableAnimations;
     final disabled = widget.onPressed == null;
-    final fg = disabled ? widget.foreground.withValues(alpha: 0.45) : widget.foreground;
+
+    final (fill, onFill) = switch (widget.style) {
+      PillStyle.primary => (t.primary, t.onPrimary),
+      PillStyle.ghost => (t.surface, t.primary),
+      PillStyle.dark => (AppTokens.dark.surface, Colors.white),
+      PillStyle.danger => (t.dangerSoft, t.danger),
+    };
+    final bg = disabled && widget.style != PillStyle.ghost ? t.surfaceMuted : fill;
+    final fg = disabled ? t.textSecondary : onFill;
+    final border = widget.style == PillStyle.ghost
+        ? Border.all(color: disabled ? t.outline : t.primary, width: 1.5)
+        : null;
 
     return Semantics(
       button: true,
       enabled: _enabled,
       child: AnimatedScale(
         scale: _pressed && _enabled && !reduceMotion ? 0.97 : 1,
-        duration: const Duration(milliseconds: 110),
+        duration: reduceMotion ? Duration.zero : const Duration(milliseconds: 110),
         child: Container(
-          width: widget.width,
-          height: widget.height,
-          decoration: BoxDecoration(
-            color: disabled ? widget.background.withValues(alpha: 0.7) : widget.background,
-            borderRadius: BorderRadius.circular(widget.height / 2),
-          ),
+          key: const Key('pill-fill'),
+          width: widget.expand ? double.infinity : null,
+          height: _height,
+          constraints: const BoxConstraints(minWidth: 48),
+          decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(_height / 2), border: border),
           child: Material(
             color: Colors.transparent,
             child: InkWell(
               customBorder: const StadiumBorder(),
-              splashColor: widget.foreground.withValues(alpha: 0.12),
-              highlightColor: widget.foreground.withValues(alpha: 0.05),
+              splashColor: fg.withValues(alpha: 0.14),
+              highlightColor: fg.withValues(alpha: 0.06),
               onTap: _enabled
                   ? () {
                       HapticFeedback.lightImpact();
@@ -76,20 +84,22 @@ class _PillButtonState extends State<PillButton> {
               onTapUp: (_) => _setPressed(false),
               onTapCancel: () => _setPressed(false),
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 18),
+                padding: const EdgeInsets.symmetric(horizontal: 22),
                 child: AnimatedSwitcher(
                   duration: reduceMotion ? Duration.zero : const Duration(milliseconds: 150),
                   child: widget.isLoading
                       ? Center(
                           key: const ValueKey('loading'),
+                          widthFactor: 1,
                           child: SizedBox(
                             width: 20,
                             height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2.4, color: widget.foreground),
+                            child: CircularProgressIndicator(strokeWidth: 2.4, color: fg),
                           ),
                         )
                       : Row(
                           key: const ValueKey('label'),
+                          mainAxisSize: MainAxisSize.min,
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             if (widget.icon != null) ...[
@@ -101,7 +111,10 @@ class _PillButtonState extends State<PillButton> {
                                 widget.label,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: AuthTextStyles.pillLabel.copyWith(color: fg),
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .labelLarge!
+                                    .copyWith(color: fg, fontWeight: FontWeight.w600),
                               ),
                             ),
                           ],

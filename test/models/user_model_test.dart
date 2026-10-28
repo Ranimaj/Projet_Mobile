@@ -1,3 +1,4 @@
+import 'package:campusconnect/core/constants/app_constants.dart';
 import 'package:campusconnect/models/user_model.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -83,5 +84,82 @@ void main() {
     expect(copy.role, UserRole.recruiter);
     expect(copy.email, user.email);
     expect(copy.createdAt, user.createdAt);
+  });
+
+  group('student card, campus and disabled', () {
+    test('fromMap without the new keys gives defaults', () {
+      final u = AppUser.fromMap('u3', {'fullName': 'A B', 'email': 'a@b.c'});
+      expect(u.campus, AppConstants.defaultCampus);
+      expect(u.studentId, isNull);
+      expect(u.disabled, isFalse);
+      expect(u.studentCard, StudentCard.none);
+      expect(u.studentCard.status, StudentCardStatus.none);
+    });
+
+    test('toMap writes the defaults a fresh profile needs', () {
+      final map = AppUser(
+        id: 'u4',
+        fullName: 'A B',
+        email: 'a@b.c',
+        createdAt: DateTime(2024),
+      ).toMap();
+      expect(map['campus'], 'ESPRIT Ghazela');
+      expect(map.containsKey('studentId'), isTrue);
+      expect(map['studentId'], isNull);
+      expect(map['disabled'], isFalse);
+      expect((map['studentCard'] as Map)['status'], 'none');
+    });
+
+    test('toMap / fromMap round-trips studentCard, campus and studentId', () {
+      final card = StudentCard(
+        status: StudentCardStatus.rejected,
+        imagePath: 'student_cards/u1/card.jpg',
+        submittedAt: DateTime(2025, 2, 1),
+        reviewedBy: 'admin1',
+        reviewedAt: DateTime(2025, 2, 2),
+        rejectReason: 'Illisible',
+      );
+      final u = user.copyWith(campus: 'ESPRIT Charguia', studentId: '12345', studentCard: card);
+      final restored = AppUser.fromMap('u1', u.toMap());
+      expect(restored.studentCard, card);
+      expect(restored.campus, 'ESPRIT Charguia');
+      expect(restored.studentId, '12345');
+      expect((u.toMap()['studentCard'] as Map)['status'], 'rejected');
+      expect((u.toMap()['studentCard'] as Map)['submittedAt'], isA<Timestamp>());
+    });
+
+    test('StudentCard.fromMap tolerates null and unknown status', () {
+      expect(StudentCard.fromMap(null), StudentCard.none);
+      expect(StudentCard.fromMap(const {}), StudentCard.none);
+      expect(StudentCard.fromMap(const {'status': 'bogus'}), StudentCard.none);
+    });
+
+    test('toEditableMap writes a null studentId explicitly so merge clears it', () {
+      final editable = user.copyWith(clearStudentId: true).toEditableMap();
+      expect(editable.containsKey('studentId'), isTrue);
+      expect(editable['studentId'], isNull);
+    });
+
+    test('toEditableMap contains campus, studentId but never studentCard or disabled', () {
+      final editable = user.toEditableMap();
+      expect(editable, isNot(contains('studentCard')));
+      expect(editable, contains('campus'));
+      expect(editable, contains('studentId'));
+      expect(editable, isNot(contains('disabled')));
+      expect(AppUser.editableFields, containsAll(['campus', 'studentId']));
+    });
+
+    test('StudentCard.toMap omits null keys', () {
+      expect(StudentCard.none.toMap(), {'status': 'none'});
+      final pending = StudentCard.pending(imagePath: 'p.jpg', submittedAt: DateTime(2025));
+      expect(pending.toMap().keys.toSet(), {'status', 'imagePath', 'submittedAt'});
+      expect(pending.status, StudentCardStatus.pending);
+    });
+
+    test('departments list is exposed', () {
+      expect(AppConstants.departments.first, 'Génie Informatique');
+      expect(AppConstants.departments.last, 'Autre');
+      expect(AppConstants.departments, hasLength(7));
+    });
   });
 }

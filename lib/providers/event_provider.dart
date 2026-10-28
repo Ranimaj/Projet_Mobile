@@ -20,6 +20,9 @@ class EventProvider extends ChangeNotifier {
   bool isLoading = false;
   String? categoryFilter;
 
+  /// Tous les événements chargés, sans filtre de date ni de catégorie.
+  List<EventModel> get all => List.unmodifiable(_all);
+
   List<EventModel> get upcoming {
     final now = DateTime.now();
     var list = _all.where((e) => e.startDate.isAfter(now)).toList();

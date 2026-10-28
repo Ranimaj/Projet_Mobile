@@ -1,5 +1,9 @@
 import 'package:campusconnect/core/utils/auth_failure.dart';
+import 'package:campusconnect/core/theme/app_tokens.dart';
 import 'package:campusconnect/providers/auth_provider.dart';
+import 'package:campusconnect/widgets/auth/auth_hero.dart';
+import 'package:campusconnect/widgets/hero_sheet_scaffold.dart';
+import 'package:campusconnect/widgets/pill_button.dart';
 import 'package:campusconnect/screens/auth/forgot_password_screen.dart';
 import 'package:firebase_auth/firebase_auth.dart' hide AuthProvider;
 import 'package:flutter/material.dart';
@@ -8,6 +12,7 @@ import 'package:mocktail/mocktail.dart';
 
 import '../helpers/mocks.dart';
 import '../helpers/pump_app.dart';
+import '../helpers/pump_themed.dart';
 
 void main() {
   late MockAuthService service;
@@ -114,5 +119,40 @@ void main() {
 
     expect(find.text('Pas de connexion réseau.'), findsNothing);
     expect(find.text('Envoyer le lien'), findsOneWidget);
+  });
+
+  group('UI contract (hero sheet)', () {
+    testWidgets('is a HeroSheetScaffold with an AuthHero and a primary PillButton', (tester) async {
+      await pumpAuthScreen(tester, provider, const ForgotPasswordScreen());
+
+      expect(find.byType(HeroSheetScaffold), findsOneWidget);
+      expect(find.byType(AuthHero), findsOneWidget);
+      expect(find.text('Mot de passe oublié'), findsOneWidget);
+      expect(tester.widget<PillButton>(find.widgetWithText(PillButton, 'Envoyer le lien')).style, PillStyle.primary);
+    });
+
+    testWidgets('the sent state keeps the hero, shows the success mark in the success token', (tester) async {
+      when(() => service.sendPasswordReset(any())).thenAnswer((_) async {});
+      await pumpAuthScreen(tester, provider, const ForgotPasswordScreen(initialEmail: 'amel@esprit.tn'));
+      await tapText(tester, 'Envoyer le lien');
+      await tester.pumpAndSettle();
+
+      expect(find.byType(AuthHero), findsOneWidget);
+      expect(tester.widget<Icon>(find.byIcon(Icons.check_circle_rounded)).color, AppTokens.light.success);
+    });
+
+    testWidgets('a field error uses the danger token', (tester) async {
+      await pumpAuthScreen(tester, provider, const ForgotPasswordScreen());
+      await tapText(tester, 'Envoyer le lien');
+      await tester.pump();
+      expect(tester.widget<Text>(find.text('Email requis')).style!.color, AppTokens.light.danger);
+    });
+
+    for (final brightness in Brightness.values) {
+      testWidgets('no text under 13 px in ${brightness.name}', (tester) async {
+        await pumpAuthScreen(tester, provider, const ForgotPasswordScreen(), brightness: brightness);
+        expectNoSmallText(tester);
+      });
+    }
   });
 }

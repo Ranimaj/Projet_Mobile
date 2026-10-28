@@ -41,6 +41,22 @@ class StorageService {
     return task.ref.getDownloadURL();
   }
 
+  /// Envoie [file] (compressé) à [remotePath] et renvoie ce chemin Storage,
+  /// pas une URL : les pièces sensibles (carte étudiant) ne sont lues que par
+  /// leur propriétaire et les admins, qui résolvent l'URL à la demande.
+  Future<String> uploadFile(File file, {required String remotePath}) async {
+    final compressed = await _compressImage(file);
+    await _storage
+        .ref()
+        .child(remotePath)
+        .putFile(compressed, SettableMetadata(contentType: 'image/jpeg'));
+    return remotePath;
+  }
+
+  /// URL de téléchargement d'un fichier à partir de son chemin Storage (les
+  /// cartes étudiant ne sont lisibles que par leur propriétaire et les admins).
+  Future<String> downloadUrl(String path) => _storage.ref(path).getDownloadURL();
+
   Future<List<String>> uploadImages(List<File> files, {required String folder}) async {
     final urls = <String>[];
     for (final file in files) {
@@ -69,6 +85,14 @@ class StorageService {
     final ref = _storage.ref().child('$folder/${_uuid.v4()}.$ext');
     final task = await ref.putFile(file);
     return task.ref.getDownloadURL();
+  }
+
+  /// Supprime le fichier Storage à [path] (chemin, pas URL). Best effort :
+  /// un fichier absent ou inaccessible est ignoré.
+  Future<void> deleteByPath(String path) async {
+    try {
+      await _storage.ref(path).delete();
+    } catch (_) {}
   }
 
   Future<void> deleteByUrl(String url) async {

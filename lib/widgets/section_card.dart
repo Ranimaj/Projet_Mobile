@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
-import '../core/theme/app_colors.dart';
+import 'setting_row.dart';
 
-/// Panneau blanc arrondi, séparé du fond par la teinte seule (ni bordure ni
-/// ombre), avec un titre de section en casse de phrase au-dessus — regroupe
-/// les réglages / actions d'un écran (profil, paramètres...).
+/// Grouped settings panel (profile, settings…). Visually a [SettingGroup]:
+/// dividers appear only when every child is a settings row.
 class SectionCard extends StatelessWidget {
   final String? title;
   final List<Widget> children;
@@ -18,49 +17,17 @@ class SectionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (title != null)
-          Padding(
-            padding: const EdgeInsets.only(left: 4, bottom: 10),
-            child: Text(
-              title!,
-              style: const TextStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textPrimary),
-            ),
-          ),
-        // Material (et non Container) : les ListTile dessinent leurs effets
-        // d'encre sur le Material le plus proche.
-        // Maquette : carte blanche arrondie (16 px) avec ombre douce.
-        DecoratedBox(
-          decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: const [AppColors.cardShadow]),
-          child: Material(
-            color: AppColors.surface,
-            elevation: 0,
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            clipBehavior: Clip.antiAlias,
-            child: Padding(
-              padding: padding,
-              child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: children),
-            ),
-          ),
-        ),
-      ],
+    return SettingGroup(
+      title: title,
+      padding: padding,
+      dividers: children.every((c) => c is SettingsTile || c is SettingRow),
+      children: children,
     );
   }
 }
 
-/// Ligne d'action d'une [SectionCard] : icône, libellé, sous-titre optionnel
-/// et chevron (ou widget de fin personnalisé). Pas de pastille autour de
-/// l'icône, pas de filet entre les lignes : l'espace fait la séparation.
+/// Action row of a [SectionCard]: visually a [SettingRow]. A non-null [color]
+/// tints the icon and the label.
 class SettingsTile extends StatelessWidget {
   final IconData icon;
   final String label;
@@ -81,30 +48,14 @@ class SettingsTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tint = color ?? AppColors.textPrimary;
-    return ListTile(
+    return SettingRow(
+      icon: icon,
+      title: label,
+      subtitle: subtitle,
+      trailing: trailing,
       onTap: onTap,
-      minVerticalPadding: 12,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 2),
-      leading: Icon(icon, size: 22, color: color ?? AppColors.primary),
-      title: Text(
-        label,
-        style:
-            TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: tint),
-      ),
-      subtitle: subtitle == null
-          ? null
-          : Padding(
-              padding: const EdgeInsets.only(top: 2),
-              child: Text(subtitle!,
-                  style: const TextStyle(
-                      fontSize: 13, color: AppColors.textSecondary)),
-            ),
-      trailing: trailing ??
-          (onTap == null
-              ? null
-              : const Icon(Icons.chevron_right_rounded,
-                  size: 20, color: AppColors.textSecondary)),
+      iconColor: color,
+      titleColor: color,
     );
   }
 }

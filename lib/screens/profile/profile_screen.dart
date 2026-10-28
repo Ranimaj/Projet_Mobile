@@ -1,27 +1,52 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
-import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_tokens.dart';
 import '../../core/utils/auth_failure.dart';
 import '../../core/utils/validators.dart';
 import '../../models/user_model.dart';
+import '../../providers/admin_users_provider.dart';
+import '../../providers/annonce_provider.dart';
+import '../../providers/article_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/connectivity_provider.dart';
+import '../../providers/job_provider.dart';
+import '../../providers/theme_provider.dart';
+import '../../services/admin_user_service.dart';
+import '../../services/app_prefs.dart';
+import '../../services/storage_service.dart';
 import '../../widgets/auth/auth_feedback.dart';
 import '../../widgets/auth/auth_text_field.dart';
+import '../../widgets/hero_sheet_scaffold.dart';
+import '../../widgets/initials_avatar.dart';
 import '../../widgets/offline_banner.dart';
-import '../../widgets/section_card.dart';
+import '../../widgets/pill_button.dart';
+import '../../widgets/round_icon_button.dart';
+import '../../widgets/setting_row.dart';
+import '../../widgets/stat_tile.dart';
+import '../../widgets/status_chip.dart';
+import '../admin/admin_analytics_screen.dart';
+import '../admin/admin_users_screen.dart';
+import '../debug/design_gallery_screen.dart';
 import '../auth/otp_verification_screen.dart';
 import 'change_password_screen.dart';
 import 'edit_profile_screen.dart';
+import 'student_card_screen.dart';
+
+// Scrim over the cover photo (same pair as the visitor home).
+const _scrimTop = Color(0x33000000);
+const _scrimBottom = Color(0xCC000000);
 
 /// Gestion des Utilisateurs — écran Profil (BF2/BF3) : identité, badges de
-/// vérification, sécurité, mode hors-ligne, export et suppression RGPD.
+/// vérification, préférences, sécurité, mode hors-ligne, export et suppression
+/// RGPD.
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
 
@@ -35,6 +60,102 @@ class ProfileScreen extends StatelessWidget {
     }
   }
 
+  /// Les écrans d'administration partagent un [AdminUsersProvider] créé à
+  /// l'ouverture (flux temps réel des comptes) et libéré au retour.
+  void _openAdmin(BuildContext context, AppUser admin, Widget screen) {
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => ChangeNotifierProvider(
+        create: (_) => AdminUsersProvider(
+          AdminUserService(FirebaseFirestore.instance,
+              storage: StorageService()),
+          currentAdminUid: admin.id,
+        ),
+        child: screen,
+      ),
+    ));
+  }
+
+  void _edit(BuildContext context) => Navigator.of(context)
+      .push(MaterialPageRoute(builder: (_) => const EditProfileScreen()));
+
+  static String _details(AppUser user) => [user.major, user.year]
+      .where((e) => e != null && e.isNotEmpty)
+      .join(' · ');
+
+  Future<void> _share(BuildContext context, AppUser user) async {
+    final text =
+        [user.fullName, _details(user)].where((e) => e.isNotEmpty).join(' · ');
+    await Clipboard.setData(ClipboardData(text: text));
+    if (!context.mounted) return;
+    showAuthSnack(context, 'Profil copié', isError: false);
+  }
+
+  static String _themeLabel(ThemeMode m) => switch (m) {
+        ThemeMode.light => 'Clair',
+        ThemeMode.dark => 'Sombre',
+        ThemeMode.system => 'Système',
+      };
+
+  void _pickTheme(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => Consumer<ThemeProvider>(
+        builder: (context, theme, _) => SafeArea(
+          child: RadioGroup<ThemeMode>(
+            groupValue: theme.mode,
+            onChanged: (m) {
+              if (m == null) return;
+              theme.setMode(m);
+              Navigator.pop(sheetContext);
+            },
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (final m in ThemeMode.values)
+                  RadioListTile<ThemeMode>(
+                    value: m,
+                    title: Text(_themeLabel(m)),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  ({StatusChipStyle style, String label})? _cardChip(AppUser user) {
+    if (user.isVerifiedStudent ||
+        user.studentCard.status == StudentCardStatus.verified) {
+      return (style: StatusChipStyle.success, label: 'Étudiant vérifié');
+    }
+    return switch (user.studentCard.status) {
+      StudentCardStatus.pending => (
+          style: StatusChipStyle.warning,
+          label: 'Vérification en attente'
+        ),
+      StudentCardStatus.rejected => (
+          style: StatusChipStyle.danger,
+          label: 'Carte refusée'
+        ),
+      _ => null,
+    };
+  }
+
+  String _cardSubtitle(AppUser user) {
+    final card = user.studentCard;
+    if (user.isVerifiedStudent) return 'Ta carte est vérifiée';
+    return switch (card.status) {
+      StudentCardStatus.verified => 'Ta carte est vérifiée',
+      StudentCardStatus.pending => 'Vérification en cours',
+      StudentCardStatus.rejected => card.rejectReason?.isNotEmpty == true
+          ? 'Refusée : ${card.rejectReason}'
+          : 'Carte refusée : envoie-la à nouveau',
+      StudentCardStatus.none => 'Ajoute ta carte pour être vérifié',
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
@@ -42,152 +163,315 @@ class ProfileScreen extends StatelessWidget {
     if (user == null) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
+    final t = AppTokens.of(context);
+    final text = Theme.of(context).textTheme;
+    final cardChip = _cardChip(user);
+    final details = _details(user);
+    final notices = context
+        .watch<AnnonceProvider>()
+        .items
+        .where((a) => a.authorId == user.id)
+        .length;
+    final sales = context
+        .watch<ArticleProvider>()
+        .items
+        .where((a) => a.ownerId == user.id)
+        .length;
+    final applications = context.watch<JobProvider>().myApplications.length;
+    final prefs = context.read<AppPrefs>();
+    final themeMode = context.watch<ThemeProvider>().mode;
+    final since = DateFormat('MMM yyyy', 'fr_FR').format(user.createdAt);
 
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      body: SingleChildScrollView(
-        child: Column(
+    return HeroSheetScaffold(
+      showHandle: false,
+      hero: Stack(
+        fit: StackFit.expand,
+        children: [
+          Image.asset(
+            'assets/images/cover_campus.jpg',
+            fit: BoxFit.cover,
+            cacheWidth: 1080,
+            excludeFromSemantics: true,
+          ),
+          const DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.bottomCenter,
+                end: Alignment.topCenter,
+                colors: [_scrimBottom, _scrimTop],
+              ),
+            ),
+          ),
+        ],
+      ),
+      heroOverlay: DecoratedBox(
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(color: t.surface, width: 4),
+        ),
+        child: InitialsAvatar(
+          initials: user.initials,
+          photoUrl: user.photoUrl,
+          size: 64,
+          verified: user.isVerifiedStudent,
+        ),
+      ),
+      heroLeading: Navigator.of(context).canPop()
+          ? RoundIconButton(
+              icon: Icons.arrow_back_rounded,
+              tooltip: 'Retour',
+              style: RoundButtonStyle.onPhoto,
+              onPressed: () => Navigator.of(context).maybePop(),
+            )
+          : null,
+      heroActions: [
+        RoundIconButton(
+          icon: Icons.ios_share_rounded,
+          tooltip: 'Partager',
+          style: RoundButtonStyle.onPhoto,
+          onPressed: () => _share(context, user),
+        ),
+        RoundIconButton(
+          icon: Icons.edit_rounded,
+          tooltip: 'Modifier',
+          style: RoundButtonStyle.onPhoto,
+          onPressed: () => _edit(context),
+        ),
+      ],
+      bottomBar: Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 16,
+        runSpacing: 8,
+        children: [
+          Text('Membre depuis $since', style: text.labelMedium),
+          PillButton(
+            label: 'Modifier le profil',
+            onPressed: () => _edit(context),
+          ),
+        ],
+      ),
+      children: [
+        // Clears the pinned avatar; the card chip sits on its right.
+        SizedBox(
+          height: 32,
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: cardChip == null
+                ? null
+                : StatusChip(label: cardChip.label, style: cardChip.style),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(user.fullName,
+            style: text.headlineMedium!.copyWith(fontWeight: FontWeight.w800)),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 6,
           children: [
-            _ProfileHeader(user: user, emailVerified: auth.emailVerified),
-            const OfflineBanner(),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  if (!auth.emailVerified) ...[
-                    const _EmailVerificationBanner(),
-                    const SizedBox(height: 16),
-                  ],
-                  Row(
-                    children: [
-                      _StatTile(
-                        label: 'Note moy.',
-                        value: user.ratingCount > 0
-                            ? user.ratingAverage.toStringAsFixed(1)
-                            : '—',
-                      ),
-                      const SizedBox(width: 10),
-                      _StatTile(label: 'Avis', value: '${user.ratingCount}'),
-                      const SizedBox(width: 10),
-                      _StatTile(
-                          label: 'Membre depuis',
-                          value: '${user.createdAt.year}'),
-                    ],
-                  ),
-                  const SizedBox(height: 22),
-                  SectionCard(
-                    title: 'Compte',
-                    children: [
-                      SettingsTile(
-                        icon: Icons.edit_rounded,
-                        label: 'Modifier mes informations',
-                        subtitle: 'Photo, nom, filière, compétences',
-                        onTap: () => Navigator.of(context).push(
-                            MaterialPageRoute(
-                                builder: (_) => const EditProfileScreen())),
-                      ),
-                      if (auth.hasPasswordProvider) ...[
-                        SettingsTile(
-                          icon: Icons.lock_reset_rounded,
-                          label: 'Changer le mot de passe',
-                          onTap: () => Navigator.of(context).push(
-                              MaterialPageRoute(
-                                  builder: (_) =>
-                                      const ChangePasswordScreen())),
-                        ),
-                      ],
-                      SettingsTile(
-                        icon: Icons.phone_iphone_rounded,
-                        label: 'Numéro de téléphone',
-                        subtitle: user.phoneNumber ?? 'Aucun numéro vérifié',
-                        trailing: _Pill(
-                          label:
-                              user.isPhoneVerified ? 'Vérifié' : 'À vérifier',
-                          positive: user.isPhoneVerified,
-                        ),
-                        onTap: () => _verifyPhone(context, user),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-                  SectionCard(
-                    title: 'Sécurité',
-                    children: [
-                      SettingsTile(
-                        icon: Icons.shield_rounded,
-                        label: 'Authentification à deux facteurs',
-                        subtitle: 'Protection renforcée de ton compte',
-                        trailing: Switch.adaptive(
-                          value: user.twoFactorEnabled,
-                          onChanged: auth.isLoading
-                              ? null
-                              : (v) => context
-                                  .read<AuthProvider>()
-                                  .updateProfile(
-                                      user.copyWith(twoFactorEnabled: v)),
-                        ),
-                      ),
-                      Consumer<ConnectivityProvider>(
-                        builder: (context, connectivity, _) => SettingsTile(
-                          icon: connectivity.isOnline
-                              ? Icons.wifi_rounded
-                              : Icons.wifi_off_rounded,
-                          label: 'Mode hors-ligne',
-                          subtitle: connectivity.pendingActionsCount > 0
-                              ? '${connectivity.pendingActionsCount} action(s) en attente'
-                              : 'Tes actions sont synchronisées automatiquement',
-                          trailing: _Pill(
-                            label: connectivity.isOnline ? 'En ligne' : 'Actif',
-                            positive: connectivity.isOnline,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-                  SectionCard(
-                    title: 'Données & confidentialité',
-                    children: [
-                      SettingsTile(
-                        icon: Icons.download_rounded,
-                        label: 'Exporter mes données (RGPD)',
-                        subtitle: 'Copie JSON de ton profil et de ton compte',
-                        onTap: () => _exportData(context),
-                      ),
-                      SettingsTile(
-                        icon: Icons.delete_forever_rounded,
-                        label: 'Supprimer mon compte',
-                        color: AppColors.danger,
-                        onTap: () => showDialog(
-                          context: context,
-                          builder: (_) => ChangeNotifierProvider.value(
-                            value: context.read<AuthProvider>(),
-                            child: const _DeleteAccountDialog(),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 22),
-                  FilledButton.tonalIcon(
-                    onPressed: auth.isLoading ? null : () => _logout(context),
-                    style: FilledButton.styleFrom(
-                      minimumSize: const Size.fromHeight(50),
-                      backgroundColor: AppColors.danger.withValues(alpha: 0.1),
-                      foregroundColor: AppColors.danger,
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14)),
-                    ),
-                    icon: const Icon(Icons.logout_rounded, size: 18),
-                    label: const Text('Déconnexion'),
-                  ),
-                ],
+            auth.emailVerified
+                ? const StatusChip(
+                    label: 'Email vérifié',
+                    style: StatusChipStyle.success,
+                    icon: Icons.mark_email_read_rounded)
+                : const StatusChip(
+                    label: 'Email à vérifier',
+                    style: StatusChipStyle.warning,
+                    icon: Icons.mark_email_unread_outlined),
+            if (user.isPhoneVerified)
+              const StatusChip(
+                  label: 'Téléphone vérifié',
+                  style: StatusChipStyle.success,
+                  icon: Icons.phone_android_rounded),
+          ],
+        ),
+        if (details.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Text(details,
+              style: text.bodyMedium!.copyWith(color: t.textSecondary)),
+        ],
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            Expanded(child: StatTile(value: '$notices', label: 'Annonces')),
+            const SizedBox(width: 10),
+            Expanded(child: StatTile(value: '$sales', label: 'Ventes')),
+            const SizedBox(width: 10),
+            Expanded(
+                child: StatTile(value: '$applications', label: 'Candidatures')),
+          ],
+        ),
+        const SizedBox(height: 16),
+        const OfflineBanner(),
+        if (!auth.emailVerified) ...[
+          const _EmailVerificationBanner(),
+          const SizedBox(height: 16),
+        ],
+        SettingGroup(
+          children: [
+            SettingRow(
+              icon: Icons.badge_rounded,
+              title: 'Carte étudiant',
+              subtitle: auth.pendingCardQueued &&
+                      user.studentCard.status == StudentCardStatus.pending
+                  ? 'En attente de connexion'
+                  : _cardSubtitle(user),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const StudentCardScreen()),
+              ),
+            ),
+            SettingRow(
+              icon: Icons.fingerprint_rounded,
+              title: 'Connexion biométrique',
+              subtitle: 'Déverrouille l\'app avec ton empreinte ou ton visage',
+              trailing: _BiometricSwitch(prefs: prefs),
+            ),
+            SettingRow(
+              icon: Icons.brightness_6_rounded,
+              title: 'Thème',
+              subtitle: _themeLabel(themeMode),
+              onTap: () => _pickTheme(context),
+            ),
+          ],
+        ),
+        const SizedBox(height: 20),
+        SettingGroup(
+          title: 'Compte',
+          children: [
+            SettingRow(
+              icon: Icons.edit_rounded,
+              title: 'Modifier mes informations',
+              subtitle: 'Photo, nom, filière, compétences',
+              onTap: () => _edit(context),
+            ),
+            if (auth.hasPasswordProvider)
+              SettingRow(
+                icon: Icons.lock_reset_rounded,
+                title: 'Changer le mot de passe',
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => const ChangePasswordScreen())),
+              ),
+            SettingRow(
+              icon: Icons.phone_iphone_rounded,
+              title: 'Numéro de téléphone',
+              subtitle: user.phoneNumber ?? 'Aucun numéro vérifié',
+              trailing: StatusChip(
+                label: user.isPhoneVerified ? 'Vérifié' : 'À vérifier',
+                style: user.isPhoneVerified
+                    ? StatusChipStyle.success
+                    : StatusChipStyle.warning,
+              ),
+              onTap: () => _verifyPhone(context, user),
+            ),
+          ],
+        ),
+        const SizedBox(height: 20),
+        SettingGroup(
+          title: 'Données & confidentialité',
+          children: [
+            SettingRow(
+              icon: Icons.download_rounded,
+              title: 'Exporter mes données (RGPD)',
+              subtitle: 'Copie JSON de ton profil et de ton compte',
+              onTap: () => _exportData(context),
+            ),
+            SettingRow(
+              icon: Icons.delete_forever_rounded,
+              title: 'Supprimer mon compte',
+              destructive: true,
+              onTap: () => showDialog(
+                context: context,
+                builder: (_) => ChangeNotifierProvider.value(
+                  value: context.read<AuthProvider>(),
+                  child: const _DeleteAccountDialog(),
+                ),
               ),
             ),
           ],
         ),
-      ),
+        const SizedBox(height: 20),
+        SettingGroup(
+          title: 'Sécurité',
+          children: [
+            SettingRow(
+              icon: Icons.shield_rounded,
+              title: 'Authentification à deux facteurs',
+              subtitle: 'Protection renforcée de ton compte',
+              trailing: Switch.adaptive(
+                value: user.twoFactorEnabled,
+                onChanged: auth.isLoading
+                    ? null
+                    : (v) => context
+                        .read<AuthProvider>()
+                        .updateProfile(user.copyWith(twoFactorEnabled: v)),
+              ),
+            ),
+            Consumer<ConnectivityProvider>(
+              builder: (context, connectivity, _) => SettingRow(
+                icon: connectivity.isOnline
+                    ? Icons.wifi_rounded
+                    : Icons.wifi_off_rounded,
+                title: 'Mode hors-ligne',
+                subtitle: connectivity.pendingActionsCount > 0
+                    ? '${connectivity.pendingActionsCount} action(s) en attente'
+                    : 'Tes actions sont synchronisées automatiquement',
+                trailing: StatusChip(
+                  label: connectivity.isOnline ? 'En ligne' : 'Actif',
+                  style: connectivity.isOnline
+                      ? StatusChipStyle.success
+                      : StatusChipStyle.warning,
+                ),
+              ),
+            ),
+            // Developer tool: only in debug builds.
+            if (kDebugMode)
+              SettingRow(
+                icon: Icons.palette_rounded,
+                title: 'Galerie du design',
+                subtitle: 'Composants et jetons (mode debug)',
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => const DesignGalleryScreen())),
+              ),
+          ],
+        ),
+        if (user.role == UserRole.admin) ...[
+          const SizedBox(height: 20),
+          SettingGroup(
+            title: 'Administration',
+            children: [
+              SettingRow(
+                icon: Icons.group_rounded,
+                title: 'Utilisateurs',
+                onTap: () =>
+                    _openAdmin(context, user, const AdminUsersScreen()),
+              ),
+              SettingRow(
+                icon: Icons.fact_check_rounded,
+                title: 'Cartes à vérifier',
+                onTap: () => _openAdmin(
+                    context,
+                    user,
+                    const AdminUsersScreen(
+                        initialCardFilter: StudentCardStatus.pending)),
+              ),
+              SettingRow(
+                icon: Icons.insights_rounded,
+                title: 'Statistiques',
+                onTap: () =>
+                    _openAdmin(context, user, const AdminAnalyticsScreen()),
+              ),
+            ],
+          ),
+        ],
+        const SizedBox(height: 20),
+        PillButton(
+          label: 'Déconnexion',
+          icon: Icons.logout_rounded,
+          style: PillStyle.danger,
+          onPressed: auth.isLoading ? null : () => _logout(context),
+        ),
+      ],
     );
   }
 
@@ -225,13 +509,16 @@ class ProfileScreen extends StatelessWidget {
           child: Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: AppColors.surfaceTone,
+              color: AppTokens.of(ctx).surfaceMuted,
               borderRadius: BorderRadius.circular(20),
             ),
             child: SingleChildScrollView(
               child: SelectableText(
                 json,
-                style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
+                style: Theme.of(ctx)
+                    .textTheme
+                    .bodyMedium!
+                    .copyWith(fontFamily: 'monospace'),
               ),
             ),
           ),
@@ -256,143 +543,26 @@ class ProfileScreen extends StatelessWidget {
   }
 }
 
-// --- En-tête -----------------------------------------------------------------
-
-class _ProfileHeader extends StatelessWidget {
-  final AppUser user;
-  final bool emailVerified;
-  const _ProfileHeader({required this.user, required this.emailVerified});
+/// Interrupteur de la connexion biométrique, persisté dans [AppPrefs].
+class _BiometricSwitch extends StatefulWidget {
+  final AppPrefs prefs;
+  const _BiometricSwitch({required this.prefs});
 
   @override
-  Widget build(BuildContext context) {
-    final text = Theme.of(context).textTheme;
-    final details = [user.major, user.year]
-        .where((e) => e != null && e.isNotEmpty)
-        .join(' · ');
-
-    // Maquette « Gestion Utilisateurs » : en-tête clair, titre sombre, avatar
-    // cerclé du dégradé violet, nom + coche, filière, puce de statut.
-    return Container(
-      width: double.infinity,
-      padding: EdgeInsets.fromLTRB(
-          20, MediaQuery.paddingOf(context).top + 12, 20, 8),
-      color: AppColors.background,
-      child: Column(
-        children: [
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Text('Mon profil', style: text.headlineMedium),
-          ),
-          const SizedBox(height: 20),
-          Container(
-            width: 104,
-            height: 104,
-            padding: const EdgeInsets.all(4),
-            decoration: const BoxDecoration(
-                shape: BoxShape.circle, gradient: AppColors.brandGradient),
-            child: Container(
-              padding: const EdgeInsets.all(3),
-              decoration: const BoxDecoration(
-                  shape: BoxShape.circle, color: AppColors.background),
-              child: CircleAvatar(
-                backgroundColor: AppColors.primary,
-                backgroundImage: user.photoUrl == null
-                    ? null
-                    : CachedNetworkImageProvider(user.photoUrl!),
-                child: user.photoUrl == null
-                    ? Text(
-                        user.initials,
-                        style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 30,
-                            fontWeight: FontWeight.w700),
-                      )
-                    : null,
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Flexible(
-                child: Text(
-                  user.fullName,
-                  textAlign: TextAlign.center,
-                  style: text.displayMedium?.copyWith(fontSize: 24),
-                ),
-              ),
-              if (user.isVerifiedStudent) ...[
-                const SizedBox(width: 6),
-                const Icon(Icons.verified_rounded,
-                    size: 20, color: AppColors.primary),
-              ],
-            ],
-          ),
-          if (details.isNotEmpty) ...[
-            const SizedBox(height: 2),
-            Text(details, style: text.bodyMedium),
-          ],
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 6,
-            alignment: WrapAlignment.center,
-            children: [
-              _Badge(
-                icon: user.isVerifiedStudent
-                    ? Icons.verified_rounded
-                    : Icons.hourglass_top_rounded,
-                label: user.isVerifiedStudent
-                    ? 'Étudiant vérifié'
-                    : 'Vérification en attente',
-                highlighted: user.isVerifiedStudent,
-              ),
-              if (emailVerified)
-                const _Badge(
-                    icon: Icons.mark_email_read_rounded,
-                    label: 'Email vérifié',
-                    highlighted: true),
-              if (user.isPhoneVerified)
-                const _Badge(
-                    icon: Icons.phone_android_rounded,
-                    label: 'Téléphone vérifié',
-                    highlighted: true),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
+  State<_BiometricSwitch> createState() => _BiometricSwitchState();
 }
 
-/// Puce de statut : verte quand acquis (maquette « Étudiant vérifié »),
-/// ambre tant que c'est en attente.
-class _Badge extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final bool highlighted;
-  const _Badge(
-      {required this.icon, required this.label, required this.highlighted});
+class _BiometricSwitchState extends State<_BiometricSwitch> {
+  late bool _value = widget.prefs.biometricUnlock;
 
   @override
   Widget build(BuildContext context) {
-    final bg = highlighted ? AppColors.successTint : const Color(0xFFFEF3C7);
-    final fg = highlighted ? AppColors.successInk : const Color(0xFF92400E);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration:
-          BoxDecoration(color: bg, borderRadius: BorderRadius.circular(20)),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 14, color: fg),
-          const SizedBox(width: 5),
-          Text(label,
-              style: TextStyle(
-                  fontSize: 13, fontWeight: FontWeight.w600, color: fg)),
-        ],
-      ),
+    return Switch.adaptive(
+      value: _value,
+      onChanged: (v) {
+        setState(() => _value = v);
+        widget.prefs.setBiometricUnlock(v);
+      },
     );
   }
 }
@@ -490,38 +660,35 @@ class _EmailVerificationBannerState extends State<_EmailVerificationBanner>
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
+    final t = AppTokens.of(context);
+    final text = Theme.of(context).textTheme;
     final left = auth.verificationCooldownLeft.inSeconds;
+    final action = TextButton.styleFrom(minimumSize: const Size(48, 48));
 
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 6),
       decoration: BoxDecoration(
-        color: const Color(0xFFFFF1E0),
-        borderRadius: BorderRadius.circular(20),
+        color: t.warningSoft,
+        borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Row(
+          Row(
             children: [
               Icon(Icons.mark_email_unread_outlined,
-                  size: 18, color: AppColors.accent2),
-              SizedBox(width: 8),
+                  size: 18, color: t.warning),
+              const SizedBox(width: 8),
               Expanded(
-                child: Text(
-                  'Email non vérifié',
-                  style: TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 15,
-                      color: Color(0xFF9A3412)),
-                ),
+                child: Text('Email non vérifié',
+                    style: text.titleSmall!.copyWith(color: t.warning)),
               ),
             ],
           ),
           const SizedBox(height: 4),
-          const Text(
+          Text(
             'Clique sur le lien reçu par email : ce bandeau disparaîtra tout seul.',
-            style:
-                TextStyle(fontSize: 14, height: 1.4, color: Color(0xFF9A3412)),
+            style: text.bodyMedium!.copyWith(color: t.textPrimary),
           ),
           // Wrap plutôt que Row : avec le compte à rebours, les deux boutons
           // ne tiennent pas toujours sur une ligne en petite largeur.
@@ -529,76 +696,18 @@ class _EmailVerificationBannerState extends State<_EmailVerificationBanner>
             alignment: WrapAlignment.end,
             children: [
               TextButton(
+                style: action,
                 onPressed: auth.isLoading || left > 0 ? null : _resend,
                 child: Text(left > 0 ? 'Renvoyer ($left s)' : 'Renvoyer'),
               ),
               TextButton(
+                style: action,
                 onPressed: auth.isLoading ? null : _check,
                 child: const Text('J\'ai vérifié'),
               ),
             ],
           ),
         ],
-      ),
-    );
-  }
-}
-
-// --- Petits composants ----------------------------------------------------------
-
-class _StatTile extends StatelessWidget {
-  final String label;
-  final String value;
-  const _StatTile({required this.label, required this.value});
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 14),
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: const [AppColors.cardShadow],
-        ),
-        child: Column(
-          children: [
-            Text(value,
-                style: const TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.primary)),
-            const SizedBox(height: 2),
-            Text(label,
-                style: const TextStyle(
-                    fontSize: 13, color: AppColors.textSecondary)),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _Pill extends StatelessWidget {
-  final String label;
-  final bool positive;
-  const _Pill({required this.label, required this.positive});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: positive ? const Color(0xFFD1FAE5) : const Color(0xFFFEF3C7),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          fontSize: 13,
-          fontWeight: FontWeight.w700,
-          color: positive ? const Color(0xFF065F46) : const Color(0xFF92400E),
-        ),
       ),
     );
   }
@@ -734,8 +843,10 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
             if (_error != null) ...[
               const SizedBox(height: 10),
               Text(_error!,
-                  style:
-                      const TextStyle(color: AppColors.danger, fontSize: 13)),
+                  style: Theme.of(context)
+                      .textTheme
+                      .labelMedium!
+                      .copyWith(color: AppTokens.of(context).danger)),
             ],
           ],
         ),
@@ -746,7 +857,8 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
           child: const Text('Annuler'),
         ),
         FilledButton(
-          style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
+          style: FilledButton.styleFrom(
+              backgroundColor: AppTokens.of(context).danger),
           onPressed: auth.isLoading ? null : _confirm,
           child: auth.isLoading
               ? const SizedBox(

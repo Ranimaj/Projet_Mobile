@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../core/theme/auth_text_styles.dart';
+import '../core/theme/app_tokens.dart';
 
 /// Un bouton rond de [SocialIconRow] : [icon] ou [child] au choix, un
 /// [tooltip] (aussi libellé d'accessibilité) et son action.
@@ -14,8 +14,8 @@ class SocialIconItem {
 }
 
 /// Légende (« Ou connectez-vous avec ») + rangée de boutons ronds pour les
-/// connexions alternatives (Google, biométrie…). Les ronds sont des aplats
-/// blancs translucides : un ton au-dessus du fond, sans contour ni ombre.
+/// connexions alternatives (Google, biométrie…). Les ronds sont des boutons
+/// `surface` de 48 dp minimum avec un contour `outline` (ombre en thème clair).
 class SocialIconRow extends StatelessWidget {
   final String caption;
   final List<SocialIconItem> items;
@@ -25,14 +25,14 @@ class SocialIconRow extends StatelessWidget {
     super.key,
     this.caption = 'Ou connectez-vous avec',
     required this.items,
-    this.size = 56,
+    this.size = 48,
   });
 
   @override
   Widget build(BuildContext context) {
     return Column(
       children: [
-        Text(caption, style: AuthTextStyles.caption, textAlign: TextAlign.center),
+        Text(caption, style: Theme.of(context).textTheme.bodyMedium, textAlign: TextAlign.center),
         const SizedBox(height: 16),
         Wrap(
           spacing: 16,
@@ -52,28 +52,36 @@ class _RoundButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
     final enabled = item.onPressed != null;
+    final light = Theme.of(context).brightness == Brightness.light;
+    final fg = enabled ? t.textPrimary : t.textSecondary;
     return Tooltip(
       message: item.tooltip,
       child: Semantics(
         button: true,
         enabled: enabled,
         label: item.tooltip,
-        child: Material(
-          color: Colors.white.withValues(alpha: enabled ? 0.18 : 0.08),
-          shape: const CircleBorder(),
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            onTap: item.onPressed,
-            customBorder: const CircleBorder(),
-            splashColor: Colors.white.withValues(alpha: 0.25),
-            child: SizedBox(
-              width: size,
-              height: size,
-              child: Center(
-                child: IconTheme(
-                  data: IconThemeData(color: Colors.white.withValues(alpha: enabled ? 1 : 0.5), size: 24),
-                  child: item.child ?? Icon(item.icon),
+        child: DecoratedBox(
+          decoration: BoxDecoration(shape: BoxShape.circle, boxShadow: light ? t.cardShadow : null),
+          child: Material(
+            color: t.surface,
+            shape: CircleBorder(side: BorderSide(color: t.outline)),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: item.onPressed,
+              customBorder: const CircleBorder(),
+              child: SizedBox(
+                width: size,
+                height: size,
+                child: Center(
+                  child: IconTheme(
+                    data: IconThemeData(color: fg, size: 24),
+                    child: DefaultTextStyle.merge(
+                      style: TextStyle(color: fg),
+                      child: item.child ?? Icon(item.icon),
+                    ),
+                  ),
                 ),
               ),
             ),

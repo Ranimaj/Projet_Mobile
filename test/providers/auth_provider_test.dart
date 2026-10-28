@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:campusconnect/core/utils/auth_failure.dart';
 import 'package:campusconnect/models/user_model.dart';
 import 'package:campusconnect/providers/auth_provider.dart';
+import 'package:campusconnect/services/student_card_service.dart';
 import 'package:firebase_auth/firebase_auth.dart' hide AuthProvider;
 import 'package:firebase_auth_mocks/firebase_auth_mocks.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -32,6 +33,8 @@ void main() {
     service = MockAuthService();
     authStream = StreamController<User?>.broadcast();
     when(() => service.authStateChanges).thenAnswer((_) => authStream.stream);
+    when(() => service.watchProfile(any()))
+        .thenAnswer((_) => const Stream<AppUser?>.empty().asBroadcastStream());
     provider = AuthProvider(authService: service);
   });
 
@@ -51,20 +54,44 @@ void main() {
       expect(provider.currentUser, isNull);
     });
 
-    test('becomes authenticated and loads the profile when signed in', () async {
-      when(() => service.fetchProfile('uid-1')).thenAnswer((_) async => profile);
+    test('becomes authenticated and loads the profile when signed in',
+        () async {
+      when(() => service.fetchProfile('uid-1'))
+          .thenAnswer((_) async => profile);
       authStream.add(MockUser(uid: 'uid-1'));
       await pump();
       expect(provider.status, AuthStatus.authenticated);
       expect(provider.currentUser, profile);
     });
 
-    test('stays authenticated when the profile cannot be loaded (offline)', () async {
-      when(() => service.fetchProfile(any())).thenThrow(AuthFailure.fromCode('network-request-failed'));
+    test('stays authenticated when the profile cannot be loaded (offline)',
+        () async {
+      when(() => service.fetchProfile(any()))
+          .thenThrow(AuthFailure.fromCode('network-request-failed'));
       authStream.add(MockUser(uid: 'uid-1'));
       await pump();
       expect(provider.status, AuthStatus.authenticated);
       expect(provider.currentUser, isNull);
+    });
+
+    test('signs out a disabled account and explains why', () async {
+      final disabled = AppUser(
+        id: 'uid-1',
+        fullName: 'Amel Ben Salah',
+        email: 'amel@esprit.tn',
+        createdAt: DateTime(2025, 1, 1),
+        disabled: true,
+      );
+      when(() => service.fetchProfile('uid-1'))
+          .thenAnswer((_) async => disabled);
+      when(() => service.signOut()).thenAnswer((_) async {});
+      authStream.add(MockUser(uid: 'uid-1'));
+      await pump();
+      verify(() => service.signOut()).called(1);
+      expect(provider.status, AuthStatus.visitor);
+      expect(provider.currentUser, isNull);
+      expect(provider.errorMessage,
+          "Compte désactivé. Contacte l'administration.");
     });
 
     test('notifies listeners on changes', () async {
@@ -95,7 +122,8 @@ void main() {
     });
 
     test('wraps unexpected exceptions with a generic message', () async {
-      when(() => service.signInWithEmail(any(), any())).thenThrow(StateError('boom'));
+      when(() => service.signInWithEmail(any(), any()))
+          .thenThrow(StateError('boom'));
       expect(await provider.login('a@b.co', 'x'), isFalse);
       expect(provider.errorMessage, 'Une erreur est survenue. Réessayez.');
       expect(provider.errorCode, 'unknown');
@@ -107,7 +135,8 @@ void main() {
       await provider.login('a@b.co', 'x');
       expect(provider.errorMessage, isNotNull);
 
-      when(() => service.signInWithEmail(any(), any())).thenAnswer((_) async => MockUserCredential());
+      when(() => service.signInWithEmail(any(), any()))
+          .thenAnswer((_) async => MockUserCredential());
       await provider.login('a@b.co', 'x');
       expect(provider.errorMessage, isNull);
       expect(provider.errorCode, isNull);
@@ -115,7 +144,8 @@ void main() {
 
     test('ignores a second submission while one is in flight', () async {
       final gate = Completer<UserCredential>();
-      when(() => service.signInWithEmail(any(), any())).thenAnswer((_) => gate.future);
+      when(() => service.signInWithEmail(any(), any()))
+          .thenAnswer((_) => gate.future);
 
       final first = provider.login('a@b.co', 'x');
       expect(provider.isLoading, isTrue);
@@ -127,7 +157,8 @@ void main() {
     });
 
     test('clearError removes the message', () async {
-      when(() => service.signInWithEmail(any(), any())).thenThrow(AuthFailure.fromCode('user-disabled'));
+      when(() => service.signInWithEmail(any(), any()))
+          .thenThrow(AuthFailure.fromCode('user-disabled'));
       await provider.login('a@b.co', 'x');
       provider.clearError();
       expect(provider.errorMessage, isNull);
@@ -144,20 +175,23 @@ void main() {
           )).thenAnswer((_) async => profile);
       when(() => service.sendEmailVerification()).thenAnswer((_) async {});
 
-      final ok = await provider.register(fullName: 'amel', email: 'amel@esprit.tn', password: 'secret123');
+      final ok = await provider.register(
+          fullName: 'amel', email: 'amel@esprit.tn', password: 'secret123');
       expect(ok, isTrue);
       expect(provider.currentUser, profile);
       verify(() => service.sendEmailVerification()).called(1);
     });
 
-    test('does not send a verification email when registration fails', () async {
+    test('does not send a verification email when registration fails',
+        () async {
       when(() => service.registerWithEmail(
             email: any(named: 'email'),
             password: any(named: 'password'),
             fullName: any(named: 'fullName'),
           )).thenThrow(AuthFailure.fromCode('email-already-in-use'));
 
-      final ok = await provider.register(fullName: 'amel', email: 'a@b.co', password: 'secret123');
+      final ok = await provider.register(
+          fullName: 'amel', email: 'a@b.co', password: 'secret123');
       expect(ok, isFalse);
       expect(provider.errorMessage, 'Cet email est déjà utilisé.');
       verifyNever(() => service.sendEmailVerification());
@@ -172,30 +206,37 @@ void main() {
     });
 
     test('Google errors are surfaced', () async {
-      when(() => service.signInWithGoogle())
-          .thenThrow(AuthFailure.fromCode('account-exists-with-different-credential'));
+      when(() => service.signInWithGoogle()).thenThrow(
+          AuthFailure.fromCode('account-exists-with-different-credential'));
       expect(await provider.loginWithGoogle(), isFalse);
       expect(provider.errorCode, 'account-exists-with-different-credential');
     });
 
     test('a refused biometric prompt yields biometric-denied', () async {
-      when(() => service.authenticateWithBiometrics()).thenAnswer((_) async => false);
+      when(() => service.authenticateWithBiometrics())
+          .thenAnswer((_) async => false);
       expect(await provider.loginWithBiometrics(), isFalse);
       expect(provider.errorCode, 'biometric-denied');
     });
 
     test('accepted biometrics reopen the remembered session', () async {
-      when(() => service.authenticateWithBiometrics()).thenAnswer((_) async => true);
-      when(() => service.currentFirebaseUser).thenReturn(MockUser(uid: 'uid-1', email: 'amel@esprit.tn'));
-      when(() => service.fetchProfile('uid-1')).thenAnswer((_) async => profile);
+      when(() => service.authenticateWithBiometrics())
+          .thenAnswer((_) async => true);
+      when(() => service.currentFirebaseUser)
+          .thenReturn(MockUser(uid: 'uid-1', email: 'amel@esprit.tn'));
+      when(() => service.fetchProfile('uid-1'))
+          .thenAnswer((_) async => profile);
 
       expect(await provider.loginWithBiometrics(), isTrue);
       expect(provider.status, AuthStatus.authenticated);
       expect(provider.currentUser?.fullName, 'Amel Ben Salah');
     });
 
-    test('accepted biometrics without a remembered session fail with no-session', () async {
-      when(() => service.authenticateWithBiometrics()).thenAnswer((_) async => true);
+    test(
+        'accepted biometrics without a remembered session fail with no-session',
+        () async {
+      when(() => service.authenticateWithBiometrics())
+          .thenAnswer((_) async => true);
       when(() => service.currentFirebaseUser).thenReturn(null);
 
       expect(await provider.loginWithBiometrics(), isFalse);
@@ -203,7 +244,9 @@ void main() {
       expect(provider.status, AuthStatus.unknown);
     });
 
-    test('checkBiometrics exposes the unlock button only with a sensor and a session', () async {
+    test(
+        'checkBiometrics exposes the unlock button only with a sensor and a session',
+        () async {
       when(() => service.canUseBiometrics()).thenAnswer((_) async => true);
       when(() => service.hasRestorableSession).thenReturn(true);
       var notified = 0;
@@ -217,7 +260,8 @@ void main() {
       when(() => service.hasRestorableSession).thenReturn(false);
       expect(provider.canUnlockWithBiometrics, isFalse);
 
-      await provider.checkBiometrics(); // inchangé : pas de notification superflue
+      await provider
+          .checkBiometrics(); // inchangé : pas de notification superflue
       expect(notified, 1);
     });
 
@@ -235,8 +279,10 @@ void main() {
       expect(await provider.sendPasswordReset('a@b.co'), isTrue);
     });
 
-    test('reports user-not-found with its code so the UI can stay neutral', () async {
-      when(() => service.sendPasswordReset(any())).thenThrow(AuthFailure.fromCode('user-not-found'));
+    test('reports user-not-found with its code so the UI can stay neutral',
+        () async {
+      when(() => service.sendPasswordReset(any()))
+          .thenThrow(AuthFailure.fromCode('user-not-found'));
       expect(await provider.sendPasswordReset('ghost@b.co'), isFalse);
       expect(provider.errorCode, 'user-not-found');
     });
@@ -244,19 +290,22 @@ void main() {
 
   group('phone OTP', () {
     test('sendPhoneOtp keeps the normalized number', () async {
-      when(() => service.sendPhoneOtp('20123456')).thenAnswer((_) async => '+21620123456');
+      when(() => service.sendPhoneOtp('20123456'))
+          .thenAnswer((_) async => '+21620123456');
       expect(await provider.sendPhoneOtp('20123456'), isTrue);
       expect(provider.otpPhone, '+21620123456');
     });
 
     test('sendPhoneOtp failure leaves otpPhone empty', () async {
-      when(() => service.sendPhoneOtp(any())).thenThrow(AuthFailure.fromCode('invalid-phone-number'));
+      when(() => service.sendPhoneOtp(any()))
+          .thenThrow(AuthFailure.fromCode('invalid-phone-number'));
       expect(await provider.sendPhoneOtp('abc'), isFalse);
       expect(provider.otpPhone, isNull);
       expect(provider.errorCode, 'invalid-phone-number');
     });
 
-    test('malformed codes are rejected locally without calling the service', () async {
+    test('malformed codes are rejected locally without calling the service',
+        () async {
       expect(await provider.verifyPhoneOtp('12ab'), isFalse);
       expect(provider.errorCode, 'invalid-verification-code');
       verifyNever(() => service.verifyPhoneOtp(any()));
@@ -269,9 +318,11 @@ void main() {
             fullName: any(named: 'fullName'),
           )).thenAnswer((_) async => profile);
       when(() => service.sendEmailVerification()).thenAnswer((_) async {});
-      await provider.register(fullName: 'amel', email: 'amel@esprit.tn', password: 'secret123');
+      await provider.register(
+          fullName: 'amel', email: 'amel@esprit.tn', password: 'secret123');
 
-      when(() => service.sendPhoneOtp(any())).thenAnswer((_) async => '+21620123456');
+      when(() => service.sendPhoneOtp(any()))
+          .thenAnswer((_) async => '+21620123456');
       await provider.sendPhoneOtp('20123456');
       when(() => service.verifyPhoneOtp('123456')).thenAnswer((_) async {});
 
@@ -282,23 +333,27 @@ void main() {
     });
 
     test('a wrong code from the backend is reported', () async {
-      when(() => service.verifyPhoneOtp(any())).thenThrow(AuthFailure.fromCode('invalid-verification-code'));
+      when(() => service.verifyPhoneOtp(any()))
+          .thenThrow(AuthFailure.fromCode('invalid-verification-code'));
       expect(await provider.verifyPhoneOtp('000000'), isFalse);
       expect(provider.errorMessage, 'Code incorrect. Vérifiez et réessayez.');
     });
   });
 
   group('profile & session', () {
-    test('updateProfile stores what the service returns (normalized)', () async {
+    test('updateProfile stores what the service returns (normalized)',
+        () async {
       final updated = profile.copyWith(major: 'GL');
       final normalized = updated.copyWith(fullName: 'Amel Ben Salah');
-      when(() => service.updateProfile(updated)).thenAnswer((_) async => normalized);
+      when(() => service.updateProfile(updated))
+          .thenAnswer((_) async => normalized);
       expect(await provider.updateProfile(updated), isTrue);
       expect(provider.currentUser, normalized);
     });
 
     test('updateProfile failure keeps the previous user', () async {
-      when(() => service.updateProfile(any())).thenThrow(AuthFailure.fromCode('network-request-failed'));
+      when(() => service.updateProfile(any()))
+          .thenThrow(AuthFailure.fromCode('network-request-failed'));
       expect(await provider.updateProfile(profile), isFalse);
       expect(provider.currentUser, isNull);
     });
@@ -315,7 +370,8 @@ void main() {
       expect(provider.status, AuthStatus.visitor);
     });
 
-    test('exportMyData is empty without a user and delegates otherwise', () async {
+    test('exportMyData is empty without a user and delegates otherwise',
+        () async {
       expect(await provider.exportMyData(), isEmpty);
 
       when(() => service.registerWithEmail(
@@ -324,8 +380,10 @@ void main() {
             fullName: any(named: 'fullName'),
           )).thenAnswer((_) async => profile);
       when(() => service.sendEmailVerification()).thenAnswer((_) async {});
-      await provider.register(fullName: 'amel', email: 'amel@esprit.tn', password: 'secret123');
-      when(() => service.exportUserData('uid-1')).thenAnswer((_) async => {'email': 'amel@esprit.tn'});
+      await provider.register(
+          fullName: 'amel', email: 'amel@esprit.tn', password: 'secret123');
+      when(() => service.exportUserData('uid-1'))
+          .thenAnswer((_) async => {'email': 'amel@esprit.tn'});
 
       expect(await provider.exportMyData(), {'email': 'amel@esprit.tn'});
     });
@@ -338,14 +396,21 @@ void main() {
   });
 
   group('account flags', () {
-    test('email verification and password provider come from the Firebase user', () async {
+    test('email verification and password provider come from the Firebase user',
+        () async {
       when(() => service.fetchProfile(any())).thenAnswer((_) async => profile);
-      authStream.add(MockUser(uid: 'uid-1', isEmailVerified: false, providerData: [FakeUserInfo('password')]));
+      authStream.add(MockUser(
+          uid: 'uid-1',
+          isEmailVerified: false,
+          providerData: [FakeUserInfo('password')]));
       await pump();
       expect(provider.emailVerified, isFalse);
       expect(provider.hasPasswordProvider, isTrue);
 
-      authStream.add(MockUser(uid: 'uid-1', isEmailVerified: true, providerData: [FakeUserInfo('google.com')]));
+      authStream.add(MockUser(
+          uid: 'uid-1',
+          isEmailVerified: true,
+          providerData: [FakeUserInfo('google.com')]));
       await pump();
       expect(provider.emailVerified, isTrue);
       expect(provider.hasPasswordProvider, isFalse);
@@ -353,7 +418,10 @@ void main() {
 
     test('flags reset on sign-out', () async {
       when(() => service.fetchProfile(any())).thenAnswer((_) async => profile);
-      authStream.add(MockUser(uid: 'uid-1', isEmailVerified: true, providerData: [FakeUserInfo('password')]));
+      authStream.add(MockUser(
+          uid: 'uid-1',
+          isEmailVerified: true,
+          providerData: [FakeUserInfo('password')]));
       await pump();
       authStream.add(null);
       await pump();
@@ -379,17 +447,20 @@ void main() {
             fullName: any(named: 'fullName'),
           )).thenAnswer((_) async => profile);
 
-      await provider.register(fullName: 'amel', email: 'amel@esprit.tn', password: 'secret123');
+      await provider.register(
+          fullName: 'amel', email: 'amel@esprit.tn', password: 'secret123');
       expect(provider.hasPasswordProvider, isTrue);
       expect(provider.canResendVerification, isFalse);
-      expect(provider.verificationCooldownLeft, AuthProvider.verificationCooldown);
+      expect(
+          provider.verificationCooldownLeft, AuthProvider.verificationCooldown);
 
       now = now.add(const Duration(seconds: 61));
       expect(provider.canResendVerification, isTrue);
       expect(provider.verificationCooldownLeft, Duration.zero);
     });
 
-    test('resend is refused during the cooldown and allowed afterwards', () async {
+    test('resend is refused during the cooldown and allowed afterwards',
+        () async {
       expect(await provider.resendVerificationEmail(), isTrue);
       verify(() => service.sendEmailVerification()).called(1);
 
@@ -416,7 +487,8 @@ void main() {
     });
 
     test('refreshEmailVerification surfaces failures', () async {
-      when(() => service.reloadUser()).thenThrow(AuthFailure.fromCode('network-request-failed'));
+      when(() => service.reloadUser())
+          .thenThrow(AuthFailure.fromCode('network-request-failed'));
       expect(await provider.refreshEmailVerification(), isFalse);
       expect(provider.errorCode, 'network-request-failed');
     });
@@ -424,9 +496,13 @@ void main() {
 
   group('changePassword', () {
     test('delegates to the service', () async {
-      when(() => service.changePassword(currentPassword: 'old12345', newPassword: 'new12345'))
-          .thenAnswer((_) async {});
-      expect(await provider.changePassword(currentPassword: 'old12345', newPassword: 'new12345'), isTrue);
+      when(() => service.changePassword(
+          currentPassword: 'old12345',
+          newPassword: 'new12345')).thenAnswer((_) async {});
+      expect(
+          await provider.changePassword(
+              currentPassword: 'old12345', newPassword: 'new12345'),
+          isTrue);
     });
 
     test('exposes the failure', () async {
@@ -434,7 +510,10 @@ void main() {
             currentPassword: any(named: 'currentPassword'),
             newPassword: any(named: 'newPassword'),
           )).thenThrow(AuthFailure.fromCode('wrong-password'));
-      expect(await provider.changePassword(currentPassword: 'x', newPassword: 'new12345'), isFalse);
+      expect(
+          await provider.changePassword(
+              currentPassword: 'x', newPassword: 'new12345'),
+          isFalse);
       expect(provider.errorCode, 'wrong-password');
     });
   });
@@ -447,7 +526,8 @@ void main() {
     });
 
     test('passes the password and ends the session on success', () async {
-      when(() => service.deleteAccount(password: 'secret123')).thenAnswer((_) async {});
+      when(() => service.deleteAccount(password: 'secret123'))
+          .thenAnswer((_) async {});
       expect(await provider.deleteAccount(password: 'secret123'), isTrue);
       expect(provider.status, AuthStatus.visitor);
       expect(provider.currentUser, isNull);
@@ -481,9 +561,11 @@ void main() {
       await pump();
     }
 
-    test('uploads, updates the profile and removes the previous photo', () async {
+    test('uploads, updates the profile and removes the previous photo',
+        () async {
       await signInWith(profile.copyWith(photoUrl: 'https://old'));
-      when(() => storage.uploadAvatar(file, uid: 'uid-1')).thenAnswer((_) async => 'https://new');
+      when(() => storage.uploadAvatar(file, uid: 'uid-1'))
+          .thenAnswer((_) async => 'https://new');
       when(() => storage.deleteByUrl('https://old')).thenAnswer((_) async {});
 
       expect(await provider.updateAvatar(file), isTrue);
@@ -491,9 +573,11 @@ void main() {
       verify(() => storage.deleteByUrl('https://old')).called(1);
     });
 
-    test('does not try to delete anything when there was no previous photo', () async {
+    test('does not try to delete anything when there was no previous photo',
+        () async {
       await signInWith(profile);
-      when(() => storage.uploadAvatar(file, uid: 'uid-1')).thenAnswer((_) async => 'https://new');
+      when(() => storage.uploadAvatar(file, uid: 'uid-1'))
+          .thenAnswer((_) async => 'https://new');
 
       expect(await provider.updateAvatar(file), isTrue);
       verifyNever(() => storage.deleteByUrl(any()));
@@ -501,7 +585,8 @@ void main() {
 
     test('an upload failure is reported and nothing is written', () async {
       await signInWith(profile.copyWith(photoUrl: 'https://old'));
-      when(() => storage.uploadAvatar(file, uid: 'uid-1')).thenThrow(AuthFailure.fromCode('invalid-file'));
+      when(() => storage.uploadAvatar(file, uid: 'uid-1'))
+          .thenThrow(AuthFailure.fromCode('invalid-file'));
 
       expect(await provider.updateAvatar(file), isFalse);
       expect(provider.errorCode, 'invalid-file');
@@ -517,13 +602,112 @@ void main() {
     });
   });
 
-  test('dispose cancels the auth subscription (no updates afterwards)', () async {
+  test('dispose cancels the auth subscription (no updates afterwards)',
+      () async {
     final local = AuthProvider(authService: service);
     local.dispose();
     authStream.add(null);
     await pump();
     expect(local.status, AuthStatus.unknown);
   });
+  group('live profile', () {
+    late StreamController<AppUser?> profiles;
+
+    setUp(() async {
+      profiles = StreamController<AppUser?>.broadcast();
+      when(() => service.watchProfile('uid-1'))
+          .thenAnswer((_) => profiles.stream);
+      when(() => service.fetchProfile('uid-1'))
+          .thenAnswer((_) async => profile);
+      when(() => service.signOut()).thenAnswer((_) async {});
+      authStream.add(MockUser(uid: 'uid-1'));
+      await pump();
+    });
+    tearDown(() => profiles.close());
+
+    test('subscribes once authenticated', () {
+      verify(() => service.watchProfile('uid-1')).called(1);
+      expect(profiles.hasListener, isTrue);
+    });
+
+    test('an admin decision updates the current user live', () async {
+      var notified = 0;
+      provider.addListener(() => notified++);
+      final verified = profile.copyWith(
+        isVerifiedStudent: true,
+        studentCard: StudentCard(
+          status: StudentCardStatus.verified,
+          imagePath: 'student_cards/uid-1/1.jpg',
+          reviewedAt: DateTime(2026, 10, 28),
+        ),
+      );
+      profiles.add(verified);
+      await pump();
+      expect(
+          provider.currentUser!.studentCard.status, StudentCardStatus.verified);
+      expect(provider.currentUser!.isVerifiedStudent, isTrue);
+      expect(notified, greaterThan(0));
+    });
+
+    test('a disabled snapshot signs out with the account-disabled code',
+        () async {
+      profiles.add(AppUser(
+        id: 'uid-1',
+        fullName: profile.fullName,
+        email: profile.email,
+        createdAt: profile.createdAt,
+        disabled: true,
+      ));
+      await pump();
+      verify(() => service.signOut()).called(1);
+      expect(provider.status, AuthStatus.visitor);
+      expect(provider.currentUser, isNull);
+      expect(provider.errorCode, AuthProvider.accountDisabledCode);
+      expect(provider.errorMessage, contains('Compte désactivé'));
+      expect(profiles.hasListener, isFalse);
+    });
+
+    test('logout and sign-out cancel the subscription', () async {
+      expect(await provider.logout(), isTrue);
+      expect(profiles.hasListener, isFalse);
+    });
+
+    test('a signed-out auth state cancels the subscription', () async {
+      authStream.add(null);
+      await pump();
+      expect(profiles.hasListener, isFalse);
+    });
+
+    test('dispose cancels the subscription', () async {
+      provider.dispose();
+      expect(profiles.hasListener, isFalse);
+      // tearDown disposes again: give it a fresh provider.
+      provider = AuthProvider(authService: service);
+    });
+  });
+
+  group('deleteAccount and the queued card', () {
+    test('discards the queued card before deleting the account', () async {
+      final cards = MockStudentCardService();
+      provider.dispose();
+      provider = AuthProvider(authService: service, studentCardService: cards);
+      when(() => service.fetchProfile('uid-1'))
+          .thenAnswer((_) async => profile);
+      authStream.add(MockUser(uid: 'uid-1'));
+      await pump();
+      when(() => cards.discardQueued('uid-1')).thenAnswer((_) async {});
+      when(() => service.deleteAccount(password: 'secret123'))
+          .thenAnswer((_) async {});
+
+      expect(await provider.deleteAccount(password: 'secret123'), isTrue);
+      verifyInOrder([
+        () => cards.discardQueued('uid-1'),
+        () => service.deleteAccount(password: 'secret123'),
+      ]);
+    });
+  });
 }
 
 class MockUserCredential extends Mock implements UserCredential {}
+
+class MockStudentCardService extends Mock implements StudentCardService {}

@@ -9,6 +9,7 @@ import '../core/constants/app_constants.dart';
 import '../core/utils/auth_failure.dart';
 import '../core/utils/validators.dart';
 import '../models/user_model.dart';
+import 'storage_service.dart';
 
 /// Gestion des Utilisateurs — authentification, inscription, OTP, biométrie,
 /// profil et cycle de vie du compte.
@@ -23,6 +24,10 @@ class AuthService {
   final FirebaseFirestore _firestore;
   final GoogleSignIn Function() _googleFactory;
   final LocalAuthentication Function() _localAuthFactory;
+
+  // Instancié à la demande : FirebaseStorage.instance exige une app Firebase.
+  final StorageService? _injectedStorage;
+  StorageService? _storage;
 
   GoogleSignIn? _google;
   LocalAuthentication? _localAuth;
@@ -48,7 +53,9 @@ class AuthService {
     FirebaseFirestore? firestore,
     GoogleSignIn Function()? googleFactory,
     LocalAuthentication Function()? localAuthFactory,
+    StorageService? storage,
   })  : _auth = auth ?? FirebaseAuth.instance,
+        _injectedStorage = storage,
         _firestore = firestore ?? FirebaseFirestore.instance,
         _googleFactory = googleFactory ?? _defaultGoogleSignIn,
         _localAuthFactory = localAuthFactory ?? LocalAuthentication.new;
@@ -89,6 +96,13 @@ class AuthService {
 
   Future<AppUser?> fetchProfile(String uid) => _guard(() async {
         final doc = await _userDoc(uid).get();
+        final data = doc.data();
+        return doc.exists && data != null ? AppUser.fromMap(doc.id, data) : null;
+      });
+
+  /// Profil en temps réel (décision d'un admin, désactivation du compte...).
+  /// Émet `null` tant que le document n'existe pas.
+  Stream<AppUser?> watchProfile(String uid) => _userDoc(uid).snapshots().map((doc) {
         final data = doc.data();
         return doc.exists && data != null ? AppUser.fromMap(doc.id, data) : null;
       });
@@ -393,6 +407,7 @@ class AuthService {
 
         final doc = _userDoc(user.uid);
         final backup = (await doc.get()).data();
+        await _deleteStoredFiles(backup);
         await doc.delete();
         try {
           await user.delete();
@@ -401,6 +416,32 @@ class AuthService {
           rethrow;
         }
       });
+
+  /// Supprime (best effort) la photo de carte étudiant et l'avatar du
+  /// compte. Tant que l'utilisateur est connecté, les règles Storage lui
+  /// permettent d'effacer ses propres fichiers ; un échec n'empêche pas la
+  /// suppression du compte.
+  Future<void> _deleteStoredFiles(Map<String, dynamic>? profile) async {
+    if (profile == null) return;
+    final card = profile['studentCard'];
+    final cardPath = card is Map ? card['imagePath'] : null;
+    final photoUrl = profile['photoUrl'];
+    try {
+      final storage = _storage ??= _injectedStorage ?? StorageService();
+      if (cardPath is String && cardPath.isNotEmpty) {
+        try {
+          await storage.deleteByPath(cardPath);
+        } catch (_) {}
+      }
+      if (photoUrl is String && photoUrl.isNotEmpty) {
+        try {
+          await storage.deleteByUrl(photoUrl);
+        } catch (_) {}
+      }
+    } catch (_) {
+      // Storage indisponible : les fichiers resteront orphelins.
+    }
+  }
 
   static dynamic _jsonSafe(dynamic value) {
     if (value is Timestamp) return value.toDate().toIso8601String();
