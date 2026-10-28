@@ -225,7 +225,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         controller: _majorCtrl,
                         textInputAction: TextInputAction.next,
                         validator: (v) => (v ?? '').trim().isEmpty
-                            ? 'Précise ta filière'
+                            ? 'Indique ta filière'
                             : Validators.major(v),
                       ),
                     ],

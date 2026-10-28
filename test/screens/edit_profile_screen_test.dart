@@ -240,7 +240,12 @@ void main() {
 
     testWidgets('switching from Autre to a listed department discards the text', (tester) async {
       await open(tester); // Génie Logiciel -> Autre
+      final other = find.descendant(
+          of: find.byKey(const Key('department-other')), matching: find.byType(TextFormField));
+      await tester.ensureVisible(other);
+      await tester.enterText(other, 'Texte obsolète');
       await pickDepartment(tester, 'Business');
+      expect(find.byKey(const Key('department-other')), findsNothing);
       await tapText(tester, 'Enregistrer');
       await tester.pumpAndSettle();
       expect(savedUser().major, 'Business');
@@ -266,7 +271,11 @@ void main() {
       await tester.enterText(other, '  ');
       await tapText(tester, 'Enregistrer');
       await tester.pump();
-      expect(find.text('Précise ta filière'), findsWidgets);
+      expect(
+        find.descendant(
+            of: find.byKey(const Key('department-other')), matching: find.text('Indique ta filière')),
+        findsOneWidget,
+      );
       verifyNever(() => h.service.updateProfile(any()));
     });
 
