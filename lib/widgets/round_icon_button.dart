@@ -35,7 +35,7 @@ class RoundIconButton extends StatelessWidget {
     final (styleFill, fg) = switch (style) {
       RoundButtonStyle.surface => (t.surface, t.textPrimary),
       RoundButtonStyle.soft => (t.primarySoft, t.primary),
-      RoundButtonStyle.primary => (t.primary, Colors.white),
+      RoundButtonStyle.primary => (t.primary, t.onPrimary),
       RoundButtonStyle.onPhoto => (Colors.white, AppTokens.light.textPrimary),
     };
     final fill = background ?? styleFill;

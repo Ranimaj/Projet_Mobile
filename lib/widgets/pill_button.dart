@@ -45,7 +45,7 @@ class _PillButtonState extends State<PillButton> {
     final disabled = widget.onPressed == null;
 
     final (fill, onFill) = switch (widget.style) {
-      PillStyle.primary => (t.primary, Colors.white),
+      PillStyle.primary => (t.primary, t.onPrimary),
       PillStyle.ghost => (t.surface, t.primary),
       PillStyle.dark => (AppTokens.dark.surface, Colors.white),
       PillStyle.danger => (t.dangerSoft, t.danger),

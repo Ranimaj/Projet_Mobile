@@ -74,6 +74,24 @@ void main() {
     expect(t.takeException(), isNull);
   });
 
+  testWidgets('photo area and sheet fill the screen with no gap', (t) async {
+    await pump(t);
+    final pageView = t.getSize(find.byType(PageView)).height;
+    final sheet = t.getSize(find.byKey(const Key('onboarding-sheet'))).height;
+    expect(pageView + sheet, 1000);
+    expect(pageView, greaterThan(1000 / 3));
+  });
+
+  testWidgets('Commencer is reachable by scrolling at 360x640, scale 1.3',
+      (t) async {
+    await pump(t, size: const Size(360, 640), textScale: 1.3);
+    await t.scrollUntilVisible(find.text('Commencer'), 50,
+        scrollable: find.descendant(
+            of: find.byType(SingleChildScrollView),
+            matching: find.byType(Scrollable)));
+    expect(find.text('Commencer').hitTestable(), findsOneWidget);
+  });
+
   for (final b in Brightness.values) {
     testWidgets('no small text at 360x640 (${b.name})', (t) async {
       await pump(t, brightness: b, size: const Size(360, 640));
