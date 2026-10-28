@@ -6,10 +6,13 @@ import '../../services/app_prefs.dart';
 import '../../widgets/pill_button.dart';
 
 const _assets = [
-  'assets/images/onboarding/campus_1.jpg',
-  'assets/images/onboarding/campus_2.jpg',
-  'assets/images/onboarding/campus_3.jpg',
+  'assets/images/onboarding/esprit_lab.jpg',
+  'assets/images/onboarding/esprit_campus.jpg',
+  'assets/images/onboarding/esprit_whiteboard.jpg',
+  'assets/images/onboarding/esprit_laptops.jpg',
+  'assets/images/onboarding/esprit_team.jpg',
 ];
+const _logoAsset = 'assets/images/onboarding/esprit_logo.png';
 
 const double _sheetRadius = 28.0;
 const double _bubbleRadius = 22.0;
@@ -80,8 +83,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               onPageChanged: (i) => setState(() => _page = i),
               children: const [
                 _CollagePage(),
+                _PhotoPage(asset: 0),
                 _PhotoPage(asset: 1),
-                _PhotoPage(asset: 2),
               ],
             ),
           ),
@@ -244,18 +247,20 @@ class _PhotoPage extends StatelessWidget {
 class _OvalSpec {
   /// Centre et diamètre, en fraction de la largeur disponible (y : de la hauteur).
   final double cx, cy, diameter;
-  final int asset;
+
+  /// Index dans [_assets], ou null pour le logo ESPRIT.
+  final int? asset;
   final Alignment crop;
   const _OvalSpec(this.cx, this.cy, this.diameter, this.asset, this.crop);
 }
 
 const _ovals = [
-  _OvalSpec(0.22, 0.22, 0.34, 0, Alignment.topLeft),
-  _OvalSpec(0.70, 0.16, 0.28, 1, Alignment.center),
-  _OvalSpec(0.88, 0.46, 0.22, 2, Alignment.topRight),
-  _OvalSpec(0.12, 0.58, 0.24, 1, Alignment.bottomLeft),
-  _OvalSpec(0.44, 0.52, 0.36, 2, Alignment.center),
-  _OvalSpec(0.76, 0.80, 0.30, 0, Alignment.bottomRight),
+  _OvalSpec(0.22, 0.22, 0.34, 0, Alignment(-0.3, 0)),
+  _OvalSpec(0.70, 0.16, 0.28, 4, Alignment(0.8, 0)),
+  _OvalSpec(0.88, 0.46, 0.22, null, Alignment.center),
+  _OvalSpec(0.12, 0.58, 0.24, 3, Alignment(0.4, -0.2)),
+  _OvalSpec(0.44, 0.52, 0.36, 2, Alignment(0.6, 0)),
+  _OvalSpec(0.76, 0.80, 0.30, 1, Alignment(0, -0.2)),
 ];
 
 class _BubbleSpec {
@@ -295,11 +300,23 @@ class _CollagePage extends StatelessWidget {
                     height: o.diameter * w,
                     child: ExcludeSemantics(
                       child: ClipOval(
-                        child: Image.asset(
-                          _assets[o.asset],
-                          fit: BoxFit.cover,
-                          alignment: o.crop,
-                        ),
+                        child: o.asset == null
+                            // Le logo a un fond blanc : on garde ce blanc
+                            // autour pour qu'il reste lisible dans le cercle.
+                            ? ColoredBox(
+                                color: Colors.white,
+                                child: Padding(
+                                  padding:
+                                      EdgeInsets.all(o.diameter * w * 0.12),
+                                  child: Image.asset(_logoAsset,
+                                      fit: BoxFit.contain),
+                                ),
+                              )
+                            : Image.asset(
+                                _assets[o.asset!],
+                                fit: BoxFit.cover,
+                                alignment: o.crop,
+                              ),
                       ),
                     ),
                   ),
