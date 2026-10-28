@@ -219,6 +219,57 @@ void main() {
       expect(savedUser().major, 'Data Science');
     });
 
+    testWidgets('an existing listed major preselects that department', (tester) async {
+      await h.signIn(tester, user: sampleUser.copyWith(major: 'Génie Civil'));
+      await h.pump(tester, const EditProfileScreen());
+      expect(find.text('Génie Civil'), findsOneWidget);
+      expect(find.byKey(const Key('department-other')), findsNothing);
+    });
+
+    testWidgets('an empty major leaves the dropdown unselected and saves empty', (tester) async {
+      await h.signIn(tester, user: sampleUser.copyWith(major: ''));
+      await h.pump(tester, const EditProfileScreen());
+      expect(find.byKey(const Key('department-other')), findsNothing);
+      for (final d in AppConstants.departments) {
+        expect(find.text(d), findsNothing);
+      }
+      await tapText(tester, 'Enregistrer');
+      await tester.pumpAndSettle();
+      expect(savedUser().major, '');
+    });
+
+    testWidgets('switching from Autre to a listed department discards the text', (tester) async {
+      await open(tester); // Génie Logiciel -> Autre
+      await pickDepartment(tester, 'Business');
+      await tapText(tester, 'Enregistrer');
+      await tester.pumpAndSettle();
+      expect(savedUser().major, 'Business');
+    });
+
+    testWidgets('invalid free text is rejected inline', (tester) async {
+      await open(tester);
+      final other = find.descendant(
+          of: find.byKey(const Key('department-other')), matching: find.byType(TextFormField));
+      await tester.ensureVisible(other);
+      await tester.enterText(other, 'X');
+      await tapText(tester, 'Enregistrer');
+      await tester.pump();
+      expect(find.text('Filière trop courte'), findsOneWidget);
+      verifyNever(() => h.service.updateProfile(any()));
+    });
+
+    testWidgets('Autre with a blank text is rejected', (tester) async {
+      await open(tester);
+      final other = find.descendant(
+          of: find.byKey(const Key('department-other')), matching: find.byType(TextFormField));
+      await tester.ensureVisible(other);
+      await tester.enterText(other, '  ');
+      await tapText(tester, 'Enregistrer');
+      await tester.pump();
+      expect(find.text('Précise ta filière'), findsWidgets);
+      verifyNever(() => h.service.updateProfile(any()));
+    });
+
     testWidgets('a listed department is saved and hides the text field',
         (tester) async {
       await open(tester);
@@ -254,6 +305,17 @@ void main() {
       await tapText(tester, 'Enregistrer');
       await tester.pumpAndSettle();
       expect(savedUser().studentId, '19A12345');
+    });
+
+    testWidgets('emptying an existing id clears it', (tester) async {
+      await h.signIn(tester, user: sampleUser.copyWith(studentId: '19A12345'));
+      await h.pump(tester, const EditProfileScreen());
+      expect(find.widgetWithText(TextFormField, '19A12345'), findsOneWidget);
+      await tester.ensureVisible(idField());
+      await tester.enterText(idField(), '');
+      await tapText(tester, 'Enregistrer');
+      await tester.pumpAndSettle();
+      expect(savedUser().studentId, isNull);
     });
 
     testWidgets('an empty id is saved as null', (tester) async {

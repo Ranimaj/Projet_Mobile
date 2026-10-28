@@ -134,6 +134,12 @@ void main() {
       expect(StudentCard.fromMap(const {'status': 'bogus'}), StudentCard.none);
     });
 
+    test('toEditableMap writes a null studentId explicitly so merge clears it', () {
+      final editable = user.copyWith(clearStudentId: true).toEditableMap();
+      expect(editable.containsKey('studentId'), isTrue);
+      expect(editable['studentId'], isNull);
+    });
+
     test('toEditableMap contains campus, studentId but never studentCard or disabled', () {
       final editable = user.toEditableMap();
       expect(editable, isNot(contains('studentCard')));
