@@ -65,7 +65,8 @@ class AuthHarness {
 
   /// Monte [screen]. Avec [push], l'écran est poussé au-dessus d'une page
   /// factice pour pouvoir vérifier les `pop`.
-  Future<void> pump(WidgetTester tester, Widget screen, {bool push = true}) async {
+  Future<void> pump(WidgetTester tester, Widget screen,
+      {bool push = true, Brightness brightness = Brightness.light}) async {
     tester.view.physicalSize = const Size(420, 1000);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -79,6 +80,8 @@ class AuthHarness {
         ],
         child: MaterialApp(
           theme: AppTheme.light,
+          darkTheme: AppTheme.dark,
+          themeMode: brightness == Brightness.dark ? ThemeMode.dark : ThemeMode.light,
           home: push ? _Launcher(screen) : screen,
         ),
       ),

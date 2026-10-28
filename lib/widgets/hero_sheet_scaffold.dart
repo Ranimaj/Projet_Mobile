@@ -50,6 +50,7 @@ class HeroSheetScaffold extends StatelessWidget {
         final top = media.padding.top + 8;
 
         Widget content = ListView(
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
           padding: EdgeInsets.fromLTRB(kPagePadding, 0, kPagePadding,
               (bottomBar == null ? 24 : 112) + media.viewInsets.bottom),
           children: children,

@@ -120,9 +120,12 @@ void main() {
       expect(tester.widget<Text>(find.text('Confirmation requise')).style!.color, AppTokens.light.danger);
     });
 
-    testWidgets('no text under 13 px', (tester) async {
-      await open(tester);
-      expectNoSmallText(tester);
-    });
+    for (final brightness in Brightness.values) {
+      testWidgets('no text under 13 px in ${brightness.name}', (tester) async {
+        await h.signIn(tester);
+        await h.pump(tester, const ChangePasswordScreen(), brightness: brightness);
+        expectNoSmallText(tester);
+      });
+    }
   });
 }

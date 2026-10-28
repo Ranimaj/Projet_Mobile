@@ -54,10 +54,12 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
 
+    const subtitle = 'Pour ta sécurité, confirme d\'abord ton mot de passe actuel.';
+
     return HeroSheetScaffold(
       hero: const AuthHero(
         title: 'Changer le mot de passe',
-        subtitle: 'Pour ta sécurité, confirme d\'abord ton mot de passe actuel.',
+        subtitle: subtitle,
         icon: Icons.lock_reset_rounded,
       ),
       heroLeading: Navigator.of(context).canPop()
@@ -69,6 +71,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
             )
           : null,
       children: [
+        const AuthCompactNote(subtitle),
         Form(
           key: _formKey,
           child: Column(

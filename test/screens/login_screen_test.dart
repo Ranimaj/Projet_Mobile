@@ -445,6 +445,34 @@ void main() {
       expect(find.byTooltip('Déverrouiller par biométrie'), findsNothing);
     });
 
+    testWidgets('the biometric button is hidden when biometric_unlock is false in the provided AppPrefs', (tester) async {
+      SharedPreferences.setMockInitialValues({'biometric_unlock': false});
+      final appPrefs = AppPrefs(await SharedPreferences.getInstance());
+      when(() => service.canUseBiometrics()).thenAnswer((_) async => true);
+      when(() => service.hasRestorableSession).thenReturn(true);
+      await pumpAuthScreen(tester, provider, const LoginScreen(),
+          wrap: (app) => Provider<AppPrefs>.value(value: appPrefs, child: app));
+
+      expect(find.byTooltip('Continuer avec Google'), findsOneWidget);
+      expect(find.byTooltip('Déverrouiller par biométrie'), findsNothing);
+    });
+
+    testWidgets('with the keyboard open on a notched phone the hero title stays above the sheet', (tester) async {
+      await pumpAuthScreen(tester, provider, const LoginScreen(),
+          size: const Size(360, 640),
+          keyboardInset: 300,
+          wrap: (app) => Builder(
+                builder: (context) => MediaQuery(
+                  data: MediaQuery.of(context).copyWith(padding: const EdgeInsets.only(top: 56)),
+                  child: app,
+                ),
+              ));
+
+      // The sheet covers the last 28 dp of the 120 dp hero.
+      expect(tester.getRect(find.text('Bon retour')).bottom, lessThanOrEqualTo(120 - 28));
+      expect(tester.getRect(find.text('Bon retour')).top, greaterThanOrEqualTo(56));
+    });
+
     testWidgets('the biometric button follows a provided AppPrefs when enabled', (tester) async {
       SharedPreferences.setMockInitialValues({});
       final appPrefs = AppPrefs(await SharedPreferences.getInstance());

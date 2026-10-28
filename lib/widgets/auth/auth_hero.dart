@@ -17,6 +17,15 @@ class AuthHero extends StatelessWidget {
 
   static const double _tileSize = 48;
   static const double _compactBelow = 200;
+  static const double _sheetOverlap = 28; // HeroSheetScaffold pulls the sheet this far over the hero
+
+  /// Whether `HeroSheetScaffold` gives the hero its compact height here
+  /// (keyboard open or short screen). The hero then drops its subtitle, so a
+  /// screen whose subtitle carries information repeats it with [AuthCompactNote].
+  static bool compactOf(BuildContext context) {
+    final media = MediaQuery.of(context);
+    return media.viewInsets.bottom > 0 || media.size.height < 560;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -68,7 +77,7 @@ class AuthHero extends StatelessWidget {
             if (compact)
               Positioned(
                 top: top,
-                bottom: 0,
+                bottom: _sheetOverlap,
                 left: kPagePadding + _tileSize,
                 right: kPagePadding,
                 child: Align(
@@ -80,8 +89,8 @@ class AuthHero extends StatelessWidget {
               Positioned(
                 left: kPagePadding,
                 right: kPagePadding,
-                // Clears the 28 dp the sheet pulls over the hero, plus a 16 dp margin.
-                bottom: 28 + 16,
+                // Clears the sheet overlap, plus a 16 dp margin.
+                bottom: _sheetOverlap + 16,
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -116,4 +125,20 @@ class _Circle extends StatelessWidget {
   @override
   Widget build(BuildContext context) =>
       Container(width: size, height: size, decoration: BoxDecoration(shape: BoxShape.circle, color: color));
+}
+
+/// A line of text shown in the sheet only while the hero is compact, to keep
+/// the information of the hero subtitle visible when the keyboard is open.
+class AuthCompactNote extends StatelessWidget {
+  final String text;
+  const AuthCompactNote(this.text, {super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    if (!AuthHero.compactOf(context)) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Text(text, style: Theme.of(context).textTheme.bodyMedium),
+    );
+  }
 }

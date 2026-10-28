@@ -58,12 +58,14 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     final auth = context.watch<AuthProvider>();
     final reduceMotion = MediaQuery.of(context).disableAnimations;
 
+    final subtitle = _sent
+        ? 'Vérifie ta boîte mail, et tes courriers indésirables.'
+        : 'Nous t\'enverrons un lien pour choisir un nouveau mot de passe.';
+
     return HeroSheetScaffold(
       hero: AuthHero(
         title: _sent ? 'Lien envoyé' : 'Mot de passe oublié',
-        subtitle: _sent
-            ? 'Vérifie ta boîte mail, et tes courriers indésirables.'
-            : 'Nous t\'enverrons un lien pour choisir un nouveau mot de passe.',
+        subtitle: subtitle,
         icon: _sent ? Icons.mark_email_read_outlined : Icons.mark_email_unread_outlined,
       ),
       heroLeading: Navigator.of(context).canPop()
@@ -75,6 +77,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
             )
           : null,
       children: [
+        AuthCompactNote(subtitle),
         AnimatedSize(
           duration: reduceMotion ? Duration.zero : const Duration(milliseconds: 260),
           curve: Curves.easeOutCubic,
