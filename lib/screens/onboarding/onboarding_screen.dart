@@ -4,6 +4,7 @@ import '../../core/constants/layout.dart';
 import '../../core/theme/app_tokens.dart';
 import '../../services/app_prefs.dart';
 import '../../widgets/pill_button.dart';
+import '../../widgets/round_icon_button.dart';
 
 const _assets = [
   'assets/images/onboarding/campus_1.jpg',
@@ -52,9 +53,17 @@ class OnboardingScreen extends StatefulWidget {
 
 class _OnboardingScreenState extends State<OnboardingScreen> {
   int _page = 0;
+  bool _busy = false;
 
   Future<void> _finish(VoidCallback? next) async {
-    await widget.prefs.setOnboardingSeen();
+    if (_busy) return;
+    _busy = true;
+    try {
+      await widget.prefs.setOnboardingSeen();
+    } catch (_) {
+      _busy = false;
+      rethrow;
+    }
     next?.call();
   }
 
@@ -77,73 +86,80 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               ],
             ),
           ),
-          Container(
-            width: double.infinity,
-            decoration: BoxDecoration(
-              color: t.surface,
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(_sheetRadius)),
-            ),
-            child: SafeArea(
-              top: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(kPagePadding, 12, kPagePadding, 8),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 40,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: t.handle,
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    _Title(copy: c),
-                    const SizedBox(height: 8),
-                    Text(
-                      c.subtitle,
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context)
-                          .textTheme
-                          .bodyMedium
-                          ?.copyWith(color: t.textSecondary),
-                    ),
-                    const SizedBox(height: 16),
-                    _Dots(count: _copy.length, active: _page),
-                    const SizedBox(height: 16),
-                    PillButton(
-                      label: 'Commencer',
-                      onPressed: () => _finish(widget.onStart),
-                    ),
-                    TextButton(
-                      style: TextButton.styleFrom(
-                        minimumSize: const Size(48, 48),
-                        foregroundColor: t.textSecondary,
-                      ),
-                      onPressed: () => _finish(widget.onLogin),
-                      child: Text.rich(
-                        TextSpan(
-                          text: 'Déjà un compte ? ',
+          Flexible(
+            flex: 2,
+            child: Container(
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: t.surface,
+                borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(_sheetRadius)),
+              ),
+              child: SafeArea(
+                top: false,
+                child: SingleChildScrollView(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                        kPagePadding, 12, kPagePadding, 8),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 40,
+                          height: 4,
+                          decoration: BoxDecoration(
+                            color: t.handle,
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        _Title(copy: c),
+                        const SizedBox(height: 8),
+                        Text(
+                          c.subtitle,
+                          textAlign: TextAlign.center,
                           style: Theme.of(context)
                               .textTheme
                               .bodyMedium
                               ?.copyWith(color: t.textSecondary),
-                          children: [
-                            TextSpan(
-                              text: 'Se connecter',
-                              style: TextStyle(
-                                color: t.primary,
-                                fontWeight: FontWeight.w700,
-                                decoration: TextDecoration.underline,
-                                decorationColor: t.primary,
-                              ),
-                            ),
-                          ],
                         ),
-                      ),
+                        const SizedBox(height: 16),
+                        _Dots(count: _copy.length, active: _page),
+                        const SizedBox(height: 16),
+                        PillButton(
+                          label: 'Commencer',
+                          onPressed: () => _finish(widget.onStart),
+                        ),
+                        TextButton(
+                          style: TextButton.styleFrom(
+                            minimumSize: const Size(48, 48),
+                            foregroundColor: t.textSecondary,
+                          ),
+                          onPressed: () => _finish(widget.onLogin),
+                          child: Text.rich(
+                            TextSpan(
+                              text: 'Déjà un compte ? ',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodyMedium
+                                  ?.copyWith(color: t.textSecondary),
+                              children: [
+                                TextSpan(
+                                  text: 'Se connecter',
+                                  style: TextStyle(
+                                    color: t.primary,
+                                    fontWeight: FontWeight.w700,
+                                    decoration: TextDecoration.underline,
+                                    decorationColor: t.primary,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
               ),
             ),
@@ -219,15 +235,6 @@ class _PhotoPage extends StatelessWidget {
       fit: StackFit.expand,
       children: [
         ExcludeSemantics(child: Image.asset(_assets[asset], fit: BoxFit.cover)),
-        const DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.center,
-              end: Alignment.bottomCenter,
-              colors: [Colors.transparent, Colors.black54],
-            ),
-          ),
-        ),
       ],
     );
   }
@@ -252,13 +259,14 @@ const _ovals = [
 
 class _BubbleSpec {
   final double cx, cy, width;
-  const _BubbleSpec(this.cx, this.cy, this.width);
+  final IconData icon;
+  const _BubbleSpec(this.cx, this.cy, this.width, this.icon);
 }
 
 const _bubbles = [
-  _BubbleSpec(0.50, 0.08, 0.42),
-  _BubbleSpec(0.28, 0.40, 0.42),
-  _BubbleSpec(0.60, 0.70, 0.42),
+  _BubbleSpec(0.50, 0.08, 0.42, Icons.sell_rounded),
+  _BubbleSpec(0.28, 0.40, 0.42, Icons.event_rounded),
+  _BubbleSpec(0.60, 0.70, 0.42, Icons.work_rounded),
 ];
 
 class _CollagePage extends StatelessWidget {
@@ -299,7 +307,7 @@ class _CollagePage extends StatelessWidget {
                     left: b.cx * w - b.width * w / 2,
                     top: b.cy * h,
                     width: b.width * w,
-                    child: const _IconBubble(),
+                    child: _IconBubble(icon: b.icon),
                   ),
               ],
             );
@@ -312,7 +320,8 @@ class _CollagePage extends StatelessWidget {
 
 /// Bulle décorative : pastille orange et deux lignes grises.
 class _IconBubble extends StatelessWidget {
-  const _IconBubble();
+  final IconData icon;
+  const _IconBubble({required this.icon});
 
   @override
   Widget build(BuildContext context) {
@@ -337,11 +346,19 @@ class _IconBubble extends StatelessWidget {
         ),
         child: Row(
           children: [
-            Container(
+            SizedBox(
               width: _bubbleDot,
               height: _bubbleDot,
-              decoration: BoxDecoration(color: t.primary, shape: BoxShape.circle),
-              child: const Icon(Icons.campaign_rounded, size: 16, color: Colors.white),
+              child: OverflowBox(
+                maxWidth: 48,
+                maxHeight: 48,
+                child: RoundIconButton(
+                  icon: icon,
+                  style: RoundButtonStyle.primary,
+                  size: _bubbleDot,
+                  tooltip: '',
+                ),
+              ),
             ),
             const SizedBox(width: 10),
             Expanded(
