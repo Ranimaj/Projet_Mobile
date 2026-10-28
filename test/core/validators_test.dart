@@ -2,6 +2,23 @@ import 'package:campusconnect/core/utils/validators.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  group('student id', () {
+    test('null and empty are allowed', () {
+      expect(Validators.studentId(null), isNull);
+      expect(Validators.studentId('  '), isNull);
+    });
+    test('accepts 6 to 12 alphanumerics', () {
+      expect(Validators.studentId('ABC123'), isNull);
+      expect(Validators.studentId(' 19A123456789 '), isNull);
+    });
+    test('rejects other values', () {
+      const msg = 'Identifiant invalide (6 à 12 caractères)';
+      expect(Validators.studentId('A1'), msg);
+      expect(Validators.studentId('1234567890123'), msg);
+      expect(Validators.studentId('ab-1234'), msg);
+    });
+  });
+
   group('email', () {
     test('accepts valid addresses', () {
       for (final e in ['a@b.co', 'prenom.nom@esprit.tn', ' User+tag@sub.domain.com ']) {

@@ -12,7 +12,7 @@ import '../../models/user_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../widgets/auth/auth_feedback.dart';
 import '../../widgets/auth/auth_text_field.dart';
-import '../../widgets/primary_button.dart';
+import '../../widgets/pill_button.dart';
 import '../../widgets/section_card.dart';
 
 /// BF3 — modifier son profil : photo, nom, filière, année, compétences.
@@ -27,12 +27,15 @@ class EditProfileScreen extends StatefulWidget {
 }
 
 class _EditProfileScreenState extends State<EditProfileScreen> {
+  static const _otherDepartment = 'Autre';
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _nameCtrl;
   late final TextEditingController _majorCtrl;
+  late final TextEditingController _studentIdCtrl;
   final _skillCtrl = TextEditingController();
 
   String? _year;
+  String? _department;
   late List<String> _skills;
   String? _skillError;
   bool _uploadingAvatar = false;
@@ -42,7 +45,18 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     super.initState();
     final user = context.read<AuthProvider>().currentUser!;
     _nameCtrl = TextEditingController(text: user.fullName);
-    _majorCtrl = TextEditingController(text: user.major ?? '');
+    final major = (user.major ?? '').trim();
+    if (major.isEmpty) {
+      _department = null;
+      _majorCtrl = TextEditingController();
+    } else if (AppConstants.departments.contains(major)) {
+      _department = major;
+      _majorCtrl = TextEditingController();
+    } else {
+      _department = _otherDepartment;
+      _majorCtrl = TextEditingController(text: major);
+    }
+    _studentIdCtrl = TextEditingController(text: user.studentId ?? '');
     _year = (user.year?.isEmpty ?? true) ? null : user.year;
     _skills = List.of(user.skills);
   }
@@ -51,6 +65,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   void dispose() {
     _nameCtrl.dispose();
     _majorCtrl.dispose();
+    _studentIdCtrl.dispose();
     _skillCtrl.dispose();
     super.dispose();
   }
@@ -74,7 +89,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     setState(() => _uploadingAvatar = false);
     showAuthSnack(
       context,
-      ok ? 'Photo de profil mise à jour.' : (auth.errorMessage ?? 'Envoi impossible.'),
+      ok
+          ? 'Photo de profil mise à jour.'
+          : (auth.errorMessage ?? 'Envoi impossible.'),
       isError: !ok,
     );
   }
@@ -86,7 +103,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       return;
     }
     if (_skills.length >= AppConstants.maxSkills) {
-      setState(() => _skillError = '${AppConstants.maxSkills} compétences maximum');
+      setState(
+          () => _skillError = '${AppConstants.maxSkills} compétences maximum');
       return;
     }
     setState(() {
@@ -100,9 +118,14 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     FocusScope.of(context).unfocus();
     if (!_formKey.currentState!.validate()) return;
     final auth = context.read<AuthProvider>();
+    final studentId = _studentIdCtrl.text.trim();
     final updated = auth.currentUser!.copyWith(
       fullName: _nameCtrl.text,
-      major: _majorCtrl.text.trim(),
+      major: _department == _otherDepartment
+          ? _majorCtrl.text.trim()
+          : (_department ?? ''),
+      studentId: studentId.isEmpty ? null : studentId,
+      clearStudentId: studentId.isEmpty,
       year: _year ?? '',
       skills: _skills,
     );
@@ -120,9 +143,14 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
     final user = auth.currentUser;
-    if (user == null) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    if (user == null) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
 
-    final yearItems = <String>{...AppConstants.studyYears, if (_year != null) _year!}.toList();
+    final yearItems = <String>{
+      ...AppConstants.studyYears,
+      if (_year != null) _year!
+    }.toList();
 
     return Scaffold(
       appBar: AppBar(title: const Text('Modifier le profil')),
@@ -155,7 +183,18 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                       validator: Validators.fullName,
                     ),
                     const SizedBox(height: 12),
-                    _ReadOnlyField(label: 'Email académique', value: user.email),
+                    _ReadOnlyField(
+                        label: 'Email académique', value: user.email),
+                    const SizedBox(height: 12),
+                    AuthTextField(
+                      key: const Key('student-id'),
+                      label: 'Identifiant étudiant',
+                      hint: 'Optionnel',
+                      icon: Icons.badge_outlined,
+                      controller: _studentIdCtrl,
+                      textInputAction: TextInputAction.next,
+                      validator: Validators.studentId,
+                    ),
                   ],
                 ),
                 const SizedBox(height: 20),
@@ -163,14 +202,31 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                   title: 'Parcours',
                   padding: const EdgeInsets.all(18),
                   children: [
-                    AuthTextField(
-                      label: 'Filière',
-                      hint: 'Génie Logiciel, Business Intelligence…',
-                      icon: Icons.school_outlined,
-                      controller: _majorCtrl,
-                      textInputAction: TextInputAction.next,
-                      validator: Validators.major,
+                    const _FieldLabel('Filière'),
+                    const SizedBox(height: 6),
+                    DropdownButtonFormField<String>(
+                      key: const Key('department-dropdown'),
+                      initialValue: _department,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                          prefixIcon: Icon(Icons.school_outlined, size: 20)),
+                      items: [
+                        for (final d in AppConstants.departments)
+                          DropdownMenuItem<String>(value: d, child: Text(d)),
+                      ],
+                      onChanged: (v) => setState(() => _department = v),
                     ),
+                    if (_department == _otherDepartment) ...[
+                      const SizedBox(height: 12),
+                      AuthTextField(
+                        key: const Key('department-other'),
+                        label: 'Précise ta filière',
+                        icon: Icons.edit_outlined,
+                        controller: _majorCtrl,
+                        textInputAction: TextInputAction.next,
+                        validator: Validators.major,
+                      ),
+                    ],
                     const SizedBox(height: 16),
                     const _FieldLabel('Année d\'étude'),
                     const SizedBox(height: 6),
@@ -178,11 +234,14 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                       key: const Key('year-dropdown'),
                       initialValue: _year,
                       decoration: const InputDecoration(
-                        prefixIcon: Icon(Icons.calendar_today_outlined, size: 20, color: AppColors.lavender),
+                        prefixIcon: Icon(Icons.calendar_today_outlined,
+                            size: 20, color: AppColors.lavender),
                       ),
                       items: [
-                        const DropdownMenuItem<String?>(value: null, child: Text('Non renseignée')),
-                        for (final y in yearItems) DropdownMenuItem<String?>(value: y, child: Text(y)),
+                        const DropdownMenuItem<String?>(
+                            value: null, child: Text('Non renseignée')),
+                        for (final y in yearItems)
+                          DropdownMenuItem<String?>(value: y, child: Text(y)),
                       ],
                       onChanged: (v) => setState(() => _year = v),
                     ),
@@ -206,8 +265,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                           for (final skill in _skills)
                             InputChip(
                               label: Text(skill),
-                              onDeleted: () => setState(() => _skills.remove(skill)),
-                              deleteIcon: const Icon(Icons.close_rounded, size: 16),
+                              onDeleted: () =>
+                                  setState(() => _skills.remove(skill)),
+                              deleteIcon:
+                                  const Icon(Icons.close_rounded, size: 16),
                               deleteIconColor: AppColors.textSecondary,
                             ),
                         ],
@@ -224,12 +285,15 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                             textCapitalization: TextCapitalization.sentences,
                             onSubmitted: (_) => _addSkill(),
                             onChanged: (_) {
-                              if (_skillError != null) setState(() => _skillError = null);
+                              if (_skillError != null) {
+                                setState(() => _skillError = null);
+                              }
                             },
                             decoration: InputDecoration(
                               hintText: 'Ex. Flutter, Gestion de projet',
                               errorText: _skillError,
-                              prefixIcon: const Icon(Icons.star_outline_rounded, size: 20, color: AppColors.lavender),
+                              prefixIcon: const Icon(Icons.star_outline_rounded,
+                                  size: 20, color: AppColors.lavender),
                             ),
                           ),
                         ),
@@ -239,7 +303,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                           child: FilledButton.tonal(
                             onPressed: _addSkill,
                             style: FilledButton.styleFrom(
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12)),
                             ),
                             child: const Text('Ajouter'),
                           ),
@@ -249,7 +314,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                   ],
                 ),
                 const SizedBox(height: 26),
-                PrimaryButton(
+                PillButton(
                   label: 'Enregistrer',
                   icon: Icons.check_rounded,
                   isLoading: auth.isLoading && !_uploadingAvatar,
@@ -268,7 +333,8 @@ class _AvatarEditor extends StatelessWidget {
   final AppUser user;
   final bool busy;
   final VoidCallback? onTap;
-  const _AvatarEditor({required this.user, required this.busy, required this.onTap});
+  const _AvatarEditor(
+      {required this.user, required this.busy, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -279,17 +345,24 @@ class _AvatarEditor extends StatelessWidget {
             width: 104,
             height: 104,
             padding: const EdgeInsets.all(3),
-            decoration: const BoxDecoration(color: AppColors.primary, shape: BoxShape.circle),
+            decoration: const BoxDecoration(
+                color: AppColors.primary, shape: BoxShape.circle),
             child: CircleAvatar(
               backgroundColor: AppColors.surface,
-              backgroundImage:
-                  user.photoUrl == null ? null : CachedNetworkImageProvider(user.photoUrl!),
+              backgroundImage: user.photoUrl == null
+                  ? null
+                  : CachedNetworkImageProvider(user.photoUrl!),
               child: busy
-                  ? const SizedBox(width: 26, height: 26, child: CircularProgressIndicator(strokeWidth: 2.5))
+                  ? const SizedBox(
+                      width: 26,
+                      height: 26,
+                      child: CircularProgressIndicator(strokeWidth: 2.5))
                   : user.photoUrl == null
                       ? Text(user.initials,
                           style: const TextStyle(
-                              fontSize: 30, fontWeight: FontWeight.w700, color: AppColors.primary))
+                              fontSize: 30,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.primary))
                       : null,
             ),
           ),
@@ -298,13 +371,15 @@ class _AvatarEditor extends StatelessWidget {
             bottom: 0,
             child: Material(
               color: AppColors.primary2,
-              shape: const CircleBorder(side: BorderSide(color: Colors.white, width: 2)),
+              shape: const CircleBorder(
+                  side: BorderSide(color: Colors.white, width: 2)),
               child: InkWell(
                 customBorder: const CircleBorder(),
                 onTap: busy ? null : onTap,
                 child: const Padding(
                   padding: EdgeInsets.all(8),
-                  child: Icon(Icons.photo_camera_rounded, size: 16, color: Colors.white),
+                  child: Icon(Icons.photo_camera_rounded,
+                      size: 16, color: Colors.white),
                 ),
               ),
             ),
@@ -323,7 +398,10 @@ class _FieldLabel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Text(
       text,
-      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
+      style: const TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
+          color: AppColors.textPrimary),
     );
   }
 }
@@ -350,10 +428,14 @@ class _ReadOnlyField extends StatelessWidget {
           ),
           child: Row(
             children: [
-              const Icon(Icons.mail_outline_rounded, size: 20, color: AppColors.textSecondary),
+              const Icon(Icons.mail_outline_rounded,
+                  size: 20, color: AppColors.textSecondary),
               const SizedBox(width: 10),
-              Expanded(child: Text(value, style: const TextStyle(color: AppColors.textSecondary))),
-              const Icon(Icons.lock_outline_rounded, size: 16, color: AppColors.textSecondary),
+              Expanded(
+                  child: Text(value,
+                      style: const TextStyle(color: AppColors.textSecondary))),
+              const Icon(Icons.lock_outline_rounded,
+                  size: 16, color: AppColors.textSecondary),
             ],
           ),
         ),

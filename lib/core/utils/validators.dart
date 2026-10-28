@@ -98,6 +98,15 @@ class Validators {
     return null;
   }
 
+  static final RegExp _studentIdRegex = RegExp(r'^[A-Za-z0-9]{6,12}$');
+
+  /// Identifiant étudiant : facultatif, sinon 6 à 12 caractères alphanumériques.
+  static String? studentId(String? value) {
+    final v = (value ?? '').trim();
+    if (v.isEmpty) return null;
+    return _studentIdRegex.hasMatch(v) ? null : 'Identifiant invalide (6 à 12 caractères)';
+  }
+
   /// Compétence ajoutée au profil (ex. "Flutter", "Gestion de projet").
   static String? skill(String? value, {List<String> existing = const []}) {
     final v = (value ?? '').trim();
