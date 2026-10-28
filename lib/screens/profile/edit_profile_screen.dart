@@ -224,7 +224,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         icon: Icons.edit_outlined,
                         controller: _majorCtrl,
                         textInputAction: TextInputAction.next,
-                        validator: Validators.major,
+                        validator: (v) => (v ?? '').trim().isEmpty
+                            ? 'Précise ta filière'
+                            : Validators.major(v),
                       ),
                     ],
                     const SizedBox(height: 16),
