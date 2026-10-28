@@ -12,12 +12,16 @@ class DonutChart extends StatelessWidget {
     this.centerLabel,
     this.size = 120,
     this.emptyText = 'Pas encore de données',
+    this.showLegend = true,
   });
 
   final List<ChartSlice> slices;
   final String? centerLabel;
   final double size;
   final String emptyText;
+
+  /// Hides the legend when only the ring is wanted (compact uses).
+  final bool showLegend;
 
   @override
   Widget build(BuildContext context) {
@@ -55,8 +59,9 @@ class DonutChart extends StatelessWidget {
             ],
           ),
         ),
-        const SizedBox(width: 12),
-        Expanded(
+        if (showLegend) const SizedBox(width: 12),
+        if (showLegend)
+          Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
