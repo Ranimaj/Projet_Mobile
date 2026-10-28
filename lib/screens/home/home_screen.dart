@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../core/constants/app_constants.dart';
 import '../../core/constants/layout.dart';
 import '../../core/theme/app_tokens.dart';
 import '../../core/theme/module_colors.dart';
@@ -406,7 +407,7 @@ class _Header extends StatelessWidget {
                           size: 18, color: t.primary),
                       const SizedBox(width: 2),
                       Flexible(
-                        child: Text('ESPRIT Ghazela',
+                        child: Text(AppConstants.defaultCampus,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: text.titleMedium),
