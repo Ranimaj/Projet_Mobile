@@ -134,6 +134,20 @@ class _RootRouterState extends State<RootRouter> {
     setState(() {});
   }
 
+  /// Un compte désactivé est déconnecté d'office : on l'explique une seule
+  /// fois sur l'accueil visiteur, puis on efface le message.
+  void _announceDisabledAccount(AuthProvider auth) {
+    if (auth.errorCode != AuthProvider.accountDisabledCode) return;
+    final message = auth.errorMessage;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (message != null) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+      }
+      auth.clearError();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
@@ -143,6 +157,7 @@ class _RootRouterState extends State<RootRouter> {
       case AuthStatus.unknown:
         return const Scaffold(body: Center(child: CircularProgressIndicator()));
       case AuthStatus.visitor:
+        _announceDisabledAccount(auth);
         if (!prefs.onboardingSeen) {
           return OnboardingScreen(
             prefs: prefs,

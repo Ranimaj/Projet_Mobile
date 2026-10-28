@@ -67,6 +67,24 @@ void main() {
       expect(provider.currentUser, isNull);
     });
 
+    test('signs out a disabled account and explains why', () async {
+      final disabled = AppUser(
+        id: 'uid-1',
+        fullName: 'Amel Ben Salah',
+        email: 'amel@esprit.tn',
+        createdAt: DateTime(2025, 1, 1),
+        disabled: true,
+      );
+      when(() => service.fetchProfile('uid-1')).thenAnswer((_) async => disabled);
+      when(() => service.signOut()).thenAnswer((_) async {});
+      authStream.add(MockUser(uid: 'uid-1'));
+      await pump();
+      verify(() => service.signOut()).called(1);
+      expect(provider.status, AuthStatus.visitor);
+      expect(provider.currentUser, isNull);
+      expect(provider.errorMessage, "Compte désactivé. Contacte l'administration.");
+    });
+
     test('notifies listeners on changes', () async {
       var notifications = 0;
       provider.addListener(() => notifications++);

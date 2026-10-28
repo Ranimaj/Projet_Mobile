@@ -38,6 +38,9 @@ class AuthProvider extends ChangeNotifier {
         queue: OfflineQueueService(),
       );
 
+  /// Code d'erreur posé quand un admin a désactivé le compte à la connexion.
+  static const String accountDisabledCode = 'account-disabled';
+
   /// Délai minimal entre deux envois d'email de vérification.
   static const Duration verificationCooldown = Duration(seconds: 60);
 
@@ -105,11 +108,28 @@ class AuthProvider extends ChangeNotifier {
       hasPasswordProvider = false;
     } else {
       _syncAccountFlags(firebaseUser);
+      AppUser? profile;
       try {
-        currentUser = await _authService.fetchProfile(firebaseUser.uid) ?? currentUser;
+        profile = await _authService.fetchProfile(firebaseUser.uid);
       } on AuthFailure {
         // Profil indisponible (hors-ligne...) : on garde la session ouverte.
       }
+      if (profile?.disabled == true) {
+        try {
+          await _authService.signOut();
+        } catch (_) {
+          // La session sera de toute façon masquée : l'app repasse en visiteur.
+        }
+        currentUser = null;
+        emailVerified = false;
+        hasPasswordProvider = false;
+        status = AuthStatus.visitor;
+        errorCode = accountDisabledCode;
+        errorMessage = "Compte désactivé. Contacte l'administration.";
+        notifyListeners();
+        return;
+      }
+      currentUser = profile ?? currentUser;
       status = AuthStatus.authenticated;
     }
     notifyListeners();
