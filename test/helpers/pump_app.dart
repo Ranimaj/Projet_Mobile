@@ -1,3 +1,4 @@
+import 'package:campusconnect/core/theme/app_theme.dart';
 import 'package:campusconnect/providers/auth_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -19,7 +20,7 @@ Future<AuthProvider> pumpAuthScreen(
     ChangeNotifierProvider<AuthProvider>.value(
       value: provider,
       child: MaterialApp(
-        theme: ThemeData(useMaterial3: true),
+        theme: AppTheme.light,
         home: Builder(
           builder: (context) => Scaffold(
             body: Center(

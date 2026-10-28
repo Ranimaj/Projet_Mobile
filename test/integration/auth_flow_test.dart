@@ -1,3 +1,4 @@
+import 'package:campusconnect/core/theme/app_theme.dart';
 import 'package:campusconnect/core/constants/app_constants.dart';
 import 'package:campusconnect/providers/auth_provider.dart';
 import 'package:campusconnect/screens/auth/login_screen.dart';
@@ -67,7 +68,7 @@ void main() {
     await tester.pumpWidget(
       ChangeNotifierProvider<AuthProvider>.value(
         value: provider,
-        child: MaterialApp(theme: ThemeData(useMaterial3: true), home: const _Root()),
+        child: MaterialApp(theme: AppTheme.light, home: const _Root()),
       ),
     );
     await tester.pumpAndSettle();

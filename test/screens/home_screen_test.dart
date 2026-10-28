@@ -1,3 +1,4 @@
+import 'package:campusconnect/core/theme/app_theme.dart';
 import 'package:campusconnect/core/theme/app_colors.dart';
 import 'package:campusconnect/models/annonce_model.dart';
 import 'package:campusconnect/models/article_model.dart';
@@ -179,6 +180,7 @@ void main() {
           ChangeNotifierProvider<JobProvider>.value(value: jobs),
         ],
         child: MaterialApp(
+            theme: AppTheme.light,
             home:
                 HomeScreen(onNavigate: navigated.add, now: () => now ?? _now)),
       ),
