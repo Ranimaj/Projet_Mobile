@@ -13,7 +13,8 @@ class PrimaryButton extends StatelessWidget {
   /// Optional fill tint (module screens); defaults to the theme primary.
   final Color? color;
 
-  /// Kept for compatibility; ignored (no gradients on buttons).
+  /// Kept for compatibility: only its first colour is used, as a flat fill,
+  /// when [color] is not given (no gradients on buttons).
   final Gradient? gradient;
 
   const PrimaryButton({
@@ -34,7 +35,8 @@ class PrimaryButton extends StatelessWidget {
       isLoading: isLoading,
       icon: icon,
     );
-    final tint = color;
+    final g = gradient;
+    final tint = color ?? (g is LinearGradient && g.colors.isNotEmpty ? g.colors.first : null);
     if (tint == null) return button;
     final theme = Theme.of(context);
     return Theme(
