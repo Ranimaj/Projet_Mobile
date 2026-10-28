@@ -52,7 +52,15 @@ class AdminUsersProvider extends ChangeNotifier {
     ];
   }
 
-  int get adminCount => users.where((u) => u.role == UserRole.admin).length;
+  /// Admins dont le compte est actif : un admin désactivé ne peut plus se
+  /// connecter, il ne compte donc pas comme recours.
+  int get adminCount =>
+      users.where((u) => u.role == UserRole.admin && !u.disabled).length;
+
+  /// On ne peut ni désactiver son propre compte ni le dernier admin actif.
+  bool canDisable(AppUser u) =>
+      u.id != currentAdminUid &&
+      !(u.role == UserRole.admin && !u.disabled && adminCount <= 1);
 
   /// Le dernier admin ne peut pas se rétrograder lui-même.
   bool canChangeRole(AppUser u, UserRole to) =>
@@ -81,8 +89,10 @@ class AdminUsersProvider extends ChangeNotifier {
     return _run(() => _service.setRole(user.id, to));
   }
 
-  Future<bool> setDisabled(AppUser user, bool disabled) =>
-      _run(() => _service.setDisabled(user.id, disabled));
+  Future<bool> setDisabled(AppUser user, bool disabled) {
+    if (disabled && !canDisable(user)) return Future.value(false);
+    return _run(() => _service.setDisabled(user.id, disabled));
+  }
 
   Future<bool> reviewCard(AppUser user,
           {required bool approve, String? reason}) =>
