@@ -53,6 +53,10 @@ class StorageService {
     return remotePath;
   }
 
+  /// URL de téléchargement d'un fichier à partir de son chemin Storage (les
+  /// cartes étudiant ne sont lisibles que par leur propriétaire et les admins).
+  Future<String> downloadUrl(String path) => _storage.ref(path).getDownloadURL();
+
   Future<List<String>> uploadImages(List<File> files, {required String folder}) async {
     final urls = <String>[];
     for (final file in files) {

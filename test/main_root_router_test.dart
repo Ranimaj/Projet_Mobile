@@ -26,13 +26,17 @@ class _MockEvents extends Mock implements EventProvider {}
 class _MockJobs extends Mock implements JobProvider {}
 
 void main() {
-  Future<void> pumpRouter(WidgetTester t, Map<String, Object> initial) async {
+  Future<void> pumpRouter(WidgetTester t, Map<String, Object> initial,
+      {String? disabledMessage}) async {
     SharedPreferences.setMockInitialValues(initial);
     final prefs = await AppPrefs.load();
     final auth = _MockAuth();
     when(() => auth.status).thenReturn(AuthStatus.visitor);
     when(() => auth.isLoading).thenReturn(false);
-    when(() => auth.errorMessage).thenReturn(null);
+    when(() => auth.errorMessage).thenReturn(disabledMessage);
+    when(() => auth.errorCode)
+        .thenReturn(disabledMessage == null ? null : AuthProvider.accountDisabledCode);
+    when(() => auth.clearError()).thenReturn(null);
     final articles = _MockArticles();
     final annonces = _MockAnnonces();
     final events = _MockEvents();
@@ -79,6 +83,14 @@ void main() {
     await pumpRouter(t, {'onboarding_seen': true});
     expect(find.byType(VisitorHomeScreen), findsOneWidget);
     expect(find.byType(OnboardingScreen), findsNothing);
+  });
+
+  testWidgets('a disabled account is explained once on the visitor home', (t) async {
+    await pumpRouter(t, {'onboarding_seen': true},
+        disabledMessage: "Compte désactivé. Contacte l'administration.");
+    await t.pump();
+    expect(find.byType(VisitorHomeScreen), findsOneWidget);
+    expect(find.text("Compte désactivé. Contacte l'administration."), findsOneWidget);
   });
 
   testWidgets('popping the auth screen after onboarding shows the visitor home',

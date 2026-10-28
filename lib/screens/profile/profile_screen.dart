@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -10,13 +11,16 @@ import '../../core/theme/app_tokens.dart';
 import '../../core/utils/auth_failure.dart';
 import '../../core/utils/validators.dart';
 import '../../models/user_model.dart';
+import '../../providers/admin_users_provider.dart';
 import '../../providers/annonce_provider.dart';
 import '../../providers/article_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/connectivity_provider.dart';
 import '../../providers/job_provider.dart';
 import '../../providers/theme_provider.dart';
+import '../../services/admin_user_service.dart';
 import '../../services/app_prefs.dart';
+import '../../services/storage_service.dart';
 import '../../widgets/auth/auth_feedback.dart';
 import '../../widgets/auth/auth_text_field.dart';
 import '../../widgets/hero_sheet_scaffold.dart';
@@ -27,6 +31,7 @@ import '../../widgets/round_icon_button.dart';
 import '../../widgets/setting_row.dart';
 import '../../widgets/stat_tile.dart';
 import '../../widgets/status_chip.dart';
+import '../admin/admin_users_screen.dart';
 import '../auth/otp_verification_screen.dart';
 import 'change_password_screen.dart';
 import 'edit_profile_screen.dart';
@@ -50,6 +55,20 @@ class ProfileScreen extends StatelessWidget {
     if (ok && context.mounted) {
       Navigator.of(context).popUntil((route) => route.isFirst);
     }
+  }
+
+  /// Les écrans d'administration partagent un [AdminUsersProvider] créé à
+  /// l'ouverture (flux temps réel des comptes) et libéré au retour.
+  void _openAdmin(BuildContext context, AppUser admin, Widget screen) {
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => ChangeNotifierProvider(
+        create: (_) => AdminUsersProvider(
+          AdminUserService(FirebaseFirestore.instance, storage: StorageService()),
+          currentAdminUid: admin.id,
+        ),
+        child: screen,
+      ),
+    ));
   }
 
   void _edit(BuildContext context) => Navigator.of(context)
@@ -405,19 +424,21 @@ class ProfileScreen extends StatelessWidget {
         ),
         if (user.role == UserRole.admin) ...[
           const SizedBox(height: 20),
-          const SettingGroup(
+          SettingGroup(
             title: 'Administration',
             children: [
-              // Branchés sur leurs écrans par les tâches d'administration.
               SettingRow(
-                  icon: Icons.group_rounded,
-                  title: 'Utilisateurs',
-                  onTap: null),
+                icon: Icons.group_rounded,
+                title: 'Utilisateurs',
+                onTap: () => _openAdmin(context, user, const AdminUsersScreen()),
+              ),
               SettingRow(
-                  icon: Icons.fact_check_rounded,
-                  title: 'Cartes à vérifier',
-                  onTap: null),
-              SettingRow(
+                icon: Icons.fact_check_rounded,
+                title: 'Cartes à vérifier',
+                onTap: () => _openAdmin(context, user,
+                    const AdminUsersScreen(initialCardFilter: StudentCardStatus.pending)),
+              ),
+              const SettingRow(
                   icon: Icons.insights_rounded,
                   title: 'Statistiques',
                   onTap: null),
