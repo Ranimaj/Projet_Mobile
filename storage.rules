@@ -22,9 +22,11 @@ service firebase.storage {
         && (request.resource == null || isSmallImage()); // null = suppression
     }
 
-    // Carte étudiante : écriture par son propriétaire, lecture par lui et les admins
+    // Carte étudiante : écriture (et suppression) par son propriétaire,
+    // lecture par lui et les admins
     match /student_cards/{userId}/{file} {
-      allow write: if isSignedIn() && request.auth.uid == userId && isSmallImage();
+      allow write: if isSignedIn() && request.auth.uid == userId
+        && (request.resource == null || isSmallImage()); // null = suppression
       allow read: if isSignedIn() && (request.auth.uid == userId
           || firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role == 'admin');
     }

@@ -81,7 +81,50 @@ describe('users rules', () => {
     const db = env.authenticatedContext('alice').firestore();
     await assertFails(
       updateDoc(doc(db, 'users/alice'), {
-        studentCard: { status: 'pending', imagePath: 'x.jpg', reviewedBy: 'alice' },
+        studentCard: {
+          status: 'pending',
+          imagePath: 'student_cards/alice/x.jpg',
+          submittedAt: serverTimestamp(),
+          reviewedBy: 'alice',
+        },
+      }),
+    );
+  });
+
+  it('owner cannot point a submission at another user\'s card', async () => {
+    await seed();
+    const db = env.authenticatedContext('alice').firestore();
+    await assertFails(
+      updateDoc(doc(db, 'users/alice'), {
+        studentCard: {
+          status: 'pending',
+          imagePath: 'student_cards/bob/card.jpg',
+          submittedAt: serverTimestamp(),
+        },
+      }),
+    );
+  });
+
+  it('owner cannot use a look-alike prefix for another user', async () => {
+    await seed();
+    const db = env.authenticatedContext('alice').firestore();
+    await assertFails(
+      updateDoc(doc(db, 'users/alice'), {
+        studentCard: {
+          status: 'pending',
+          imagePath: 'student_cards/alice2/card.jpg',
+          submittedAt: serverTimestamp(),
+        },
+      }),
+    );
+  });
+
+  it('owner cannot submit without submittedAt', async () => {
+    await seed();
+    const db = env.authenticatedContext('alice').firestore();
+    await assertFails(
+      updateDoc(doc(db, 'users/alice'), {
+        studentCard: { status: 'pending', imagePath: 'student_cards/alice/card.jpg' },
       }),
     );
   });

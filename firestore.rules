@@ -54,9 +54,15 @@ service cloud.firestore {
     // Le propriétaire ne peut que soumettre sa carte étudiante (status
     // 'pending') : jamais 'verified' / 'rejected' ni les champs reviewed*,
     // réservés à l'admin.
-    function studentCardChangeIsSubmission() {
+    // Le propriétaire ne soumet sa carte que vers « pending », avec une
+    // photo rangée sous SON dossier student_cards/{userId}/ (pas celle d'un
+    // autre) et une date d'envoi.
+    function studentCardChangeIsSubmission(userId) {
       return !changedKeys().hasAny(['studentCard'])
         || (request.resource.data.studentCard.status == 'pending'
+            && request.resource.data.studentCard.imagePath is string
+            && request.resource.data.studentCard.imagePath.matches('student_cards/' + userId + '/.*')
+            && request.resource.data.studentCard.submittedAt is timestamp
             && !('reviewedBy' in request.resource.data.studentCard)
             && !('reviewedAt' in request.resource.data.studentCard)
             && !('rejectReason' in request.resource.data.studentCard));
@@ -78,7 +84,7 @@ service cloud.firestore {
 
       allow update: if isAdmin()
         || (isOwner(userId) && !touchesProtectedUserFields() && phoneChangeIsVerified()
-            && studentCardChangeIsSubmission());
+            && studentCardChangeIsSubmission(userId));
 
       allow delete: if isOwner(userId) || isAdmin();
     }
