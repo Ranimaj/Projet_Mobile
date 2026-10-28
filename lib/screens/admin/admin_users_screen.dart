@@ -321,6 +321,31 @@ class _UserSheetState extends State<_UserSheet> {
     if (ok) navigator.pop();
   }
 
+  Future<void> _toggleDisabled() async {
+    final user = widget.user;
+    if (!user.disabled) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Désactiver ce compte ?'),
+          content: Text(
+              "${user.fullName} ne pourra plus se connecter tant que le compte n'est pas réactivé."),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.of(ctx).pop(false),
+                child: const Text('Annuler')),
+            TextButton(
+                onPressed: () => Navigator.of(ctx).pop(true),
+                child: const Text('Désactiver')),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
+    }
+    await _run((p) => p.setDisabled(user, !user.disabled),
+        user.disabled ? 'Compte réactivé' : 'Compte désactivé');
+  }
+
   void _openCard() {
     final provider = context.read<AdminUsersProvider>();
     final navigator = Navigator.of(context);
@@ -394,17 +419,16 @@ class _UserSheetState extends State<_UserSheet> {
                       _run((p) => p.changeRole(user, _role), 'Rôle mis à jour')
                   : null,
             ),
-            const SizedBox(height: 12),
-            PillButton(
-              label: user.disabled
-                  ? 'Réactiver le compte'
-                  : 'Désactiver le compte',
-              style: user.disabled ? PillStyle.ghost : PillStyle.danger,
-              onPressed: _busy
-                  ? null
-                  : () => _run((p) => p.setDisabled(user, !user.disabled),
-                      user.disabled ? 'Compte réactivé' : 'Compte désactivé'),
-            ),
+            if (user.disabled || provider.canDisable(user)) ...[
+              const SizedBox(height: 12),
+              PillButton(
+                label: user.disabled
+                    ? 'Réactiver le compte'
+                    : 'Désactiver le compte',
+                style: user.disabled ? PillStyle.ghost : PillStyle.danger,
+                onPressed: _busy ? null : _toggleDisabled,
+              ),
+            ],
             if (_hasCard) ...[
               const SizedBox(height: 12),
               PillButton(

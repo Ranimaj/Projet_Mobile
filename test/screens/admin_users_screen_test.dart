@@ -153,11 +153,25 @@ void main() {
     expect(confirm.onPressed, isNotNull);
   });
 
-  testWidgets('sheet disables then re-enables an account', (t) async {
+  testWidgets('disabling asks for confirmation: cancel writes nothing', (t) async {
     await pumpScreen(t);
     await t.tap(find.text('Amel Ben Salah'));
     await t.pumpAndSettle();
     await t.tap(find.widgetWithText(PillButton, 'Désactiver le compte'));
+    await t.pumpAndSettle();
+    expect(find.text('Désactiver ce compte ?'), findsOneWidget);
+    await t.tap(find.text('Annuler'));
+    await t.pumpAndSettle();
+    expect((await db.collection('users').doc('s1').get()).data()!['disabled'], false);
+  });
+
+  testWidgets('sheet disables (after confirm) then re-enables an account', (t) async {
+    await pumpScreen(t);
+    await t.tap(find.text('Amel Ben Salah'));
+    await t.pumpAndSettle();
+    await t.tap(find.widgetWithText(PillButton, 'Désactiver le compte'));
+    await t.pumpAndSettle();
+    await t.tap(find.widgetWithText(TextButton, 'Désactiver'));
     await t.pumpAndSettle();
     expect((await db.collection('users').doc('s1').get()).data()!['disabled'], true);
 
@@ -167,6 +181,13 @@ void main() {
     await t.tap(find.widgetWithText(PillButton, 'Réactiver le compte'));
     await t.pumpAndSettle();
     expect((await db.collection('users').doc('r1').get()).data()!['disabled'], false);
+  });
+
+  testWidgets('the last enabled admin has no disable button on their own row', (t) async {
+    await pumpScreen(t);
+    await t.tap(find.text('Admin Un'));
+    await t.pumpAndSettle();
+    expect(find.text('Désactiver le compte'), findsNothing);
   });
 
   testWidgets('"Voir la carte" opens the review for a pending card only', (t) async {

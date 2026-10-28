@@ -62,9 +62,9 @@ void main() {
     p.dispose();
   });
 
-  test('filters by role, card status and query (case-insensitive)', () async {
-    final p = build(users);
-    await Future<void>.delayed(Duration.zero);
+  testWidgets('filters by role, card status and query (case-insensitive)', (t) async {
+    final p = build(users, debounce: const Duration(milliseconds: 400));
+    await t.pump();
     p.setRoleFilter(UserRole.recruiter);
     expect(p.filtered.map((u) => u.id), ['r1']);
     p.setRoleFilter(null);
@@ -72,23 +72,23 @@ void main() {
     expect(p.filtered.map((u) => u.id), ['s1']);
     p.setCardFilter(null);
     p.setQuery('SAMI');
-    await Future<void>.delayed(const Duration(milliseconds: 450));
+    await t.pump(const Duration(milliseconds: 401));
     expect(p.query, 'SAMI');
     expect(p.filtered.map((u) => u.id), ['s2']);
     p.setQuery('s1@esprit');
-    await Future<void>.delayed(const Duration(milliseconds: 450));
+    await t.pump(const Duration(milliseconds: 401));
     expect(p.filtered.map((u) => u.id), ['s1']);
     p.dispose();
   });
 
-  test('setQuery is debounced: only the last value applies, after the delay', () async {
-    final p = build(users, debounce: const Duration(milliseconds: 80));
-    await Future<void>.delayed(Duration.zero);
+  testWidgets('setQuery is debounced: only the last value applies, after 400 ms', (t) async {
+    final p = build(users);
+    await t.pump();
     p.setQuery('a');
     p.setQuery('amel');
-    await Future<void>.delayed(const Duration(milliseconds: 30));
+    await t.pump(const Duration(milliseconds: 399));
     expect(p.query, '');
-    await Future<void>.delayed(const Duration(milliseconds: 100));
+    await t.pump(const Duration(milliseconds: 2));
     expect(p.query, 'amel');
     expect(p.filtered.map((u) => u.id), ['s1']);
     p.dispose();
@@ -124,6 +124,43 @@ void main() {
     verify(() => service.setRole('s1', UserRole.recruiter)).called(1);
     expect(await p.setDisabled(users[1], true), isFalse);
     expect(p.error, isNotNull);
+    p.dispose();
+  });
+
+  test('canDisable: never self, never the last enabled admin', () async {
+    final p = build(users);
+    await Future<void>.delayed(Duration.zero);
+    expect(p.canDisable(users.first), isFalse);
+    expect(p.canDisable(users[1]), isTrue);
+    expect(await p.setDisabled(users.first, true), isFalse);
+    verifyNever(() => service.setDisabled(any(), any()));
+    p.dispose();
+  });
+
+  test('a second admin can be disabled; then the first cannot demote themself', () async {
+    final b = _u('a2', 'Admin Deux', role: UserRole.admin);
+    final two = [...users, b];
+    when(() => service.setDisabled('a2', true)).thenAnswer((_) async {});
+    final p = build(two);
+    await Future<void>.delayed(Duration.zero);
+    expect(p.canDisable(b), isTrue);
+    expect(await p.setDisabled(b, true), isTrue);
+    verify(() => service.setDisabled('a2', true)).called(1);
+    // snapshot after the write: B is now disabled
+    stream.add([
+      ...users,
+      AppUser(
+          id: 'a2',
+          fullName: 'Admin Deux',
+          email: 'a2@esprit.tn',
+          role: UserRole.admin,
+          disabled: true,
+          createdAt: DateTime(2026, 1, 1)),
+    ]);
+    await Future<void>.delayed(Duration.zero);
+    expect(p.adminCount, 1);
+    expect(p.canChangeRole(users.first, UserRole.student), isFalse);
+    expect(p.canDisable(users.first), isFalse);
     p.dispose();
   });
 
