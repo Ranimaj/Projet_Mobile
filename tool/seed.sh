@@ -95,9 +95,11 @@ SKILLS='[{"stringValue":"Flutter"},{"stringValue":"Firebase"}]'
 NOSKILLS='[]'
 
 declare -a OUT
+LAST_UID=""
 add() { # email name role verified cardkind skills
   local email="$1" name="$2" role="$3" verified="$4" kind="$5" skills="$6" uid card
   uid="$(create_account "$email")"
+  LAST_UID="$uid"
   [[ -n "$uid" ]] || { echo "Échec pour $email"; exit 1; }
   if [[ "$kind" == pending ]]; then
     upload_card "$uid"
@@ -109,11 +111,21 @@ add() { # email name role verified cardkind skills
   OUT+=("$(printf '%-24s %-10s carte: %-8s uid=%s' "$email" "$role" "$kind" "$uid")")
 }
 
-add admin@esprit.tn      "Admin Campus"   admin     true  none    "$NOSKILLS"
-add amel@esprit.tn       "Amel Ben Salah" student   false pending "$SKILLS"
-add sarra@esprit.tn      "Sarra Trabelsi" student   false pending "$SKILLS"
-add youssef@esprit.tn    "Youssef Gharbi" student   false pending "$SKILLS"
-add recruteur@vermeg.tn  "Recruteur Vermeg" recruiter false none  "$NOSKILLS"
+add admin@esprit.tn      "Admin Campus"   admin     true  none    "$NOSKILLS"; ADMIN_UID="$LAST_UID"
+add amel@esprit.tn       "Amel Ben Salah" student   false pending "$SKILLS"; AMEL_UID="$LAST_UID"
+add sarra@esprit.tn      "Sarra Trabelsi" student   false pending "$SKILLS"; SARRA_UID="$LAST_UID"
+add youssef@esprit.tn    "Youssef Gharbi" student   false pending "$SKILLS"; YOUSSEF_UID="$LAST_UID"
+add recruteur@vermeg.tn  "Recruteur Vermeg" recruiter false none  "$NOSKILLS"; RECRUITER_UID="$LAST_UID"
+# Carte déposée ici, validée ensuite par seed_demo.py (profil de la maquette).
+add jawher@esprit.tn     "Jawher Khalifa" student   false pending "$SKILLS"; JAWHER_UID="$LAST_UID"
 
 echo "Comptes de démonstration (mot de passe : $PASSWORD)"
 printf '%s\n' "${OUT[@]}"
+
+# Contenu de la maquette : annonces, articles, événements, offres, candidatures
+# et comptes fictifs pour l'écran Analytics. SEED_DEMO=0 pour s'en passer.
+if [[ "${SEED_DEMO:-1}" != 0 ]]; then
+  ADMIN_UID="$ADMIN_UID" AMEL_UID="$AMEL_UID" SARRA_UID="$SARRA_UID" YOUSSEF_UID="$YOUSSEF_UID" \
+  RECRUITER_UID="$RECRUITER_UID" JAWHER_UID="$JAWHER_UID" \
+    python3 "$(dirname "$0")/seed_demo.py"
+fi

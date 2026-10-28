@@ -175,6 +175,7 @@ class _HomeScreenState extends State<HomeScreen> {
               FeaturedMeta(Icons.place_rounded, featured.location),
           ],
           action: registered ? 'Inscrit' : 'S\'inscrire',
+          imageUrl: featured.posterUrl,
           onAction: registered || user == null
               ? null
               : () => _register(featured, user.id),
@@ -467,6 +468,9 @@ class _Slide {
   final List<FeaturedMeta> meta;
   final String action;
 
+  /// Photo de fond (affiche de l'événement) ; null : fond orange uni.
+  final String? imageUrl;
+
   /// Null: the action is shown disabled (already registered).
   final VoidCallback? onAction;
   const _Slide(
@@ -474,6 +478,7 @@ class _Slide {
       required this.title,
       required this.meta,
       required this.action,
+      this.imageUrl,
       this.onAction});
 }
 
@@ -513,6 +518,7 @@ class _FeaturedState extends State<_Featured> {
                 title: s.title,
                 meta: s.meta,
                 actionLabel: s.action,
+                imageUrl: s.imageUrl,
                 height: height,
                 onAction: s.onAction,
                 onTap: () => widget.onOpen(i),
