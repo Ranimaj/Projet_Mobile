@@ -21,6 +21,16 @@ void main() {
     expect(d.color, Colors.teal);
   });
 
+  testWidgets('gradient fills with its first colour; color wins over gradient', (tester) async {
+    Color fill() =>
+        (tester.widget<Container>(find.byKey(const Key('pill-fill'))).decoration! as BoxDecoration).color!;
+    const g = LinearGradient(colors: [Colors.purple, Colors.yellow]);
+    await pump(tester, PrimaryButton(label: 'Go', gradient: g, onPressed: () {}));
+    expect(fill(), Colors.purple);
+    await pump(tester, PrimaryButton(label: 'Go', color: Colors.teal, gradient: g, onPressed: () {}));
+    expect(fill(), Colors.teal);
+  });
+
   testWidgets('a long label never overflows a narrow button', (tester) async {
     await pump(
       tester,

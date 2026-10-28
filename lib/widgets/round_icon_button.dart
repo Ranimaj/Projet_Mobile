@@ -11,7 +11,7 @@ class RoundIconButton extends StatelessWidget {
   final VoidCallback? onPressed;
   final RoundButtonStyle style;
   final double size;
-  final String? tooltip;
+  final String tooltip;
   final bool showDot;
 
   const RoundIconButton({
@@ -20,7 +20,7 @@ class RoundIconButton extends StatelessWidget {
     this.onPressed,
     this.style = RoundButtonStyle.surface,
     this.size = 38,
-    this.tooltip,
+    required this.tooltip,
     this.showDot = false,
   });
 
@@ -58,10 +58,14 @@ class RoundIconButton extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: fill,
                   shape: BoxShape.circle,
-                  border: style == RoundButtonStyle.surface ? Border.all(color: t.outline) : null,
-                  boxShadow: style == RoundButtonStyle.surface ? t.cardShadow : null,
+                  border: style == RoundButtonStyle.surface
+                      ? Border.all(color: t.outline)
+                      : null,
+                  boxShadow:
+                      style == RoundButtonStyle.surface ? t.cardShadow : null,
                 ),
-                child: Icon(icon, size: size * 0.5, color: enabled ? fg : t.textSecondary),
+                child: Icon(icon,
+                    size: size * 0.5, color: enabled ? fg : t.textSecondary),
               ),
               if (showDot)
                 Positioned(
@@ -84,7 +88,16 @@ class RoundIconButton extends StatelessWidget {
       ),
     );
 
-    button = Semantics(button: true, enabled: enabled, label: tooltip, excludeSemantics: tooltip != null, child: button);
-    return tooltip == null ? button : Tooltip(message: tooltip!, child: button);
+    return Tooltip(
+      message: tooltip,
+      child: Semantics(
+        button: true,
+        enabled: enabled,
+        label: tooltip,
+        onTap: enabled ? onPressed : null,
+        excludeSemantics: true,
+        child: button,
+      ),
+    );
   }
 }
