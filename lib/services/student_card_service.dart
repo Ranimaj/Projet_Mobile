@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:io';
+
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:path_provider/path_provider.dart';
@@ -19,15 +21,33 @@ class StudentCardService {
   final OfflineQueueService _queue;
   final Directory Function()? _appDir;
 
+  /// Au-delà, l'envoi en ligne est abandonné au profit de la file : sur un
+  /// réseau captif, `putFile` réessaie pendant 10 minutes.
+  final Duration onlineTimeout;
+
+  /// Codes Firebase qui signalent un problème de réseau (et non un refus).
+  static const _networkCodes = {
+    'unavailable',
+    'network-request-failed',
+    'retry-limit-exceeded',
+    'deadline-exceeded',
+  };
+
   StudentCardService({
     required StorageService storage,
     required FirebaseFirestore firestore,
     required OfflineQueueService queue,
     Directory Function()? appDir,
+    this.onlineTimeout = const Duration(seconds: 20),
   })  : _storage = storage,
         _firestore = firestore,
         _queue = queue,
         _appDir = appDir;
+
+  static bool _isNetworkError(Object e) =>
+      e is TimeoutException ||
+      e is SocketException ||
+      (e is FirebaseException && _networkCodes.contains(e.code));
 
   Future<StudentCard> submit({
     required String uid,
@@ -39,12 +59,25 @@ class StudentCardService {
     final remotePath = 'student_cards/$uid/${submittedAt.millisecondsSinceEpoch}.jpg';
 
     if (isOnline) {
-      final path = await _storage.uploadFile(photo, remotePath: remotePath);
-      final card = StudentCard.pending(imagePath: path, submittedAt: submittedAt);
-      // Remplacement complet (pas de merge) : un ancien motif de refus
-      // serait conservé et l'écriture refusée par les règles Firestore.
-      await _firestore.collection('users').doc(uid).update({'studentCard': card.toMap()});
-      return card;
+      var abandoned = false;
+      Future<StudentCard> sendNow() async {
+        final path = await _storage.uploadFile(photo, remotePath: remotePath);
+        // Trop tard : la copie en file fera l'envoi, ne pas écrire deux fois.
+        if (abandoned) throw TimeoutException('abandoned');
+        final card = StudentCard.pending(imagePath: path, submittedAt: submittedAt);
+        // Remplacement complet (pas de merge) : un ancien motif de refus
+        // serait conservé et l'écriture refusée par les règles Firestore.
+        await _firestore.collection('users').doc(uid).update({'studentCard': card.toMap()});
+        return card;
+      }
+
+      try {
+        return await sendNow().timeout(onlineTimeout);
+      } catch (e) {
+        if (!_isNetworkError(e)) rethrow;
+        abandoned = true;
+        // Réseau absent ou captif : bascule sur la file hors-ligne.
+      }
     }
 
     final dir = _appDir != null ? _appDir() : await getApplicationDocumentsDirectory();
