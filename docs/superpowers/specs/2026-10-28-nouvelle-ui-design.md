@@ -255,8 +255,9 @@ studentCard: {
 }
 ```
 
-`editableFields` gagne `campus`, `studentId` et `studentCard` ; mais les règles Firestore
-n'autorisent le propriétaire à écrire `studentCard` que vers `status: pending` avec
+`editableFields` gagne `campus` et `studentId` ; `studentCard` n'en fait pas partie (écrit
+uniquement par la soumission dédiée, `update({'studentCard': {...}})` en map entière, sans
+`null` explicite) et les règles Firestore n'autorisent le propriétaire à l'écrire que vers `status: pending` avec
 `imagePath` et `submittedAt`, jamais `verified` / `rejected` ni les champs `reviewed*`.
 `isVerifiedStudent`, `role` et `disabled` restent admin seulement.
 

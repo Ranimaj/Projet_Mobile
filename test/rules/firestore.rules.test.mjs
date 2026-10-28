@@ -5,7 +5,7 @@ import {
   assertSucceeds,
   initializeTestEnvironment,
 } from '@firebase/rules-unit-testing';
-import { doc, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore';
+import { doc, serverTimestamp, setDoc, Timestamp, updateDoc } from 'firebase/firestore';
 
 let env;
 
@@ -124,5 +124,102 @@ describe('users rules', () => {
     await seed();
     const db = env.authenticatedContext('alice').firestore();
     await assertSucceeds(updateDoc(doc(db, 'users/alice'), { fullName: 'Amel B.' }));
+  });
+
+  // Real client payload of AppUser.toEditableMap() (no studentCard).
+  const profileEdit = {
+    fullName: 'Amel B.',
+    major: 'GL',
+    year: '3ème année',
+    photoUrl: null,
+    skills: ['Flutter'],
+    twoFactorEnabled: false,
+    campus: 'ESPRIT Ghazela',
+    studentId: '12345',
+  };
+
+  const cards = {
+    rejected: {
+      status: 'rejected',
+      imagePath: 'student_cards/alice/card.jpg',
+      submittedAt: Timestamp.now(),
+      reviewedBy: 'admin1',
+      reviewedAt: Timestamp.now(),
+      rejectReason: 'Illisible',
+    },
+    verified: {
+      status: 'verified',
+      imagePath: 'student_cards/alice/card.jpg',
+      submittedAt: Timestamp.now(),
+      reviewedBy: 'admin1',
+      reviewedAt: Timestamp.now(),
+    },
+    pending: {
+      status: 'pending',
+      imagePath: 'student_cards/alice/card.jpg',
+      submittedAt: Timestamp.now(),
+    },
+  };
+
+  async function seedAlice(extra, drop) {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const data = baseUser(extra);
+      if (drop) delete data[drop];
+      const db = ctx.firestore();
+      await setDoc(doc(db, 'users/alice'), data);
+      await setDoc(doc(db, 'users/admin1'), baseUser({ role: 'admin' }));
+    });
+  }
+
+  it('profile edit merge succeeds for a legacy user with no studentCard field', async () => {
+    await seedAlice({}, 'studentCard');
+    const db = env.authenticatedContext('alice').firestore();
+    await assertSucceeds(setDoc(doc(db, 'users/alice'), profileEdit, { merge: true }));
+  });
+
+  for (const [name, card] of Object.entries(cards)) {
+    it(`profile edit merge succeeds for a user with a ${name} card`, async () => {
+      await seedAlice({ studentCard: card });
+      const db = env.authenticatedContext('alice').firestore();
+      await assertSucceeds(setDoc(doc(db, 'users/alice'), profileEdit, { merge: true }));
+    });
+  }
+
+  it('owner can resubmit a card as pending after a rejection', async () => {
+    await seedAlice({ studentCard: cards.rejected });
+    const db = env.authenticatedContext('alice').firestore();
+    await assertSucceeds(
+      updateDoc(doc(db, 'users/alice'), {
+        studentCard: {
+          status: 'pending',
+          imagePath: 'student_cards/alice/new.jpg',
+          submittedAt: serverTimestamp(),
+        },
+      }),
+    );
+  });
+
+  it('owner cannot write studentCard status none against a missing field', async () => {
+    await seedAlice({}, 'studentCard');
+    const db = env.authenticatedContext('alice').firestore();
+    await assertFails(updateDoc(doc(db, 'users/alice'), { studentCard: { status: 'none' } }));
+  });
+
+  it('admin can reject a card with reason and reviewer fields', async () => {
+    await seedAlice({ studentCard: cards.pending });
+    const db = env.authenticatedContext('admin1').firestore();
+    await assertSucceeds(
+      updateDoc(doc(db, 'users/alice'), {
+        studentCard: {
+          status: 'rejected',
+          imagePath: 'student_cards/alice/card.jpg',
+          submittedAt: Timestamp.now(),
+          rejectReason: 'Illisible',
+          reviewedBy: 'admin1',
+          reviewedAt: serverTimestamp(),
+        },
+        isVerifiedStudent: false,
+      }),
+    );
   });
 });
