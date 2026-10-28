@@ -31,6 +31,7 @@ import '../../widgets/round_icon_button.dart';
 import '../../widgets/setting_row.dart';
 import '../../widgets/stat_tile.dart';
 import '../../widgets/status_chip.dart';
+import '../admin/admin_analytics_screen.dart';
 import '../admin/admin_users_screen.dart';
 import '../auth/otp_verification_screen.dart';
 import 'change_password_screen.dart';
@@ -63,7 +64,8 @@ class ProfileScreen extends StatelessWidget {
     Navigator.of(context).push(MaterialPageRoute<void>(
       builder: (_) => ChangeNotifierProvider(
         create: (_) => AdminUsersProvider(
-          AdminUserService(FirebaseFirestore.instance, storage: StorageService()),
+          AdminUserService(FirebaseFirestore.instance,
+              storage: StorageService()),
           currentAdminUid: admin.id,
         ),
         child: screen,
@@ -430,18 +432,24 @@ class ProfileScreen extends StatelessWidget {
               SettingRow(
                 icon: Icons.group_rounded,
                 title: 'Utilisateurs',
-                onTap: () => _openAdmin(context, user, const AdminUsersScreen()),
+                onTap: () =>
+                    _openAdmin(context, user, const AdminUsersScreen()),
               ),
               SettingRow(
                 icon: Icons.fact_check_rounded,
                 title: 'Cartes à vérifier',
-                onTap: () => _openAdmin(context, user,
-                    const AdminUsersScreen(initialCardFilter: StudentCardStatus.pending)),
+                onTap: () => _openAdmin(
+                    context,
+                    user,
+                    const AdminUsersScreen(
+                        initialCardFilter: StudentCardStatus.pending)),
               ),
-              const SettingRow(
-                  icon: Icons.insights_rounded,
-                  title: 'Statistiques',
-                  onTap: null),
+              SettingRow(
+                icon: Icons.insights_rounded,
+                title: 'Statistiques',
+                onTap: () =>
+                    _openAdmin(context, user, const AdminAnalyticsScreen()),
+              ),
             ],
           ),
         ],
