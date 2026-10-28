@@ -37,7 +37,8 @@ class _AppShellState extends State<AppShell> {
         context: context,
         removeBottom: true,
         child: Padding(
-          padding: const EdgeInsets.only(bottom: kFloatingNavInset),
+          padding: EdgeInsets.only(
+              bottom: kFloatingNavInset + MediaQuery.viewPaddingOf(context).bottom),
           child: screen,
         ),
       );

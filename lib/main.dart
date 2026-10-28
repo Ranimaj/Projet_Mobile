@@ -19,6 +19,9 @@ import 'providers/job_provider.dart';
 import 'providers/theme_provider.dart';
 import 'services/app_prefs.dart';
 import 'services/notification_service.dart';
+import 'screens/auth/login_screen.dart';
+import 'screens/auth/register_screen.dart';
+import 'screens/onboarding/onboarding_screen.dart';
 import 'screens/visitor/visitor_home_screen.dart';
 import 'screens/home/app_shell.dart';
 import 'firebase_options.dart';
@@ -106,25 +109,47 @@ class CampusConnectApp extends StatelessWidget {
           theme: AppTheme.light,
           darkTheme: AppTheme.dark,
           themeMode: theme.mode,
-          home: const _RootRouter(),
+          home: const RootRouter(),
         ),
       ),
     );
   }
 }
 
-/// Bascule entre l'écran Visiteur et l'app connectée selon [AuthProvider].
-class _RootRouter extends StatelessWidget {
-  const _RootRouter();
+/// Bascule entre l'onboarding, l'écran Visiteur et l'app connectée.
+///
+/// Stateful : les callbacks de l'onboarding appellent `setState` pour relire
+/// `prefs.onboardingSeen`, de sorte que l'accueil visiteur apparaît dès que
+/// l'écran de connexion/inscription poussé est refermé.
+class RootRouter extends StatefulWidget {
+  const RootRouter({super.key});
+
+  @override
+  State<RootRouter> createState() => _RootRouterState();
+}
+
+class _RootRouterState extends State<RootRouter> {
+  void _open(Widget screen) {
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
+    setState(() {});
+  }
 
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
+    final prefs = context.read<AppPrefs>();
 
     switch (auth.status) {
       case AuthStatus.unknown:
         return const Scaffold(body: Center(child: CircularProgressIndicator()));
       case AuthStatus.visitor:
+        if (!prefs.onboardingSeen) {
+          return OnboardingScreen(
+            prefs: prefs,
+            onStart: () => _open(const RegisterScreen()),
+            onLogin: () => _open(const LoginScreen()),
+          );
+        }
         return const VisitorHomeScreen();
       case AuthStatus.authenticated:
         return const AppShell();

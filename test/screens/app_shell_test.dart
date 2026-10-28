@@ -127,4 +127,20 @@ void main() {
     expect((padding.padding as EdgeInsets).bottom,
         greaterThanOrEqualTo(kFloatingNavInset));
   });
+
+  testWidgets('tab padding adds the system bottom inset', (tester) async {
+    await pumpShell(tester);
+    final padding = tester.widget<Padding>(find
+        .ancestor(of: find.byType(HomeScreen), matching: find.byType(Padding))
+        .first);
+    expect((padding.padding as EdgeInsets).bottom, kFloatingNavInset);
+
+    tester.view.viewPadding = const FakeViewPadding(bottom: 34);
+    addTearDown(tester.view.resetViewPadding);
+    await tester.pump();
+    final padded = tester.widget<Padding>(find
+        .ancestor(of: find.byType(HomeScreen), matching: find.byType(Padding))
+        .first);
+    expect((padded.padding as EdgeInsets).bottom, kFloatingNavInset + 34);
+  });
 }
