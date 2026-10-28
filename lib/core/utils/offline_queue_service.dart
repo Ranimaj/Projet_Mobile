@@ -1,9 +1,19 @@
+import 'dart:io';
+
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:uuid/uuid.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../models/user_model.dart';
 import '../constants/app_constants.dart';
 
-enum QueueActionType { create, update, delete }
+enum QueueActionType {
+  create,
+  update,
+  delete,
+
+  /// Carte étudiant prise hors-ligne : payload `{localPath, remotePath}`.
+  uploadStudentCard,
+}
 
 /// Une action en attente de synchronisation (écrite hors-ligne).
 class QueuedAction {
@@ -65,6 +75,12 @@ class OfflineQueueService {
     String? docId,
   }) {
     final id = _uuid.v4();
+    if (type == QueueActionType.uploadStudentCard && docId != null) {
+      // Un seul envoi de carte en attente par compte : le dernier remplace.
+      for (final old in pendingActions) {
+        if (old.type == type && old.docId == docId) _box.delete(old.id);
+      }
+    }
     final action = QueuedAction(
       id: id,
       type: type,
@@ -81,7 +97,10 @@ class OfflineQueueService {
 
   /// Rejoue toutes les actions en attente contre Firestore, dans l'ordre
   /// chronologique. Appelé automatiquement au retour du réseau.
-  Future<SyncResult> syncAll(FirebaseFirestore firestore) async {
+  Future<SyncResult> syncAll(
+    FirebaseFirestore firestore, {
+    Future<String> Function(String localPath, String remotePath)? upload,
+  }) async {
     final actions = pendingActions..sort((a, b) => a.queuedAt.compareTo(b.queuedAt));
     int success = 0;
     int failed = 0;
@@ -96,6 +115,24 @@ class OfflineQueueService {
             break;
           case QueueActionType.delete:
             await ref.delete();
+            break;
+          case QueueActionType.uploadStudentCard:
+            if (upload == null) throw StateError('no uploader');
+            final localPath = action.payload['localPath'] as String;
+            final remotePath = action.payload['remotePath'] as String;
+            await upload(localPath, remotePath);
+            // Remplacement complet de la carte : un merge garderait un ancien
+            // motif de refus que les règles Firestore interdisent.
+            await ref.update({
+              'studentCard': StudentCard.pending(
+                imagePath: remotePath,
+                submittedAt: DateTime.now(),
+              ).toMap(),
+            });
+            try {
+              final file = File(localPath);
+              if (await file.exists()) await file.delete();
+            } catch (_) {}
             break;
         }
         await remove(action.id);

@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../core/utils/connectivity_service.dart';
 import '../core/utils/offline_queue_service.dart';
+import '../services/storage_service.dart';
 
 /// Pilote l'état réseau pour toute l'app : affichage du bandeau "mode
 /// hors-ligne" (voir OfflineBanner), et déclenchement automatique de la
@@ -37,7 +39,12 @@ class ConnectivityProvider extends ChangeNotifier {
 
   Future<void> _syncPendingActions() async {
     if (queueService.pendingCount == 0) return;
-    await queueService.syncAll(FirebaseFirestore.instance);
+    // StorageService n'est construit qu'ici : FirebaseStorage.instance exige
+    // une app Firebase initialisée.
+    await queueService.syncAll(
+      FirebaseFirestore.instance,
+      upload: (local, remote) => StorageService().uploadFile(File(local), remotePath: remote),
+    );
     notifyListeners();
   }
 

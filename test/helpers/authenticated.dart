@@ -4,6 +4,7 @@ import 'dart:async';
 import 'package:campusconnect/models/user_model.dart';
 import 'package:campusconnect/providers/auth_provider.dart';
 import 'package:campusconnect/providers/connectivity_provider.dart';
+import 'package:campusconnect/services/student_card_service.dart';
 import 'package:firebase_auth/firebase_auth.dart' hide AuthProvider;
 import 'package:firebase_auth_mocks/firebase_auth_mocks.dart';
 import 'package:flutter/material.dart';
@@ -36,11 +37,16 @@ class AuthHarness {
   /// Heure courante vue par le provider (délai de renvoi d'email...).
   DateTime now = DateTime(2026, 1, 1, 12);
 
-  AuthHarness() {
+  AuthHarness({StudentCardService? studentCardService}) {
     when(() => service.authStateChanges).thenAnswer((_) => _stream.stream);
     when(() => connectivity.isOnline).thenReturn(true);
     when(() => connectivity.pendingActionsCount).thenReturn(0);
-    provider = AuthProvider(authService: service, storageService: storage, clock: () => now);
+    provider = AuthProvider(
+      authService: service,
+      storageService: storage,
+      studentCardService: studentCardService,
+      clock: () => now,
+    );
   }
 
   Future<void> signIn(
