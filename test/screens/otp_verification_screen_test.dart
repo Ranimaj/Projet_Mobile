@@ -224,6 +224,15 @@ void main() {
       }
     });
 
+    testWidgets('with the keyboard open the phone number is still shown in the sheet', (tester) async {
+      await pumpAuthScreen(tester, provider, const OtpVerificationScreen(phone: '20123456'),
+          size: const Size(360, 640), keyboardInset: 300);
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('+21620123456'), findsOneWidget);
+      expect(find.textContaining('Dernière étape'), findsOneWidget);
+    });
+
     for (final brightness in Brightness.values) {
       testWidgets('no text under 13 px in ${brightness.name}', (tester) async {
         await pumpAuthScreen(tester, provider, const OtpVerificationScreen(phone: '20123456'), brightness: brightness);

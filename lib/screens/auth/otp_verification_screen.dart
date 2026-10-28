@@ -120,6 +120,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
     final canResend = _secondsLeft == 0 && !auth.isLoading;
     final status = _codeSent ? 'Code envoyé au $shownPhone' : 'Envoi du code au $shownPhone…';
 
+    final subtitle = widget.allowSkip ? 'Dernière étape. $status' : status;
     final t = AppTokens.of(context);
     final textTheme = Theme.of(context).textTheme;
 
@@ -127,7 +128,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
       hero: AuthHero(
         title: 'Vérification',
         // L'étape est dite dans le sous-titre, pas dans une pastille.
-        subtitle: widget.allowSkip ? 'Dernière étape. $status' : status,
+        subtitle: subtitle,
         icon: Icons.sms_outlined,
       ),
       heroLeading: Navigator.of(context).canPop()
@@ -142,6 +143,8 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
         Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // The hero drops its subtitle when the keyboard is open.
+            AuthCompactNote(subtitle),
             Text('Saisis le code à 6 chiffres', style: textTheme.labelLarge),
             const SizedBox(height: 4),
             Text('Il arrive par SMS en quelques secondes.', style: textTheme.bodyMedium),
