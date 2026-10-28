@@ -103,7 +103,7 @@ void main() {
         lessThanOrEqualTo(640 - 300));
   });
 
-  testWidgets('heroOverlay straddles the sheet top edge and does not scroll',
+  testWidgets('heroOverlay straddles the sheet top edge at rest',
       (t) async {
     await pumpThemed(
         t,
@@ -124,4 +124,78 @@ void main() {
     expect(overlay.bottom, greaterThan(sheetTop));
     expect(overlay.left, 20);
   });
+
+  Widget overlayScaffold({ScrollController? controller}) => HeroSheetScaffold(
+        hero: const ColoredBox(key: Key('hero'), color: Colors.red),
+        heroLeading: const SizedBox(key: Key('lead'), width: 48, height: 48),
+        heroActions: const [SizedBox(key: Key('act'), width: 48, height: 48)],
+        heroOverlay: GestureDetector(
+          onTap: () {},
+          child: const SizedBox(key: Key('overlay'), width: 72, height: 72),
+        ),
+        scrollController: controller,
+        children: [
+          for (var i = 0; i < 30; i++)
+            SizedBox(key: Key('row-$i'), height: 60, child: Text('row $i')),
+        ],
+      );
+
+  testWidgets('heroOverlay follows the list and fades out once scrolled',
+      (t) async {
+    final controller = ScrollController();
+    addTearDown(controller.dispose);
+    await pumpThemed(
+        t,
+        SizedBox(
+            width: 360,
+            height: 640,
+            child: overlayScaffold(controller: controller)),
+        size: const Size(360, 640));
+    final rest = t.getRect(find.byKey(const Key('overlay')));
+
+    controller.jumpTo(20);
+    await t.pump();
+    final moved = t.getRect(find.byKey(const Key('overlay')));
+    expect(moved.top, closeTo(rest.top - 20, 0.01));
+    final opacity = t.widget<Opacity>(find.ancestor(
+        of: find.byKey(const Key('overlay')), matching: find.byType(Opacity)));
+    expect(opacity.opacity, lessThan(1));
+    expect(
+        t
+            .widget<IgnorePointer>(find
+                .ancestor(
+                    of: find.byKey(const Key('overlay')),
+                    matching: find.byType(IgnorePointer))
+                .first)
+            .ignoring,
+        isTrue);
+
+    controller.jumpTo(200);
+    await t.pump();
+    expect(find.byKey(const Key('overlay')), findsNothing);
+  });
+
+  for (final statusBar in [0.0, 24.0]) {
+    testWidgets(
+        'heroOverlay never covers the leading button on a 120 dp hero '
+        '(status bar $statusBar)', (t) async {
+      await pumpThemed(
+          t,
+          Builder(
+              builder: (context) => MediaQuery(
+                    data: MediaQuery.of(context).copyWith(
+                        padding: EdgeInsets.only(top: statusBar),
+                        viewInsets: const EdgeInsets.only(bottom: 300)),
+                    child: SizedBox(
+                        width: 360, height: 640, child: overlayScaffold()),
+                  )),
+          size: const Size(360, 640));
+      expect(t.getSize(find.byKey(const Key('hero'))).height, 120);
+      final lead = t.getRect(find.byKey(const Key('lead')));
+      final overlay = find.byKey(const Key('overlay'));
+      if (overlay.evaluate().isNotEmpty) {
+        expect(t.getRect(overlay).overlaps(lead), isFalse);
+      }
+    });
+  }
 }

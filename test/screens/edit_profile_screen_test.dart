@@ -1,15 +1,20 @@
 import 'dart:io';
 
 import 'package:campusconnect/core/constants/app_constants.dart';
+import 'package:campusconnect/core/theme/app_tokens.dart';
+import 'package:campusconnect/core/theme/contrast.dart';
 import 'package:campusconnect/core/utils/auth_failure.dart';
 import 'package:campusconnect/models/user_model.dart';
 import 'package:campusconnect/screens/profile/edit_profile_screen.dart';
+import 'package:campusconnect/widgets/initials_avatar.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../helpers/authenticated.dart';
 import '../helpers/pump_app.dart';
+import '../helpers/pump_themed.dart';
 
 void main() {
   late AuthHarness h;
@@ -55,7 +60,7 @@ void main() {
     expect(
         find.widgetWithText(TextFormField, 'Génie Logiciel'), findsOneWidget);
     expect(find.text('3ème année'), findsOneWidget);
-    expect(find.widgetWithText(InputChip, 'Flutter'), findsOneWidget);
+    expect(find.byKey(const Key('skill-Flutter')), findsOneWidget);
     expect(
         find.text('amel@esprit.tn'), findsOneWidget); // email en lecture seule
   });
@@ -111,15 +116,15 @@ void main() {
     await tester.enterText(find.byKey(const Key('skill-field')), 'Firebase');
     await tapText(tester, 'Ajouter');
     await tester.pump();
-    expect(find.widgetWithText(InputChip, 'Firebase'), findsOneWidget);
+    expect(find.byKey(const Key('skill-Firebase')), findsOneWidget);
     expect(find.text('Déjà ajoutée'), findsNothing);
 
     await tester.tap(find.descendant(
-      of: find.widgetWithText(InputChip, 'Flutter'),
+      of: find.byKey(const Key('skill-Flutter')),
       matching: find.byIcon(Icons.close_rounded),
     ));
     await tester.pump();
-    expect(find.widgetWithText(InputChip, 'Flutter'), findsNothing);
+    expect(find.byKey(const Key('skill-Flutter')), findsNothing);
 
     await tapText(tester, 'Enregistrer');
     await tester.pumpAndSettle();
@@ -333,5 +338,39 @@ void main() {
       await tester.pumpAndSettle();
       expect(savedUser().studentId, isNull);
     });
+  });
+
+  group('theme', () {
+    for (final brightness in Brightness.values) {
+      testWidgets('tokens only: readable labels, no small text, 48 dp targets '
+          '(${brightness.name})', (tester) async {
+        await h.signIn(tester);
+        await h.pump(tester, const EditProfileScreen(), brightness: brightness);
+        final t = brightness == Brightness.dark ? AppTokens.dark : AppTokens.light;
+
+        for (final label in ['Filière', 'Email académique']) {
+          final color = tester
+              .renderObject<RenderParagraph>(find.text(label))
+              .text
+              .style!
+              .color!;
+          expect(contrastRatio(color, t.surface), greaterThanOrEqualTo(4.5),
+              reason: '$label on surface');
+        }
+        final email = tester.widget<Container>(
+            find.byKey(const Key('read-only-email')));
+        expect((email.decoration! as BoxDecoration).color, t.surfaceMuted);
+
+        expect(find.byType(InitialsAvatar), findsOneWidget);
+        expect(tester.getSize(find.byKey(const Key('edit-avatar'))),
+            const Size(104, 104));
+        expect(find.byTooltip('Changer la photo'), findsOneWidget);
+
+        expectNoSmallText(tester);
+        expectTapTargets(tester);
+        final add = tester.getSize(find.byKey(const Key('add-skill')));
+        expect(add.height, greaterThanOrEqualTo(48));
+      });
+    }
   });
 }

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:campusconnect/models/user_model.dart';
 import 'package:campusconnect/screens/profile/student_card_screen.dart';
 import 'package:campusconnect/services/student_card_service.dart';
+import 'package:campusconnect/widgets/bottom_action_bar.dart';
 import 'package:campusconnect/widgets/pill_button.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -86,6 +87,37 @@ void main() {
     expect(h.provider.currentUser!.studentCard.status, StudentCardStatus.pending);
     expect(find.text('Carte envoyée, en attente de validation'), findsOneWidget);
     expect(find.byType(StudentCardScreen), findsNothing);
+  });
+
+  testWidgets('the bottom bar is wrapped once (no double padding)',
+      (tester) async {
+    await h.signIn(tester);
+    await h.pump(tester, StudentCardScreen(picker: picker));
+    expect(find.byType(BottomActionBar), findsOneWidget);
+    final bar = tester.getRect(find.byType(BottomActionBar));
+    final pill = tester.getRect(
+        find.widgetWithText(PillButton, 'Envoyer pour validation'));
+    // BottomActionBar pads its child by the page padding, once.
+    expect(pill.left - bar.left, lessThanOrEqualTo(20));
+  });
+
+  testWidgets('online send that fell back to the queue uses the queued wording',
+      (tester) async {
+    when(() => cards.submit(
+          uid: any(named: 'uid'),
+          photo: any(named: 'photo'),
+          isOnline: true,
+          now: any(named: 'now'),
+        )).thenAnswer((_) async => const StudentCard(status: StudentCardStatus.pending));
+    await h.signIn(tester);
+    await h.pump(tester, StudentCardScreen(picker: picker));
+
+    await tester.tap(find.text('Galerie'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Envoyer pour validation'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Carte enregistrée, envoi à la reconnexion'), findsOneWidget);
   });
 
   testWidgets('offline send uses the queued wording', (tester) async {
