@@ -49,8 +49,8 @@ class HeroSheetScaffold extends StatelessWidget {
         final top = media.padding.top + 8;
 
         Widget content = ListView(
-          padding: EdgeInsets.fromLTRB(
-              kPagePadding, 0, kPagePadding, bottomBar == null ? 24 : 112),
+          padding: EdgeInsets.fromLTRB(kPagePadding, 0, kPagePadding,
+              (bottomBar == null ? 24 : 112) + media.viewInsets.bottom),
           children: children,
         );
         if (wide) {
@@ -131,7 +131,8 @@ class HeroSheetScaffold extends StatelessWidget {
               Positioned(
                 left: 0,
                 right: 0,
-                bottom: 0,
+                // Lifted above the keyboard.
+                bottom: media.viewInsets.bottom,
                 child: Container(
                   decoration: BoxDecoration(
                     color: t.surface,

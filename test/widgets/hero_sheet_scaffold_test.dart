@@ -66,6 +66,40 @@ void main() {
         bar: const SizedBox(key: Key('bar'), height: 80));
     expect(t.getTopLeft(find.byKey(const Key('lead'))).dx, lessThan(30));
     expect(t.getTopRight(find.byKey(const Key('act'))).dx, greaterThan(390));
-    expect(t.getBottomLeft(find.byKey(const Key('bar'))).dy, 984); // 16 dp bar padding
+    expect(t.getBottomLeft(find.byKey(const Key('bar'))).dy,
+        984); // 16 dp bar padding
+  });
+
+  testWidgets(
+      'with keyboard open the last child scrolls above it and the bar is lifted',
+      (t) async {
+    await pumpThemed(
+        t,
+        Builder(
+            builder: (context) => MediaQuery(
+                  data: MediaQuery.of(context)
+                      .copyWith(viewInsets: const EdgeInsets.only(bottom: 300)),
+                  child: const SizedBox(
+                    width: 360,
+                    height: 640,
+                    child: HeroSheetScaffold(
+                      hero: ColoredBox(color: Colors.red),
+                      bottomBar: SizedBox(key: Key('bar'), height: 80),
+                      children: [
+                        SizedBox(height: 600),
+                        SizedBox(key: Key('last'), height: 40),
+                      ],
+                    ),
+                  ),
+                )),
+        size: const Size(360, 640));
+    await t.scrollUntilVisible(find.byKey(const Key('last')), 100,
+        scrollable: find.byType(Scrollable));
+    await t.ensureVisible(find.byKey(const Key('last')));
+    await t.pump();
+    expect(t.getBottomLeft(find.byKey(const Key('last'))).dy,
+        lessThanOrEqualTo(640 - 300));
+    expect(t.getBottomLeft(find.byKey(const Key('bar'))).dy,
+        lessThanOrEqualTo(640 - 300));
   });
 }

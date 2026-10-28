@@ -27,7 +27,7 @@ class SectionCard extends StatelessWidget {
 }
 
 /// Action row of a [SectionCard]: visually a [SettingRow]. A non-null [color]
-/// tints the icon.
+/// tints the icon and the label.
 class SettingsTile extends StatelessWidget {
   final IconData icon;
   final String label;
@@ -55,6 +55,7 @@ class SettingsTile extends StatelessWidget {
       trailing: trailing,
       onTap: onTap,
       iconColor: color,
+      titleColor: color,
     );
   }
 }

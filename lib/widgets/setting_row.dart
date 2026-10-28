@@ -14,6 +14,9 @@ class SettingRow extends StatelessWidget {
   /// Optional icon tint (used by `SettingsTile`); ignored when [destructive].
   final Color? iconColor;
 
+  /// Optional title tint (used by `SettingsTile`); ignored when [destructive].
+  final Color? titleColor;
+
   const SettingRow({
     super.key,
     required this.icon,
@@ -23,6 +26,7 @@ class SettingRow extends StatelessWidget {
     this.onTap,
     this.destructive = false,
     this.iconColor,
+    this.titleColor,
   });
 
   @override
@@ -30,7 +34,7 @@ class SettingRow extends StatelessWidget {
     final t = AppTokens.of(context);
     final text = Theme.of(context).textTheme;
     final tint = destructive ? t.danger : (iconColor ?? t.primary);
-    final titleColor = destructive ? t.danger : t.textPrimary;
+    final titleTint = destructive ? t.danger : (titleColor ?? t.textPrimary);
     final end = trailing ??
         (onTap == null
             ? null
@@ -57,7 +61,7 @@ class SettingRow extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(title,
-                      style: text.titleSmall!.copyWith(color: titleColor)),
+                      style: text.titleSmall!.copyWith(color: titleTint)),
                   if (subtitle != null)
                     Text(subtitle!, style: text.labelMedium),
                 ],
@@ -100,7 +104,8 @@ class SettingGroup extends StatelessWidget {
     final rows = <Widget>[];
     for (var i = 0; i < children.length; i++) {
       if (dividers && i > 0) {
-        rows.add(Divider(height: 1, thickness: 1, indent: 60, color: t.outline));
+        rows.add(
+            Divider(height: 1, thickness: 1, indent: 60, color: t.outline));
       }
       rows.add(children[i]);
     }
