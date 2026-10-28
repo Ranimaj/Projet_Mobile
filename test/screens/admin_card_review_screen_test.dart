@@ -104,6 +104,24 @@ void main() {
     expect(find.byType(AdminCardReviewScreen), findsNothing);
   });
 
+  testWidgets('a card resubmitted meanwhile is not decided: snack and pop', (t) async {
+    await pumpReview(t, student(StudentCardStatus.pending));
+    await t.runAsync(() => db.collection('users').doc('s1').update({
+          'studentCard': {
+            'status': 'pending',
+            'imagePath': 'student_cards/s1/new.jpg',
+            'submittedAt': Timestamp.fromDate(DateTime(2026, 10, 27)),
+          },
+        }));
+    await t.tap(find.text('Valider'));
+    await t.pumpAndSettle();
+    final data = (await db.collection('users').doc('s1').get()).data()!;
+    expect((data['studentCard'] as Map)['status'], 'pending');
+    expect(data['isVerifiedStudent'], isNull);
+    expect(find.text('La carte a changé, rouvre-la'), findsOneWidget);
+    expect(find.byType(AdminCardReviewScreen), findsNothing);
+  });
+
   testWidgets('reject requires a reason of at least 5 characters', (t) async {
     await pumpReview(t, student(StudentCardStatus.pending));
     await t.tap(find.text('Refuser'));

@@ -8,6 +8,7 @@ import 'package:campusconnect/services/admin_user_service.dart';
 import 'package:campusconnect/widgets/charts/area_line_chart.dart';
 import 'package:campusconnect/widgets/charts/donut_chart.dart';
 import 'package:campusconnect/widgets/charts/h_bar_chart.dart';
+import 'package:campusconnect/widgets/stat_tile.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -76,6 +77,13 @@ void main() {
     expect(find.byType(AreaLineChart), findsOneWidget);
     expect(find.byType(DonutChart), findsOneWidget);
     expect(find.byType(HBarChart), findsOneWidget);
+  });
+
+  testWidgets('both stat tiles have the same width', (t) async {
+    await pumpScreen(t);
+    final tiles = find.byType(StatTile);
+    expect(tiles, findsNWidgets(2));
+    expect(t.getSize(tiles.at(0)).width, t.getSize(tiles.at(1)).width);
   });
 
   testWidgets('switching the period recomputes the sign-ups', (t) async {

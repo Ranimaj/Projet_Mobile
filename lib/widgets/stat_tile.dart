@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import '../core/theme/app_tokens.dart';
 
-/// Compact value + label tile (profile counters, dashboards).
+/// Compact value + label tile on [AppTokens.surfaceMuted] (profile
+/// counters, dashboards).
 class StatTile extends StatelessWidget {
   final String value;
   final String label;
@@ -16,10 +17,8 @@ class StatTile extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
       decoration: BoxDecoration(
-        color: t.surface,
+        color: t.surfaceMuted,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: t.outline),
-        boxShadow: t.cardShadow,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
