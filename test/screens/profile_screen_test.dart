@@ -11,6 +11,7 @@ import 'package:campusconnect/providers/connectivity_provider.dart';
 import 'package:campusconnect/providers/job_provider.dart';
 import 'package:campusconnect/providers/theme_provider.dart';
 import 'package:campusconnect/screens/auth/otp_verification_screen.dart';
+import 'package:campusconnect/screens/debug/design_gallery_screen.dart';
 import 'package:campusconnect/screens/profile/change_password_screen.dart';
 import 'package:campusconnect/screens/profile/edit_profile_screen.dart';
 import 'package:campusconnect/screens/profile/profile_screen.dart';
@@ -18,6 +19,7 @@ import 'package:campusconnect/services/app_prefs.dart';
 import 'package:campusconnect/widgets/initials_avatar.dart';
 import 'package:campusconnect/widgets/setting_row.dart';
 import 'package:campusconnect/widgets/stat_tile.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -388,6 +390,25 @@ void main() {
       expect(find.text('Sombre'), findsOneWidget);
     });
 
+    testWidgets('debug builds link the design gallery from "Sécurité"',
+        (tester) async {
+      expect(kDebugMode, isTrue);
+      await open(tester);
+      final row = find.widgetWithText(SettingRow, 'Galerie du design');
+      expect(row, findsOneWidget);
+      expect(
+          find.descendant(
+              of: find.ancestor(of: row, matching: find.byType(SettingGroup)),
+              matching: find.text('Sécurité')),
+          findsOneWidget);
+      await tester.ensureVisible(row);
+      await tester.tap(row);
+      // The gallery shows looping skeletons: pump past the route transition.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(find.byType(DesignGalleryScreen), findsOneWidget);
+    });
+
     testWidgets('the administration group is only shown to admins',
         (tester) async {
       await open(tester);
@@ -409,6 +430,43 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(find.text('Modifier le profil'), findsOneWidget);
       expect(find.textContaining('Membre depuis'), findsOneWidget);
+    });
+
+    testWidgets(
+        'once scrolled, the avatar no longer covers the "Thème" row '
+        '(360 x 640)', (tester) async {
+      await open(tester, size: const Size(360, 640));
+      final avatarAtRest = tester.getRect(find.byType(InitialsAvatar));
+      final list = tester.state<ScrollableState>(find
+          .descendant(
+              of: find.byType(ListView), matching: find.byType(Scrollable))
+          .first);
+      final themeRow = find.widgetWithText(SettingRow, 'Thème');
+
+      Future<void> scrollTo(double offset) async {
+        list.position.jumpTo(offset);
+        await tester.pumpAndSettle();
+        final avatar = find.byType(InitialsAvatar);
+        if (avatar.evaluate().isNotEmpty) {
+          expect(tester.getRect(avatar).overlaps(tester.getRect(themeRow)),
+              isFalse);
+        }
+      }
+
+      await scrollTo(200);
+      // Bring the row's icon under the part of the sheet the pinned avatar
+      // used to cover.
+      final icon = find.descendant(
+          of: themeRow, matching: find.byIcon(Icons.brightness_6_rounded));
+      final target = Offset(
+          tester.getCenter(icon).dx, avatarAtRest.bottom - 12);
+      await scrollTo(200 + tester.getCenter(icon).dy - target.dy);
+      expect(avatarAtRest.contains(tester.getCenter(icon)), isTrue);
+
+      // Tapping there reaches the row.
+      await tester.tapAt(tester.getCenter(icon));
+      await tester.pumpAndSettle();
+      expect(find.byType(RadioListTile<ThemeMode>), findsNWidgets(3));
     });
 
     for (final brightness in Brightness.values) {
@@ -433,7 +491,7 @@ void main() {
       await tapText(tester, 'Modifier mes informations');
       await tester.pumpAndSettle();
       expect(find.byType(EditProfileScreen), findsOneWidget);
-      await tester.pageBack();
+      await tester.tap(find.byTooltip('Retour').last);
       await tester.pumpAndSettle();
 
       await tapText(tester, 'Changer le mot de passe');

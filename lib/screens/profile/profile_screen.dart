@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -33,6 +34,7 @@ import '../../widgets/stat_tile.dart';
 import '../../widgets/status_chip.dart';
 import '../admin/admin_analytics_screen.dart';
 import '../admin/admin_users_screen.dart';
+import '../debug/design_gallery_screen.dart';
 import '../auth/otp_verification_screen.dart';
 import 'change_password_screen.dart';
 import 'edit_profile_screen.dart';
@@ -422,6 +424,15 @@ class ProfileScreen extends StatelessWidget {
                 ),
               ),
             ),
+            // Developer tool: only in debug builds.
+            if (kDebugMode)
+              SettingRow(
+                icon: Icons.palette_rounded,
+                title: 'Galerie du design',
+                subtitle: 'Composants et jetons (mode debug)',
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => const DesignGalleryScreen())),
+              ),
           ],
         ),
         if (user.role == UserRole.admin) ...[

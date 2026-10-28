@@ -1,18 +1,19 @@
 import 'dart:io';
 
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/constants/app_constants.dart';
-import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_tokens.dart';
 import '../../core/utils/validators.dart';
 import '../../models/user_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../widgets/auth/auth_feedback.dart';
 import '../../widgets/auth/auth_text_field.dart';
+import '../../widgets/initials_avatar.dart';
 import '../../widgets/pill_button.dart';
+import '../../widgets/round_icon_button.dart';
 import '../../widgets/section_card.dart';
 
 /// BF3 — modifier son profil : photo, nom, filière, année, compétences.
@@ -147,13 +148,26 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
+    final t = AppTokens.of(context);
     final yearItems = <String>{
       ...AppConstants.studyYears,
       if (_year != null) _year!
     }.toList();
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Modifier le profil')),
+      appBar: AppBar(
+        title: const Text('Modifier le profil'),
+        leadingWidth: 64,
+        leading: Navigator.of(context).canPop()
+            ? Center(
+                child: RoundIconButton(
+                  icon: Icons.arrow_back_rounded,
+                  tooltip: 'Retour',
+                  onPressed: () => Navigator.of(context).maybePop(),
+                ),
+              )
+            : null,
+      ),
       body: SafeArea(
         child: SingleChildScrollView(
           keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
@@ -208,8 +222,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                       key: const Key('department-dropdown'),
                       initialValue: _department,
                       isExpanded: true,
-                      decoration: const InputDecoration(
-                          prefixIcon: Icon(Icons.school_outlined, size: 20)),
+                      decoration: InputDecoration(
+                          prefixIcon: Icon(Icons.school_outlined,
+                              size: 20, color: t.primary)),
                       items: [
                         for (final d in AppConstants.departments)
                           DropdownMenuItem<String>(value: d, child: Text(d)),
@@ -235,9 +250,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                     DropdownButtonFormField<String?>(
                       key: const Key('year-dropdown'),
                       initialValue: _year,
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                         prefixIcon: Icon(Icons.calendar_today_outlined,
-                            size: 20, color: AppColors.lavender),
+                            size: 20, color: t.primary),
                       ),
                       items: [
                         const DropdownMenuItem<String?>(
@@ -265,13 +280,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         runSpacing: 8,
                         children: [
                           for (final skill in _skills)
-                            InputChip(
-                              label: Text(skill),
+                            _SkillChip(
+                              key: Key('skill-$skill'),
+                              label: skill,
                               onDeleted: () =>
                                   setState(() => _skills.remove(skill)),
-                              deleteIcon:
-                                  const Icon(Icons.close_rounded, size: 16),
-                              deleteIconColor: AppColors.textSecondary,
                             ),
                         ],
                       ),
@@ -294,22 +307,18 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                             decoration: InputDecoration(
                               hintText: 'Ex. Flutter, Gestion de projet',
                               errorText: _skillError,
-                              prefixIcon: const Icon(Icons.star_outline_rounded,
-                                  size: 20, color: AppColors.lavender),
+                              prefixIcon: Icon(Icons.star_outline_rounded,
+                                  size: 20, color: t.primary),
                             ),
                           ),
                         ),
                         const SizedBox(width: 8),
-                        SizedBox(
-                          height: 46,
-                          child: FilledButton.tonal(
-                            onPressed: _addSkill,
-                            style: FilledButton.styleFrom(
-                              shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12)),
-                            ),
-                            child: const Text('Ajouter'),
-                          ),
+                        PillButton(
+                          key: const Key('add-skill'),
+                          label: 'Ajouter',
+                          style: PillStyle.ghost,
+                          expand: false,
+                          onPressed: _addSkill,
                         ),
                       ],
                     ),
@@ -338,51 +347,97 @@ class _AvatarEditor extends StatelessWidget {
   const _AvatarEditor(
       {required this.user, required this.busy, required this.onTap});
 
+  static const double _size = 104;
+
   @override
   Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
     return Center(
-      child: Stack(
+      child: SizedBox(
+        width: _size + 16,
+        height: _size + 8,
+        child: Stack(
+          clipBehavior: Clip.none,
+          alignment: Alignment.topCenter,
+          children: [
+            InitialsAvatar(
+              key: const Key('edit-avatar'),
+              size: _size,
+              photoUrl: user.photoUrl,
+              initials: user.initials,
+            ),
+            if (busy)
+              SizedBox(
+                width: _size,
+                height: _size,
+                child: Center(
+                  child: SizedBox(
+                    width: 26,
+                    height: 26,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2.5, color: t.onPrimary),
+                  ),
+                ),
+              ),
+            Positioned(
+              right: -8,
+              bottom: -12,
+              child: RoundIconButton(
+                icon: Icons.photo_camera_rounded,
+                tooltip: 'Changer la photo',
+                style: RoundButtonStyle.primary,
+                onPressed: busy ? null : onTap,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Skill pill with a 48 dp remove target.
+class _SkillChip extends StatelessWidget {
+  final String label;
+  final VoidCallback onDeleted;
+  const _SkillChip({super.key, required this.label, required this.onDeleted});
+
+  @override
+  Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
+    return Container(
+      height: 48,
+      padding: const EdgeInsets.only(left: 16),
+      decoration: BoxDecoration(
+        color: t.primarySoft,
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            width: 104,
-            height: 104,
-            padding: const EdgeInsets.all(3),
-            decoration: const BoxDecoration(
-                color: AppColors.primary, shape: BoxShape.circle),
-            child: CircleAvatar(
-              backgroundColor: AppColors.surface,
-              backgroundImage: user.photoUrl == null
-                  ? null
-                  : CachedNetworkImageProvider(user.photoUrl!),
-              child: busy
-                  ? const SizedBox(
-                      width: 26,
-                      height: 26,
-                      child: CircularProgressIndicator(strokeWidth: 2.5))
-                  : user.photoUrl == null
-                      ? Text(user.initials,
-                          style: const TextStyle(
-                              fontSize: 30,
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.primary))
-                      : null,
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context)
+                  .textTheme
+                  .labelLarge!
+                  .copyWith(color: t.onPrimarySoft),
             ),
           ),
-          Positioned(
-            right: 0,
-            bottom: 0,
-            child: Material(
-              color: AppColors.primary2,
-              shape: const CircleBorder(
-                  side: BorderSide(color: Colors.white, width: 2)),
+          Semantics(
+            button: true,
+            label: 'Retirer $label',
+            excludeSemantics: true,
+            child: SizedBox(
+              width: 48,
+              height: 48,
               child: InkWell(
                 customBorder: const CircleBorder(),
-                onTap: busy ? null : onTap,
-                child: const Padding(
-                  padding: EdgeInsets.all(8),
-                  child: Icon(Icons.photo_camera_rounded,
-                      size: 16, color: Colors.white),
-                ),
+                onTap: onDeleted,
+                child:
+                    Icon(Icons.close_rounded, size: 18, color: t.onPrimarySoft),
               ),
             ),
           ),
@@ -398,13 +453,7 @@ class _FieldLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Text(
-      text,
-      style: const TextStyle(
-          fontSize: 13,
-          fontWeight: FontWeight.w600,
-          color: AppColors.textPrimary),
-    );
+    return Text(text, style: Theme.of(context).textTheme.labelLarge);
   }
 }
 
@@ -416,28 +465,33 @@ class _ReadOnlyField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _FieldLabel(label),
         const SizedBox(height: 6),
         Container(
+          key: const Key('read-only-email'),
           width: double.infinity,
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
           decoration: BoxDecoration(
-            color: AppColors.border.withValues(alpha: 0.5),
-            borderRadius: BorderRadius.circular(12),
+            color: t.surfaceMuted,
+            borderRadius: BorderRadius.circular(14),
           ),
           child: Row(
             children: [
-              const Icon(Icons.mail_outline_rounded,
-                  size: 20, color: AppColors.textSecondary),
+              Icon(Icons.mail_outline_rounded,
+                  size: 20, color: t.textSecondary),
               const SizedBox(width: 10),
               Expanded(
                   child: Text(value,
-                      style: const TextStyle(color: AppColors.textSecondary))),
-              const Icon(Icons.lock_outline_rounded,
-                  size: 16, color: AppColors.textSecondary),
+                      style: Theme.of(context)
+                          .textTheme
+                          .bodyMedium!
+                          .copyWith(color: t.textSecondary))),
+              Icon(Icons.lock_outline_rounded,
+                  size: 16, color: t.textSecondary),
             ],
           ),
         ),

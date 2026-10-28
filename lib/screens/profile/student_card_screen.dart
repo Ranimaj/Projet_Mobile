@@ -9,7 +9,6 @@ import '../../models/user_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/connectivity_provider.dart';
 import '../../widgets/auth/auth_feedback.dart';
-import '../../widgets/bottom_action_bar.dart';
 import '../../widgets/hero_sheet_scaffold.dart';
 import '../../widgets/pill_button.dart';
 import '../../widgets/round_icon_button.dart';
@@ -57,9 +56,12 @@ class _StudentCardScreenState extends State<StudentCardScreen> {
     final ok = await auth.submitStudentCard(photo, isOnline: online);
     if (!mounted) return;
     if (ok) {
+      // The service falls back to the offline queue when the upload times
+      // out or the network fails: a queued card has no Storage path yet.
+      final sent = online && auth.currentUser?.studentCard.imagePath != null;
       showAuthSnack(
         context,
-        online
+        sent
             ? 'Carte envoyée, en attente de validation'
             : 'Carte enregistrée, envoi à la reconnexion',
         isError: false,
@@ -133,12 +135,11 @@ class _StudentCardScreenState extends State<StudentCardScreen> {
       ),
       bottomBar: verified
           ? null
-          : BottomActionBar(
-              child: PillButton(
-                label: rejected ? 'Renvoyer' : 'Envoyer pour validation',
-                isLoading: busy,
-                onPressed: _photo == null ? null : _submit,
-              ),
+          // HeroSheetScaffold already wraps the bar in a BottomActionBar.
+          : PillButton(
+              label: rejected ? 'Renvoyer' : 'Envoyer pour validation',
+              isLoading: busy,
+              onPressed: _photo == null ? null : _submit,
             ),
       children: [
         Text('Carte étudiant', style: text.headlineSmall),
