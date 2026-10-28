@@ -41,6 +41,18 @@ class StorageService {
     return task.ref.getDownloadURL();
   }
 
+  /// Envoie [file] (compressé) à [remotePath] et renvoie ce chemin Storage,
+  /// pas une URL : les pièces sensibles (carte étudiant) ne sont lues que par
+  /// leur propriétaire et les admins, qui résolvent l'URL à la demande.
+  Future<String> uploadFile(File file, {required String remotePath}) async {
+    final compressed = await _compressImage(file);
+    await _storage
+        .ref()
+        .child(remotePath)
+        .putFile(compressed, SettableMetadata(contentType: 'image/jpeg'));
+    return remotePath;
+  }
+
   Future<List<String>> uploadImages(List<File> files, {required String folder}) async {
     final urls = <String>[];
     for (final file in files) {

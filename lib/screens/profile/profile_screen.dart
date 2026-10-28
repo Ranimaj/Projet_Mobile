@@ -30,6 +30,7 @@ import '../../widgets/status_chip.dart';
 import '../auth/otp_verification_screen.dart';
 import 'change_password_screen.dart';
 import 'edit_profile_screen.dart';
+import 'student_card_screen.dart';
 
 // Scrim over the cover photo (same pair as the visitor home).
 const _scrimTop = Color(0x33000000);
@@ -289,9 +290,13 @@ class ProfileScreen extends StatelessWidget {
             SettingRow(
               icon: Icons.badge_rounded,
               title: 'Carte étudiant',
-              subtitle: _cardSubtitle(user),
-              // Branché sur l'écran de la carte par la tâche suivante.
-              onTap: null,
+              subtitle: auth.pendingCardQueued &&
+                      user.studentCard.status == StudentCardStatus.pending
+                  ? 'En attente de connexion'
+                  : _cardSubtitle(user),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const StudentCardScreen()),
+              ),
             ),
             SettingRow(
               icon: Icons.fingerprint_rounded,

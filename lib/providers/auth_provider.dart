@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' show User;
 import 'package:flutter/foundation.dart';
 
@@ -9,6 +10,8 @@ import '../core/utils/validators.dart';
 import '../models/user_model.dart';
 import '../services/auth_service.dart';
 import '../services/storage_service.dart';
+import '../services/student_card_service.dart';
+import '../core/utils/offline_queue_service.dart';
 
 enum AuthStatus { unknown, visitor, authenticated }
 
@@ -24,6 +27,16 @@ class AuthProvider extends ChangeNotifier {
   StorageService? _storage;
   final StorageService? _injectedStorage;
   StorageService get _storageService => _storage ??= _injectedStorage ?? StorageService();
+
+  // Idem : Firestore et la file hors-ligne ne sont touchés qu'à l'envoi.
+  StudentCardService? _cardService;
+  final StudentCardService? _injectedCardService;
+  StudentCardService get _studentCardService => _cardService ??= _injectedCardService ??
+      StudentCardService(
+        storage: _storageService,
+        firestore: FirebaseFirestore.instance,
+        queue: OfflineQueueService(),
+      );
 
   /// Délai minimal entre deux envois d'email de vérification.
   static const Duration verificationCooldown = Duration(seconds: 60);
@@ -75,9 +88,11 @@ class AuthProvider extends ChangeNotifier {
   AuthProvider({
     AuthService? authService,
     StorageService? storageService,
+    StudentCardService? studentCardService,
     DateTime Function()? clock,
   })  : _authService = authService ?? AuthService(),
         _injectedStorage = storageService,
+        _injectedCardService = studentCardService,
         _now = clock ?? DateTime.now {
     _authSub = _authService.authStateChanges.listen(_onAuthStateChanged);
   }
@@ -229,6 +244,32 @@ class AuthProvider extends ChangeNotifier {
           await _storageService.deleteByUrl(previousUrl);
         }
       });
+
+  /// Envoie la carte étudiant pour validation ; hors-ligne, elle est mise en
+  /// file et partira au retour du réseau (voir [pendingCardQueued]).
+  Future<bool> submitStudentCard(File photo, {required bool isOnline}) => _run(() async {
+        final user = currentUser;
+        if (user == null) throw AuthFailure.fromCode('no-session');
+        final card = await _studentCardService.submit(
+          uid: user.id,
+          photo: photo,
+          isOnline: isOnline,
+          now: _now,
+        );
+        currentUser = user.copyWith(studentCard: card);
+      });
+
+  /// Une carte attend la connexion dans la file hors-ligne.
+  bool get pendingCardQueued {
+    final user = currentUser;
+    if (user == null) return false;
+    try {
+      return _studentCardService.hasQueuedSubmission(user.id);
+    } catch (_) {
+      // Firebase ou la file Hive non initialisés (tests) : rien en attente.
+      return false;
+    }
+  }
 
   Future<bool> changePassword({
     required String currentPassword,
