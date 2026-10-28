@@ -15,6 +15,8 @@ import 'package:mocktail/mocktail.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'helpers/mocks.dart';
+
 class _MockAuth extends Mock implements AuthProvider {}
 
 class _MockArticles extends Mock implements ArticleProvider {}
@@ -27,16 +29,17 @@ class _MockJobs extends Mock implements JobProvider {}
 
 void main() {
   Future<void> pumpRouter(WidgetTester t, Map<String, Object> initial,
-      {String? disabledMessage}) async {
+      {String? disabledMessage, AuthProvider? realAuth}) async {
     SharedPreferences.setMockInitialValues(initial);
     final prefs = await AppPrefs.load();
-    final auth = _MockAuth();
-    when(() => auth.status).thenReturn(AuthStatus.visitor);
-    when(() => auth.isLoading).thenReturn(false);
-    when(() => auth.errorMessage).thenReturn(disabledMessage);
-    when(() => auth.errorCode)
+    final mockAuth = _MockAuth();
+    final AuthProvider auth = realAuth ?? mockAuth;
+    when(() => mockAuth.status).thenReturn(AuthStatus.visitor);
+    when(() => mockAuth.isLoading).thenReturn(false);
+    when(() => mockAuth.errorMessage).thenReturn(disabledMessage);
+    when(() => mockAuth.errorCode)
         .thenReturn(disabledMessage == null ? null : AuthProvider.accountDisabledCode);
-    when(() => auth.clearError()).thenReturn(null);
+    when(() => mockAuth.clearError()).thenReturn(null);
     final articles = _MockArticles();
     final annonces = _MockAnnonces();
     final events = _MockEvents();
@@ -91,6 +94,60 @@ void main() {
     await t.pump();
     expect(find.byType(VisitorHomeScreen), findsOneWidget);
     expect(find.text("Compte désactivé. Contacte l'administration."), findsOneWidget);
+  });
+
+  testWidgets('rebuilds while the error is still set schedule one snack', (t) async {
+    // The mocked clearError leaves the error in place, like a rebuild that
+    // lands before the post-frame clear.
+    await pumpRouter(t, {'onboarding_seen': true},
+        disabledMessage: "Compte désactivé. Contacte l'administration.");
+    for (var i = 0; i < 2; i++) {
+      t.element(find.byType(RootRouter)).markNeedsBuild();
+      await t.pump();
+    }
+    expect(find.byType(SnackBar), findsOneWidget);
+    for (var i = 0; i < 12; i++) {
+      await t.pump(const Duration(seconds: 1));
+    }
+    await t.pumpAndSettle();
+    expect(find.byType(SnackBar), findsNothing);
+  });
+
+  testWidgets('rebuilds before and after the clear show a single snack (real clearError)',
+      (t) async {
+    final service = MockAuthService();
+    when(() => service.authStateChanges).thenAnswer((_) => const Stream.empty());
+    final auth = AuthProvider(authService: service);
+    addTearDown(auth.dispose);
+    await auth.continueAsVisitor();
+    auth
+      ..errorCode = AuthProvider.accountDisabledCode
+      ..errorMessage = "Compte désactivé. Contacte l'administration.";
+
+    await pumpRouter(t, {'onboarding_seen': true}, realAuth: auth);
+    // Two more rebuilds of the router.
+    await auth.continueAsVisitor();
+    await t.pump();
+    await auth.continueAsVisitor();
+    await t.pump();
+
+    expect(find.byType(SnackBar), findsOneWidget);
+    expect(auth.errorCode, isNull);
+    // No second snack queued behind the first one.
+    for (var i = 0; i < 12; i++) {
+      await t.pump(const Duration(seconds: 1));
+    }
+    await t.pumpAndSettle();
+    expect(find.byType(SnackBar), findsNothing);
+
+    // A later disable is announced again.
+    auth
+      ..errorCode = AuthProvider.accountDisabledCode
+      ..errorMessage = "Compte désactivé. Contacte l'administration.";
+    await auth.continueAsVisitor();
+    await t.pump();
+    await t.pump();
+    expect(find.byType(SnackBar), findsOneWidget);
   });
 
   testWidgets('popping the auth screen after onboarding shows the visitor home',

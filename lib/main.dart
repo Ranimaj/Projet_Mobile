@@ -134,10 +134,18 @@ class _RootRouterState extends State<RootRouter> {
     setState(() {});
   }
 
+  bool _announced = false;
+
   /// Un compte désactivé est déconnecté d'office : on l'explique une seule
   /// fois sur l'accueil visiteur, puis on efface le message.
   void _announceDisabledAccount(AuthProvider auth) {
-    if (auth.errorCode != AuthProvider.accountDisabledCode) return;
+    if (auth.errorCode != AuthProvider.accountDisabledCode) {
+      _announced = false; // a later disable is announced again
+      return;
+    }
+    // Several builds can happen before the error is cleared: one snack only.
+    if (_announced) return;
+    _announced = true;
     final message = auth.errorMessage;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;

@@ -87,6 +87,14 @@ class StorageService {
     return task.ref.getDownloadURL();
   }
 
+  /// Supprime le fichier Storage à [path] (chemin, pas URL). Best effort :
+  /// un fichier absent ou inaccessible est ignoré.
+  Future<void> deleteByPath(String path) async {
+    try {
+      await _storage.ref(path).delete();
+    } catch (_) {}
+  }
+
   Future<void> deleteByUrl(String url) async {
     try {
       await _storage.refFromURL(url).delete();
