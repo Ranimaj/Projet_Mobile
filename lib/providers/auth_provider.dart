@@ -297,6 +297,14 @@ class AuthProvider extends ChangeNotifier {
   // --- Session / compte ----------------------------------------------------------
 
   Future<bool> logout() => _run(() async {
+        final uid = currentUser?.id;
+        if (uid != null) {
+          try {
+            // L'envoi de carte en attente appartient à ce compte : il ne doit
+            // pas être rejoué (et refusé) sous une autre session.
+            await _studentCardService.discardQueued(uid);
+          } catch (_) {}
+        }
         await _authService.signOut();
         currentUser = null;
         status = AuthStatus.visitor;

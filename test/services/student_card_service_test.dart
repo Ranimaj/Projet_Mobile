@@ -26,7 +26,7 @@ void main() {
     dir = await Directory.systemTemp.createTemp('card_test');
     Hive.init(dir.path);
     await Hive.openBox(AppConstants.hiveOfflineQueueBox);
-    queue = OfflineQueueService();
+    queue = OfflineQueueService(appDir: () async => dir);
     firestore = FakeFirebaseFirestore();
     storage = MockStorageService();
     service = StudentCardService(
@@ -90,9 +90,11 @@ void main() {
     expect(a.type, QueueActionType.uploadStudentCard);
     expect(a.collection, 'users');
     expect(a.docId, 'u1');
-    expect(a.payload['localPath'], '${dir.path}/student_card_u1.jpg');
+    expect(a.payload['uid'], 'u1');
+    expect(a.payload['file'], 'student_card_u1_${now.millisecondsSinceEpoch}.jpg');
+    expect(a.payload['submittedAt'], now.toIso8601String());
     expect(a.payload['remotePath'], 'student_cards/u1/${now.millisecondsSinceEpoch}.jpg');
-    expect(File(a.payload['localPath'] as String).readAsBytesSync(), [9, 9]);
+    expect(File('${dir.path}/${a.payload['file']}').readAsBytesSync(), [9, 9]);
     verifyNever(() => storage.uploadFile(any(), remotePath: any(named: 'remotePath')));
     final data = (await firestore.collection('users').doc('u1').get()).data()!;
     expect((data['studentCard'] as Map)['status'], 'rejected');
@@ -112,7 +114,37 @@ void main() {
     expect(actions, hasLength(1));
     expect(actions.single.payload['remotePath'],
         'student_cards/u1/${later.millisecondsSinceEpoch}.jpg');
-    expect(File(actions.single.payload['localPath'] as String).readAsBytesSync(), [7]);
+    final newest = File('${dir.path}/${actions.single.payload['file']}');
+    expect(newest.readAsBytesSync(), [7]);
+    final copies = dir
+        .listSync()
+        .map((e) => e.path.split('/').last)
+        .where((n) => n.startsWith('student_card_'))
+        .toList();
+    expect(copies, [newest.path.split('/').last]);
+  });
+
+  test('two offline submits keep distinct files until the first is superseded', () async {
+    await service.submit(uid: 'u1', photo: photo, isOnline: false, now: () => now);
+    final first = queue.pendingActions.single.payload['file'];
+    final second = File('${dir.path}/pick2.jpg')..writeAsBytesSync([7]);
+    await service.submit(
+        uid: 'u1', photo: second, isOnline: false, now: () => now.add(const Duration(seconds: 1)));
+
+    final newest = queue.pendingActions.single.payload['file'];
+    expect(newest, isNot(first));
+    expect(File('${dir.path}/$first').existsSync(), isFalse);
+    expect(File('${dir.path}/$newest').existsSync(), isTrue);
+  });
+
+  test('discardQueued drops the pending card and its file', () async {
+    await service.submit(uid: 'u1', photo: photo, isOnline: false, now: () => now);
+    final file = queue.pendingActions.single.payload['file'];
+
+    await service.discardQueued('u1');
+
+    expect(service.hasQueuedSubmission('u1'), isFalse);
+    expect(File('${dir.path}/$file').existsSync(), isFalse);
   });
 
   test('queued replay then writes a pending card', () async {

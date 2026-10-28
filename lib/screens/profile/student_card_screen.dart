@@ -31,13 +31,22 @@ class _StudentCardScreenState extends State<StudentCardScreen> {
   File? _photo;
 
   Future<void> _pick(ImageSource source) async {
-    final picked = await _picker.pickImage(
-      source: source,
-      imageQuality: 85,
-      maxWidth: 1600,
-    );
+    XFile? picked;
+    try {
+      picked = await _picker.pickImage(
+        source: source,
+        imageQuality: 85,
+        maxWidth: 1600,
+      );
+    } catch (_) {
+      if (!mounted) return;
+      showAuthSnack(context,
+          "Impossible d'ouvrir la galerie ou l'appareil photo. Vérifie les autorisations.");
+      return;
+    }
     if (picked == null || !mounted) return;
-    setState(() => _photo = File(picked.path));
+    final path = picked.path;
+    setState(() => _photo = File(path));
   }
 
   Future<void> _submit() async {
