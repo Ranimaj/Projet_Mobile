@@ -62,7 +62,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
     successSoft: Color(0xFFE6F6EC),
     warning: Color(0xFFB45309),
     warningSoft: Color(0xFFFEF3C7),
-    danger: Color(0xFFDD3333),
+    danger: Color(0xFFC62828),
     dangerSoft: Color(0xFFFEE2E2),
     handle: Color(0xFFE2E1E8),
     heroGradient: LinearGradient(

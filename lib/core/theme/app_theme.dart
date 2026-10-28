@@ -86,8 +86,8 @@ class AppTheme {
         fillColor: t.surfaceMuted,
         contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
         hintStyle: GoogleFonts.inter(fontSize: 13.5, color: t.textSecondary),
-        helperStyle: GoogleFonts.inter(fontSize: 11.5, color: t.textSecondary),
-        errorStyle: GoogleFonts.inter(fontSize: 11.5, color: t.danger, fontWeight: FontWeight.w500),
+        helperStyle: GoogleFonts.inter(fontSize: 13, color: t.textSecondary),
+        errorStyle: GoogleFonts.inter(fontSize: 13, color: t.danger, fontWeight: FontWeight.w500),
         prefixIconColor: t.textSecondary,
         suffixIconColor: t.textSecondary,
         border: border(Colors.transparent),
@@ -153,8 +153,9 @@ class AppTheme {
       ),
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
+        backgroundColor: b == Brightness.light ? t.textPrimary : t.surfaceMuted,
         shape: RoundedRectangleBorder(borderRadius: _radius12),
-        contentTextStyle: GoogleFonts.inter(fontSize: 13.5, color: Colors.white, fontWeight: FontWeight.w500),
+        contentTextStyle: GoogleFonts.inter(fontSize: 13.5, color: b == Brightness.light ? Colors.white : t.textPrimary, fontWeight: FontWeight.w500),
       ),
       switchTheme: SwitchThemeData(
         thumbColor: WidgetStateProperty.resolveWith(

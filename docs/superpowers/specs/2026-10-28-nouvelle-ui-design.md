@@ -37,32 +37,19 @@ une extension `AppTokens`. Aucune valeur hexadécimale ni taille de police dans 
 
 | Jeton | Clair | Sombre | Usage |
 |---|---|---|---|
-| primary | `#FF6A1F` | `#FF7A3A` | actions, pastille active, liens |
-| primarySoft | `#FFF1E8` | `#FF6A1F` à 16 % | fond des puces et cercles d'icône |
-| onPrimarySoft | `#E8661B` | `#FF9A5F` | texte sur primarySoft |
+| primary | `#F9671E` | `#EC7136` | actions, pastille active, liens |
+| primarySoft | `#FFF1E8` | `#402821` (`#FF6A1F` à 16 % sur surface) | fond des puces et cercles d'icône |
+| onPrimarySoft | `#B75115` | `#FF9A5F` | texte sur primarySoft |
 | background | `#F6F6F9` | `#121214` | fond des écrans |
 | surface | `#FFFFFF` | `#1C1C21` | cartes, feuilles, barre flottante |
 | surfaceMuted | `#F0F0F4` | `#242429` | tuiles de stats, champs |
 | outline | `#EEEDF2` | `#2A2A2F` | bord fin des cartes en sombre, filets |
 | textPrimary | `#1C1A33` | `#F4F2F0` | titres, corps |
-| textSecondary | `#7C7A8C` | `#9A969B` | légendes, méta |
-| success / successSoft | `#1B7A43` / `#E6F6EC` | `#4ADE80` / `#4ADE80` à 16 % | vérifié, à jour, « Gratuit » |
-| warning / warningSoft | `#B45309` / `#FEF3C7` | `#FBBF24` / `#FBBF24` à 16 % | en attente de synchro |
-| danger / dangerSoft | `#DD3333` / `#FEE2E2` | `#F87171` / `#F87171` à 16 % | erreurs, refus, suppression |
+| textSecondary | `#767586` | `#9A969B` | légendes, méta |
+| success / successSoft | `#1B7A43` / `#E6F6EC` | `#4ADE80` / `#233B30` (16 %) | vérifié, à jour, « Gratuit » |
+| warning / warningSoft | `#B45309` / `#FEF3C7` | `#FBBF24` / `#403621` (16 %) | en attente de synchro |
+| danger / dangerSoft | `#C62828` / `#FEE2E2` | `#F87171` / `#3F2A2E` (16 %) | erreurs, refus, suppression |
 | handle | `#E2E1E8` | `#3A3A40` | poignée de feuille, points inactifs |
-
-Valeurs finales après le test de contraste AA (les jetons ci-dessus qui échouaient ont été
-ajustés au plus petit pas qui passe ; en sombre, les « à 16 % » sont pré-mélangés sur `surface`) :
-
-| Jeton | Clair | Sombre |
-|---|---|---|
-| primary | `#F9671E` | `#EC7136` |
-| onPrimarySoft | `#B75115` | `#FF9A5F` |
-| textSecondary | `#767586` | `#9A969B` |
-| primarySoft | `#FFF1E8` | `#402821` |
-| successSoft | `#E6F6EC` | `#233B30` |
-| warningSoft | `#FEF3C7` | `#403621` |
-| dangerSoft | `#FEE2E2` | `#3F2A2E` |
 
 Ombres : en clair, ombre douce `0 2 10 rgba(28,26,51,.06)` sur les cartes et `0 8 24
 rgba(28,26,51,.12)` sur la barre flottante ; en sombre, pas d'ombre, bord `outline` de 1 px.

@@ -12,6 +12,10 @@ void main() {
       expect(contrastRatio(t.textSecondary, t.surface), greaterThanOrEqualTo(4.5));
       expect(contrastRatio(t.onPrimarySoft, t.primarySoft), greaterThanOrEqualTo(4.5));
       expect(contrastRatio(t.success, t.successSoft), greaterThanOrEqualTo(4.5));
+      expect(contrastRatio(t.warning, t.warningSoft), greaterThanOrEqualTo(4.5));
+      expect(contrastRatio(t.danger, t.dangerSoft), greaterThanOrEqualTo(4.5));
+      expect(contrastRatio(t.danger, t.surface), greaterThanOrEqualTo(4.5));
+      expect(contrastRatio(t.warning, t.surface), greaterThanOrEqualTo(4.5));
     });
     test('$name white on primary reaches 3:1 (large bold text)',
         () => expect(contrastRatio(Colors.white, t.primary), greaterThanOrEqualTo(3)));
