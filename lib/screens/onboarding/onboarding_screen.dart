@@ -4,7 +4,6 @@ import '../../core/constants/layout.dart';
 import '../../core/theme/app_tokens.dart';
 import '../../services/app_prefs.dart';
 import '../../widgets/pill_button.dart';
-import '../../widgets/round_icon_button.dart';
 
 const _assets = [
   'assets/images/onboarding/campus_1.jpg',
@@ -86,8 +85,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               ],
             ),
           ),
-          Flexible(
-            flex: 2,
+          ConstrainedBox(
+            key: const Key('onboarding-sheet'),
+            constraints: BoxConstraints(
+                maxHeight: MediaQuery.sizeOf(context).height * 0.6),
             child: Container(
               width: double.infinity,
               decoration: BoxDecoration(
@@ -346,18 +347,13 @@ class _IconBubble extends StatelessWidget {
         ),
         child: Row(
           children: [
-            SizedBox(
-              width: _bubbleDot,
-              height: _bubbleDot,
-              child: OverflowBox(
-                maxWidth: 48,
-                maxHeight: 48,
-                child: RoundIconButton(
-                  icon: icon,
-                  style: RoundButtonStyle.primary,
-                  size: _bubbleDot,
-                  tooltip: '',
-                ),
+            DecoratedBox(
+              decoration:
+                  BoxDecoration(color: t.primary, shape: BoxShape.circle),
+              child: SizedBox(
+                width: _bubbleDot,
+                height: _bubbleDot,
+                child: Icon(icon, size: 16, color: t.onPrimary),
               ),
             ),
             const SizedBox(width: 10),

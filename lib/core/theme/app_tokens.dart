@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 class AppTokens extends ThemeExtension<AppTokens> {
   const AppTokens({
     required this.primary,
+    required this.onPrimary,
     required this.primarySoft,
     required this.onPrimarySoft,
     required this.background,
@@ -29,6 +30,9 @@ class AppTokens extends ThemeExtension<AppTokens> {
   });
 
   final Color primary;
+
+  /// Foreground (text, icons) on a [primary] fill.
+  final Color onPrimary;
   final Color primarySoft;
   final Color onPrimarySoft;
   final Color background;
@@ -50,6 +54,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
 
   static const light = AppTokens(
     primary: Color(0xFFF9671E),
+    onPrimary: Color(0xFFFFFFFF),
     primarySoft: Color(0xFFFFF1E8),
     onPrimarySoft: Color(0xFFB75115),
     background: Color(0xFFF6F6F9),
@@ -76,6 +81,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
 
   static const dark = AppTokens(
     primary: Color(0xFFEC7136),
+    onPrimary: Color(0xFFFFFFFF),
     primarySoft: Color(0xFF402821),
     onPrimarySoft: Color(0xFFFF9A5F),
     background: Color(0xFF121214),
@@ -105,6 +111,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
   @override
   AppTokens copyWith({
     Color? primary,
+    Color? onPrimary,
     Color? primarySoft,
     Color? onPrimarySoft,
     Color? background,
@@ -126,6 +133,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
   }) =>
       AppTokens(
         primary: primary ?? this.primary,
+        onPrimary: onPrimary ?? this.onPrimary,
         primarySoft: primarySoft ?? this.primarySoft,
         onPrimarySoft: onPrimarySoft ?? this.onPrimarySoft,
         background: background ?? this.background,
@@ -152,6 +160,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
     Color c(Color a, Color b) => Color.lerp(a, b, t)!;
     return AppTokens(
       primary: c(primary, other.primary),
+      onPrimary: c(onPrimary, other.onPrimary),
       primarySoft: c(primarySoft, other.primarySoft),
       onPrimarySoft: c(onPrimarySoft, other.onPrimarySoft),
       background: c(background, other.background),
