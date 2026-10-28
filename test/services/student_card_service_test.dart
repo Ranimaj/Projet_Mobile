@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:campusconnect/core/constants/app_constants.dart';
 import 'package:campusconnect/core/utils/offline_queue_service.dart';
 import 'package:campusconnect/models/user_model.dart';
 import 'package:campusconnect/services/student_card_service.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive/hive.dart';
@@ -77,6 +79,72 @@ void main() {
 
     final data = (await firestore.collection('users').doc('u1').get()).data()!;
     expect((data['studentCard'] as Map)['status'], 'rejected');
+  });
+
+  group('online fallback to the queue', () {
+    late StudentCardService quick;
+
+    setUp(() {
+      quick = StudentCardService(
+        storage: storage,
+        firestore: firestore,
+        queue: queue,
+        appDir: () => dir,
+        onlineTimeout: const Duration(milliseconds: 50),
+      );
+    });
+
+    Future<void> expectQueued(StudentCard card) async {
+      expect(card.status, StudentCardStatus.pending);
+      expect(card.imagePath, isNull);
+      expect(queue.pendingActions.single.type, QueueActionType.uploadStudentCard);
+      final data = (await firestore.collection('users').doc('u1').get()).data()!;
+      expect((data['studentCard'] as Map)['status'], 'rejected');
+    }
+
+    test('an upload that never completes is queued once the timeout expires', () async {
+      when(() => storage.uploadFile(any(), remotePath: any(named: 'remotePath')))
+          .thenAnswer((_) => Completer<String>().future);
+
+      final card = await quick.submit(uid: 'u1', photo: photo, isOnline: true, now: () => now);
+
+      await expectQueued(card);
+    });
+
+    test('a late upload after the timeout writes nothing', () async {
+      final upload = Completer<String>();
+      when(() => storage.uploadFile(any(), remotePath: any(named: 'remotePath')))
+          .thenAnswer((_) => upload.future);
+
+      final card = await quick.submit(uid: 'u1', photo: photo, isOnline: true, now: () => now);
+      upload.complete('student_cards/u1/late.jpg');
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      await expectQueued(card);
+    });
+
+    test('a SocketException is queued', () async {
+      when(() => storage.uploadFile(any(), remotePath: any(named: 'remotePath')))
+          .thenThrow(const SocketException('no route'));
+      await expectQueued(
+          await quick.submit(uid: 'u1', photo: photo, isOnline: true, now: () => now));
+    });
+
+    test('a Firebase network error is queued', () async {
+      when(() => storage.uploadFile(any(), remotePath: any(named: 'remotePath')))
+          .thenThrow(FirebaseException(plugin: 'firebase_storage', code: 'retry-limit-exceeded'));
+      await expectQueued(
+          await quick.submit(uid: 'u1', photo: photo, isOnline: true, now: () => now));
+    });
+
+    test('a refusal is not queued', () async {
+      when(() => storage.uploadFile(any(), remotePath: any(named: 'remotePath')))
+          .thenThrow(FirebaseException(plugin: 'firebase_storage', code: 'unauthorized'));
+      await expectLater(
+          quick.submit(uid: 'u1', photo: photo, isOnline: true, now: () => now),
+          throwsA(isA<FirebaseException>()));
+      expect(queue.pendingCount, 0);
+    });
   });
 
   test('offline: copies the file and enqueues one uploadStudentCard, no remote write', () async {
