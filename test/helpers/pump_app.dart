@@ -6,12 +6,18 @@ import 'package:provider/provider.dart';
 
 /// Monte [screen] au-dessus d'une page d'accueil factice (pour pouvoir tester
 /// les `pop`) avec un [AuthProvider] réel branché sur le service fourni.
+/// [keyboardInset] simule un clavier ouvert ; [wrap] enveloppe l'application
+/// (p. ex. pour injecter un `Provider`).
 Future<AuthProvider> pumpAuthScreen(
   WidgetTester tester,
   AuthProvider provider,
-  Widget screen,
-) async {
-  tester.view.physicalSize = const Size(420, 1000);
+  Widget screen, {
+  Size size = const Size(420, 1000),
+  Brightness brightness = Brightness.light,
+  double keyboardInset = 0,
+  Widget Function(Widget child)? wrap,
+}) async {
+  tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
@@ -21,6 +27,12 @@ Future<AuthProvider> pumpAuthScreen(
       value: provider,
       child: MaterialApp(
         theme: AppTheme.light,
+        darkTheme: AppTheme.dark,
+        themeMode: brightness == Brightness.dark ? ThemeMode.dark : ThemeMode.light,
+        builder: (context, app) => MediaQuery(
+          data: MediaQuery.of(context).copyWith(viewInsets: EdgeInsets.only(bottom: keyboardInset)),
+          child: wrap == null ? app! : wrap(app!),
+        ),
         home: Builder(
           builder: (context) => Scaffold(
             body: Center(

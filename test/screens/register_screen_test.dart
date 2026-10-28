@@ -1,10 +1,11 @@
-import 'package:campusconnect/core/theme/app_colors.dart';
+import 'package:campusconnect/core/theme/app_tokens.dart';
 import 'package:campusconnect/core/utils/auth_failure.dart';
 import 'package:campusconnect/widgets/auth/auth_feedback.dart';
 import 'package:campusconnect/widgets/auth/password_strength_meter.dart';
-import 'package:campusconnect/widgets/gradient_scaffold.dart';
+import 'package:campusconnect/widgets/auth/auth_hero.dart';
+import 'package:campusconnect/widgets/auth/auth_text_field.dart';
+import 'package:campusconnect/widgets/hero_sheet_scaffold.dart';
 import 'package:campusconnect/widgets/pill_button.dart';
-import 'package:campusconnect/widgets/underline_text_field.dart';
 import 'package:flutter/material.dart';
 import 'package:campusconnect/models/user_model.dart';
 import 'package:campusconnect/providers/auth_provider.dart';
@@ -16,6 +17,7 @@ import 'package:mocktail/mocktail.dart';
 
 import '../helpers/mocks.dart';
 import '../helpers/pump_app.dart';
+import '../helpers/pump_themed.dart';
 
 void main() {
   late MockAuthService service;
@@ -159,52 +161,35 @@ void main() {
     verifyNever(() => service.sendEmailVerification());
   });
 
-  group('UI contract (gradient style)', () {
-    final circles = find.byWidgetPredicate((w) =>
-        w is Container && w.decoration is BoxDecoration && (w.decoration as BoxDecoration).shape == BoxShape.circle);
-
-    testWidgets('is built from the shared gradient widgets, without card or circles', (tester) async {
+  group('UI contract (hero sheet)', () {
+    testWidgets('is built from HeroSheetScaffold with an AuthHero and no GradientScaffold', (tester) async {
       await pumpAuthScreen(tester, provider, const RegisterScreen());
 
-      expect(find.byType(GradientScaffold), findsOneWidget);
-      expect(find.byType(UnderlineTextField), findsNWidgets(5));
+      expect(find.byType(HeroSheetScaffold), findsOneWidget);
+      expect(find.byType(AuthHero), findsOneWidget);
+      expect(find.byType(AuthTextField), findsNWidgets(5));
       expect(find.widgetWithText(PillButton, 'Créer mon compte'), findsOneWidget);
       expect(find.byType(AutofillGroup), findsOneWidget);
-      expect(circles, findsNothing);
 
       expect(find.text('Rejoindre CampusConnect'), findsOneWidget);
       expect(find.text('Utilise ton email académique pour être vérifié'), findsOneWidget);
       expect(find.byIcon(Icons.person_add_alt_1_rounded), findsOneWidget);
-      for (final hint in ['Nom complet', 'Email académique', 'Téléphone (optionnel)', 'Mot de passe', 'Confirmer le mot de passe']) {
-        expect(find.text(hint), findsOneWidget, reason: hint);
+      for (final label in ['Nom complet', 'Email académique', 'Téléphone (optionnel)', 'Mot de passe', 'Confirmer le mot de passe']) {
+        expect(find.text(label), findsOneWidget, reason: label);
       }
       expect(find.text('Pour vérifier ton compte par SMS, juste après l\'inscription.'), findsOneWidget);
     });
 
-    testWidgets('the strength meter uses its on-gradient palette', (tester) async {
-      await pumpAuthScreen(tester, provider, const RegisterScreen());
-      expect(tester.widget<PasswordStrengthMeter>(find.byType(PasswordStrengthMeter)).onDark, isTrue);
-
-      await enterField(tester, 3, 'secret123');
-      await tester.pump();
-      final label = tester.widget<Text>(find.textContaining('Robustesse :')).style!;
-      expect(label.color, isNot(AppColors.primary2), reason: 'le bleu du thème clair serait illisible sur bleu');
-    });
-
-    testWidgets('"J\'ai déjà un compte" is a white underlined link that goes back', (tester) async {
+    testWidgets('the main action is a primary PillButton that spans the sheet', (tester) async {
       await pumpAuthScreen(tester, provider, const RegisterScreen());
 
-      final style = tester.widget<Text>(find.text('J\'ai déjà un compte')).style!;
-      expect(style.color, Colors.white);
-      expect(style.decoration, TextDecoration.underline);
-
-      await tapText(tester, 'J\'ai déjà un compte');
-      await tester.pumpAndSettle();
-      expect(find.byType(RegisterScreen), findsNothing);
-      expect(find.text('open'), findsOneWidget);
+      final finder = find.widgetWithText(PillButton, 'Créer mon compte');
+      await tester.ensureVisible(finder);
+      expect(tester.widget<PillButton>(finder).style, PillStyle.primary);
+      expect(tester.getSize(finder).width, 420 - 2 * 20);
     });
 
-    testWidgets('field errors and the banner use the on-gradient variants', (tester) async {
+    testWidgets('field errors use the danger token and the banner the dangerSoft one', (tester) async {
       when(() => service.registerWithEmail(
             email: any(named: 'email'),
             password: any(named: 'password'),
@@ -214,15 +199,54 @@ void main() {
 
       await tapText(tester, 'Créer mon compte');
       await tester.pump();
-      expect(tester.widget<Text>(find.text('Nom requis')).style!.color, AppColors.authErrorOnGradient);
+      expect(tester.widget<Text>(find.text('Nom requis')).style!.color, AppTokens.light.danger);
 
       await fillValid(tester);
       await tapText(tester, 'Créer mon compte');
       await tester.pumpAndSettle();
       final banner = tester.widget<AuthErrorBanner>(find.byType(AuthErrorBanner));
-      expect(banner.onDark, isTrue);
       expect(banner.message, 'Cet email est déjà utilisé.');
+      expect(tester.widget<Text>(find.text('Cet email est déjà utilisé.')).style!.color, AppTokens.light.danger);
     });
+
+    testWidgets('keyboard open shrinks the hero to 120 dp at 360x640', (tester) async {
+      await pumpAuthScreen(tester, provider, const RegisterScreen(),
+          size: const Size(360, 640), keyboardInset: 300);
+      expect(tester.getSize(find.byType(AuthHero)).height, 120);
+    });
+
+    testWidgets('the strength meter uses the token palette', (tester) async {
+      await pumpAuthScreen(tester, provider, const RegisterScreen());
+
+      await enterField(tester, 3, 'abc');
+      await tester.pump();
+      expect(tester.widget<Text>(find.textContaining('Robustesse :')).style!.color, AppTokens.light.textSecondary);
+      final segments = tester
+          .widgetList<AnimatedContainer>(find.descendant(
+              of: find.byType(PasswordStrengthMeter), matching: find.byType(AnimatedContainer)))
+          .map((c) => (c.decoration! as BoxDecoration).color);
+      expect(segments, contains(AppTokens.light.danger));
+    });
+
+    testWidgets('"J\'ai déjà un compte" is a primary underlined link that goes back', (tester) async {
+      await pumpAuthScreen(tester, provider, const RegisterScreen());
+
+      final style = tester.widget<Text>(find.text('J\'ai déjà un compte')).style!;
+      expect(style.color, AppTokens.light.primary);
+      expect(style.decoration, TextDecoration.underline);
+
+      await tapText(tester, 'J\'ai déjà un compte');
+      await tester.pumpAndSettle();
+      expect(find.byType(RegisterScreen), findsNothing);
+      expect(find.text('open'), findsOneWidget);
+    });
+
+    for (final brightness in Brightness.values) {
+      testWidgets('no text under 13 px in ${brightness.name}', (tester) async {
+        await pumpAuthScreen(tester, provider, const RegisterScreen(), brightness: brightness);
+        expectNoSmallText(tester);
+      });
+    }
 
     testWidgets('fields carry the right keyboard, capitalisation and autofill settings', (tester) async {
       await pumpAuthScreen(tester, provider, const RegisterScreen());
