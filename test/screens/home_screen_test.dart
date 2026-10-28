@@ -12,6 +12,7 @@ import 'package:campusconnect/providers/connectivity_provider.dart';
 import 'package:campusconnect/providers/event_provider.dart';
 import 'package:campusconnect/providers/job_provider.dart';
 import 'package:campusconnect/screens/home/home_screen.dart';
+import 'package:campusconnect/screens/profile/profile_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -223,9 +224,11 @@ void main() {
 
       await tester.tap(find.byIcon(Icons.notifications_none_rounded));
       await tester.pump();
+      expect(navigated, [HomeTabs.notices]);
       await tester.tap(find.text('AS'));
-      await tester.pump();
-      expect(navigated, [HomeTabs.notices, HomeTabs.profile]);
+      await tester.pumpAndSettle();
+      expect(find.byType(ProfileScreen), findsOneWidget);
+      expect(navigated, [HomeTabs.notices]);
     });
 
     testWidgets('no badge when nothing is new', (tester) async {
@@ -298,8 +301,9 @@ void main() {
               'Ajoute ta photo et ton téléphone pour être visible des recruteurs.'),
           findsOneWidget);
       await tester.tap(find.text('Compléter'));
-      await tester.pump();
-      expect(navigated, [HomeTabs.profile]);
+      await tester.pumpAndSettle();
+      expect(find.byType(ProfileScreen), findsOneWidget);
+      expect(navigated, isEmpty);
     });
 
     testWidgets('disappears once the profile is complete', (tester) async {

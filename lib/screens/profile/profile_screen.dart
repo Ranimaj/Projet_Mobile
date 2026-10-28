@@ -279,9 +279,11 @@ class _ProfileHeader extends StatelessWidget {
       color: AppColors.background,
       child: Column(
         children: [
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Text('Mon profil', style: text.headlineMedium),
+          Row(
+            children: [
+              if (Navigator.of(context).canPop()) const BackButton(),
+              Text('Mon profil', style: text.headlineMedium),
+            ],
           ),
           const SizedBox(height: 20),
           Container(

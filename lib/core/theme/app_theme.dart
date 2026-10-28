@@ -48,6 +48,7 @@ class AppTheme {
       labelSmall: GoogleFonts.inter(fontWeight: FontWeight.w500, fontSize: 13, color: t.textSecondary),
       bodyLarge: GoogleFonts.inter(fontSize: 15, height: 1.45, color: t.textPrimary),
       bodyMedium: GoogleFonts.inter(fontSize: 14, height: 1.45, color: t.textSecondary),
+      bodySmall: GoogleFonts.inter(fontSize: 13, height: 1.45, color: t.textSecondary),
       labelLarge: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 14, color: t.textPrimary),
     );
 
