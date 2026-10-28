@@ -18,10 +18,11 @@ class HeroSheetScaffold extends StatelessWidget {
   final double maxHeroHeight;
   final double keyboardHeroHeight;
 
-  /// Lets the first child poke up above the sheet's top edge (e.g. an avatar
-  /// straddling the hero): the scrolling area is extended upward by this many
-  /// dp while the children keep their natural position.
-  final double contentLift;
+  /// Widget pinned over the hero and the sheet, straddling the sheet's top
+  /// edge (e.g. a profile avatar). It sits [overlayTop] dp above the hero's
+  /// bottom edge, aligned with the page padding; it does not scroll.
+  final Widget? heroOverlay;
+  final double overlayTop;
 
   const HeroSheetScaffold({
     super.key,
@@ -35,7 +36,8 @@ class HeroSheetScaffold extends StatelessWidget {
     this.minHeroHeight = 200,
     this.maxHeroHeight = 320,
     this.keyboardHeroHeight = 120,
-    this.contentLift = 0,
+    this.heroOverlay,
+    this.overlayTop = 52,
   });
 
   static const double _overlap = 28;
@@ -57,7 +59,7 @@ class HeroSheetScaffold extends StatelessWidget {
 
         Widget content = ListView(
           keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-          padding: EdgeInsets.fromLTRB(kPagePadding, contentLift, kPagePadding,
+          padding: EdgeInsets.fromLTRB(kPagePadding, 0, kPagePadding,
               (bottomBar == null ? 24 : 112) + media.viewInsets.bottom),
           children: children,
         );
@@ -94,23 +96,7 @@ class HeroSheetScaffold extends StatelessWidget {
                   )
                 else
                   const SizedBox(height: 16),
-                Expanded(
-                  child: contentLift == 0
-                      ? content
-                      : LayoutBuilder(
-                          builder: (context, box) => Transform.translate(
-                            offset: Offset(0, -contentLift),
-                            child: OverflowBox(
-                              alignment: Alignment.topCenter,
-                              minHeight: 0,
-                              maxHeight: box.maxHeight + contentLift,
-                              child: SizedBox(
-                                  height: box.maxHeight + contentLift,
-                                  child: content),
-                            ),
-                          ),
-                        ),
-                ),
+                Expanded(child: content),
               ],
             ),
           ),
@@ -135,6 +121,14 @@ class HeroSheetScaffold extends StatelessWidget {
                 ),
               ],
             ),
+            if (heroOverlay != null)
+              Positioned(
+                top: heroH - overlayTop,
+                left: wide
+                    ? (c.maxWidth - kContentMaxWidth) / 2 + kPagePadding
+                    : kPagePadding,
+                child: heroOverlay!,
+              ),
             if (heroLeading != null)
               Positioned(top: top, left: 12, child: heroLeading!),
             if (heroActions.isNotEmpty)

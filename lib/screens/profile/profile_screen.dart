@@ -35,9 +35,6 @@ import 'edit_profile_screen.dart';
 const _scrimTop = Color(0x33000000);
 const _scrimBottom = Color(0xCC000000);
 
-/// How far the avatar pokes above the first child (it straddles the hero edge).
-const double _avatarLift = 32;
-
 /// Gestion des Utilisateurs — écran Profil (BF2/BF3) : identité, badges de
 /// vérification, préférences, sécurité, mode hors-ligne, export et suppression
 /// RGPD.
@@ -122,12 +119,18 @@ class ProfileScreen extends StatelessWidget {
     };
   }
 
-  String _cardSubtitle(AppUser user) => switch (_cardChip(user)?.label) {
-        'Étudiant vérifié' => 'Ta carte est vérifiée',
-        'Vérification en attente' => 'Vérification en cours',
-        'Carte refusée' => 'Carte refusée : envoie-la à nouveau',
-        _ => 'Ajoute ta carte pour être vérifié',
-      };
+  String _cardSubtitle(AppUser user) {
+    final card = user.studentCard;
+    if (user.isVerifiedStudent) return 'Ta carte est vérifiée';
+    return switch (card.status) {
+      StudentCardStatus.verified => 'Ta carte est vérifiée',
+      StudentCardStatus.pending => 'Vérification en cours',
+      StudentCardStatus.rejected => card.rejectReason?.isNotEmpty == true
+          ? 'Refusée : ${card.rejectReason}'
+          : 'Carte refusée : envoie-la à nouveau',
+      StudentCardStatus.none => 'Ajoute ta carte pour être vérifié',
+    };
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -157,7 +160,6 @@ class ProfileScreen extends StatelessWidget {
 
     return HeroSheetScaffold(
       showHandle: false,
-      contentLift: _avatarLift + 12,
       hero: Stack(
         fit: StackFit.expand,
         children: [
@@ -177,6 +179,18 @@ class ProfileScreen extends StatelessWidget {
             ),
           ),
         ],
+      ),
+      heroOverlay: DecoratedBox(
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(color: t.surface, width: 4),
+        ),
+        child: InitialsAvatar(
+          initials: user.initials,
+          photoUrl: user.photoUrl,
+          size: 64,
+          verified: user.isVerifiedStudent,
+        ),
       ),
       heroLeading: Navigator.of(context).canPop()
           ? RoundIconButton(
@@ -214,35 +228,14 @@ class ProfileScreen extends StatelessWidget {
         ],
       ),
       children: [
+        // Clears the pinned avatar; the card chip sits on its right.
         SizedBox(
-          height: 52,
-          child: Stack(
-            clipBehavior: Clip.none,
-            children: [
-              Positioned(
-                left: 0,
-                top: -_avatarLift,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(color: t.surface, width: 4),
-                  ),
-                  child: InitialsAvatar(
-                    initials: user.initials,
-                    photoUrl: user.photoUrl,
-                    size: 64,
-                    verified: user.isVerifiedStudent,
-                  ),
-                ),
-              ),
-              if (cardChip != null)
-                Positioned(
-                  right: 0,
-                  top: 8,
-                  child:
-                      StatusChip(label: cardChip.label, style: cardChip.style),
-                ),
-            ],
+          height: 32,
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: cardChip == null
+                ? null
+                : StatusChip(label: cardChip.label, style: cardChip.style),
           ),
         ),
         const SizedBox(height: 8),
@@ -343,6 +336,12 @@ class ProfileScreen extends StatelessWidget {
               ),
               onTap: () => _verifyPhone(context, user),
             ),
+          ],
+        ),
+        const SizedBox(height: 20),
+        SettingGroup(
+          title: 'Données & confidentialité',
+          children: [
             SettingRow(
               icon: Icons.download_rounded,
               title: 'Exporter mes données (RGPD)',

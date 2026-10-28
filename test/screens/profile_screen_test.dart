@@ -15,6 +15,7 @@ import 'package:campusconnect/screens/profile/change_password_screen.dart';
 import 'package:campusconnect/screens/profile/edit_profile_screen.dart';
 import 'package:campusconnect/screens/profile/profile_screen.dart';
 import 'package:campusconnect/services/app_prefs.dart';
+import 'package:campusconnect/widgets/initials_avatar.dart';
 import 'package:campusconnect/widgets/setting_row.dart';
 import 'package:campusconnect/widgets/stat_tile.dart';
 import 'package:flutter/material.dart';
@@ -46,13 +47,20 @@ class _Root extends StatelessWidget {
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
     return Scaffold(
-      body: Center(child: Text(auth.status == AuthStatus.authenticated ? 'HOME' : 'VISITOR')),
+      body: Center(
+          child: Text(
+              auth.status == AuthStatus.authenticated ? 'HOME' : 'VISITOR')),
     );
   }
 }
 
 ApplicationModel _application(String id) => ApplicationModel(
-    id: id, jobOfferId: 'o$id', jobTitle: 't', companyName: 'c', candidateId: 'uid-1', appliedAt: DateTime(2026));
+    id: id,
+    jobOfferId: 'o$id',
+    jobTitle: 't',
+    companyName: 'c',
+    candidateId: 'uid-1',
+    appliedAt: DateTime(2026));
 
 AppUser _admin({StudentCard studentCard = StudentCard.none}) => AppUser(
     id: sampleUser.id,
@@ -101,7 +109,8 @@ void main() {
     double textScale = 1,
   }) async {
     await tester.pumpWidget(const SizedBox());
-    await h.signIn(tester, user: user, emailVerified: emailVerified, providers: providers);
+    await h.signIn(tester,
+        user: user, emailVerified: emailVerified, providers: providers);
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -110,7 +119,8 @@ void main() {
       MultiProvider(
         providers: [
           ChangeNotifierProvider<AuthProvider>.value(value: h.provider),
-          ChangeNotifierProvider<ConnectivityProvider>.value(value: h.connectivity),
+          ChangeNotifierProvider<ConnectivityProvider>.value(
+              value: h.connectivity),
           ChangeNotifierProvider<ArticleProvider>.value(value: articles),
           ChangeNotifierProvider<AnnonceProvider>.value(value: annonces),
           ChangeNotifierProvider<JobProvider>.value(value: jobs),
@@ -120,9 +130,11 @@ void main() {
         child: MaterialApp(
           theme: AppTheme.light,
           darkTheme: AppTheme.dark,
-          themeMode: brightness == Brightness.dark ? ThemeMode.dark : ThemeMode.light,
+          themeMode:
+              brightness == Brightness.dark ? ThemeMode.dark : ThemeMode.light,
           builder: (context, app) => MediaQuery(
-            data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(textScale)),
+            data: MediaQuery.of(context)
+                .copyWith(textScaler: TextScaler.linear(textScale)),
             child: app!,
           ),
           home: const _Root(),
@@ -139,11 +151,13 @@ void main() {
       sampleUser.copyWith(studentCard: StudentCard(status: status));
 
   group('header & chips', () {
-    testWidgets('shows identity, initials and verification chips', (tester) async {
-      await open(
-          tester,
+    testWidgets('shows identity, initials and verification chips',
+        (tester) async {
+      await open(tester,
           user: sampleUser.copyWith(
-              isPhoneVerified: true, studentCard: const StudentCard(status: StudentCardStatus.verified)));
+              isPhoneVerified: true,
+              studentCard:
+                  const StudentCard(status: StudentCardStatus.verified)));
 
       expect(find.text('Amel Ben Salah'), findsOneWidget);
       expect(find.text('AS'), findsOneWidget);
@@ -180,18 +194,39 @@ void main() {
       expect(find.text('Téléphone vérifié'), findsNothing);
     });
 
-    testWidgets('stats come from the notices, articles and applications of the user', (tester) async {
+    testWidgets(
+        'stats come from the notices, articles and applications of the user',
+        (tester) async {
       AnnonceModel notice(String id, String author) => AnnonceModel(
-          id: id, authorId: author, authorName: 'x', title: 't', content: '', category: 'c', createdAt: DateTime(2026));
+          id: id,
+          authorId: author,
+          authorName: 'x',
+          title: 't',
+          content: '',
+          category: 'c',
+          createdAt: DateTime(2026));
       ArticleModel article(String id, String owner) => ArticleModel(
-          id: id, ownerId: owner, ownerName: 'x', title: 't', description: '', category: 'c', createdAt: DateTime(2026));
-      when(() => annonces.items).thenReturn([notice('1', 'uid-1'), notice('2', 'other'), notice('3', 'uid-1')]);
+          id: id,
+          ownerId: owner,
+          ownerName: 'x',
+          title: 't',
+          description: '',
+          category: 'c',
+          createdAt: DateTime(2026));
+      when(() => annonces.items).thenReturn(
+          [notice('1', 'uid-1'), notice('2', 'other'), notice('3', 'uid-1')]);
       when(() => articles.items).thenReturn([article('1', 'uid-1')]);
-      when(() => jobs.myApplications).thenReturn([_application('1'), _application('2'), _application('3'), _application('4')]);
+      when(() => jobs.myApplications).thenReturn([
+        _application('1'),
+        _application('2'),
+        _application('3'),
+        _application('4')
+      ]);
       await open(tester);
 
       String valueOf(String label) {
-        final tile = find.ancestor(of: find.text(label), matching: find.byType(StatTile));
+        final tile = find.ancestor(
+            of: find.text(label), matching: find.byType(StatTile));
         return tester.widget<StatTile>(tile).value;
       }
 
@@ -200,7 +235,26 @@ void main() {
       expect(valueOf('Candidatures'), '4');
     });
 
-    testWidgets('bottom bar shows the member since date and the edit button', (tester) async {
+    testWidgets('the avatar straddles the top edge of the sheet',
+        (tester) async {
+      await open(tester);
+      final avatar = tester.getRect(find.byType(InitialsAvatar));
+      final heroBottom = tester.getBottomLeft(find.byType(Image)).dy;
+      expect(avatar.top, lessThan(heroBottom - 28));
+      expect(avatar.bottom, greaterThan(heroBottom - 28));
+    });
+
+    testWidgets('a rejected card shows its reason', (tester) async {
+      await open(tester,
+          user: sampleUser.copyWith(
+              studentCard: const StudentCard(
+                  status: StudentCardStatus.rejected,
+                  rejectReason: 'Photo floue')));
+      expect(find.text('Refusée : Photo floue'), findsOneWidget);
+    });
+
+    testWidgets('bottom bar shows the member since date and the edit button',
+        (tester) async {
       await open(tester);
 
       expect(find.text('Membre depuis sept. 2024'), findsOneWidget);
@@ -211,12 +265,15 @@ void main() {
 
     testWidgets('the share action copies the profile text', (tester) async {
       String? copied;
-      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
-        if (call.method == 'Clipboard.setData') copied = (call.arguments as Map)['text'] as String;
+      tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        if (call.method == 'Clipboard.setData') {
+          copied = (call.arguments as Map)['text'] as String;
+        }
         return null;
       });
-      addTearDown(() =>
-          tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, null));
+      addTearDown(() => tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null));
       await open(tester);
 
       await tester.tap(find.byTooltip('Partager'));
@@ -227,14 +284,16 @@ void main() {
       expect(find.text('Profil copié'), findsOneWidget);
     });
 
-    testWidgets('hides "Changer le mot de passe" for Google-only accounts', (tester) async {
+    testWidgets('hides "Changer le mot de passe" for Google-only accounts',
+        (tester) async {
       await open(tester, providers: const ['google.com']);
       expect(find.text('Changer le mot de passe'), findsNothing);
     });
   });
 
   group('email verification banner', () {
-    testWidgets('"Renvoyer" sends the email and starts a countdown that ends with the cooldown',
+    testWidgets(
+        '"Renvoyer" sends the email and starts a countdown that ends with the cooldown',
         (tester) async {
       when(() => h.service.sendEmailVerification()).thenAnswer((_) async {});
       await open(tester, emailVerified: false);
@@ -258,7 +317,8 @@ void main() {
       expect(find.text('Renvoyer'), findsOneWidget);
     });
 
-    testWidgets('"J\'ai vérifié" reloads the user and removes the banner once verified',
+    testWidgets(
+        '"J\'ai vérifié" reloads the user and removes the banner once verified',
         (tester) async {
       when(() => h.service.reloadUser()).thenAnswer((_) async => true);
       await open(tester, emailVerified: false);
@@ -270,7 +330,8 @@ void main() {
       expect(find.text('Email vérifié'), findsOneWidget);
     });
 
-    testWidgets('"J\'ai vérifié" explains when the email is still unverified', (tester) async {
+    testWidgets('"J\'ai vérifié" explains when the email is still unverified',
+        (tester) async {
       when(() => h.service.reloadUser()).thenAnswer((_) async => false);
       await open(tester, emailVerified: false);
 
@@ -288,12 +349,16 @@ void main() {
       await open(tester, user: withCard(StudentCardStatus.rejected));
       expect(find.text('Carte étudiant'), findsOneWidget);
       expect(find.text('Carte refusée'), findsOneWidget); // chip
-      expect(find.textContaining('envoie-la à nouveau'), findsOneWidget); // sous-titre
+      expect(find.textContaining('envoie-la à nouveau'),
+          findsOneWidget); // sous-titre
     });
 
-    testWidgets('the biometric switch persists through AppPrefs', (tester) async {
+    testWidgets('the biometric switch persists through AppPrefs',
+        (tester) async {
       await open(tester);
-      final row = find.ancestor(of: find.text('Connexion biométrique'), matching: find.byType(SettingRow));
+      final row = find.ancestor(
+          of: find.text('Connexion biométrique'),
+          matching: find.byType(SettingRow));
       final toggle = find.descendant(of: row, matching: find.byType(Switch));
       expect(tester.widget<Switch>(toggle).value, isTrue);
 
@@ -305,7 +370,8 @@ void main() {
       expect(tester.widget<Switch>(toggle).value, isFalse);
     });
 
-    testWidgets('the theme sheet changes the ThemeProvider mode', (tester) async {
+    testWidgets('the theme sheet changes the ThemeProvider mode',
+        (tester) async {
       await open(tester);
       expect(find.text('Système'), findsOneWidget);
 
@@ -322,7 +388,8 @@ void main() {
       expect(find.text('Sombre'), findsOneWidget);
     });
 
-    testWidgets('the administration group is only shown to admins', (tester) async {
+    testWidgets('the administration group is only shown to admins',
+        (tester) async {
       await open(tester);
       expect(find.text('Administration'), findsNothing);
 
@@ -335,7 +402,9 @@ void main() {
   });
 
   group('layout & accessibility', () {
-    testWidgets('the bottom bar wraps without overflow at 360 x 640 and text scale 1.3', (tester) async {
+    testWidgets(
+        'the bottom bar wraps without overflow at 360 x 640 and text scale 1.3',
+        (tester) async {
       await open(tester, size: const Size(360, 640), textScale: 1.3);
       expect(tester.takeException(), isNull);
       expect(find.text('Modifier le profil'), findsOneWidget);
@@ -343,9 +412,14 @@ void main() {
     });
 
     for (final brightness in Brightness.values) {
-      testWidgets('no small text and 48 dp tap targets (${brightness.name})', (tester) async {
-        await open(tester, brightness: brightness, emailVerified: false,
-            user: _admin(studentCard: const StudentCard(status: StudentCardStatus.pending)));
+      testWidgets('no small text and 48 dp tap targets (${brightness.name})',
+          (tester) async {
+        await open(tester,
+            brightness: brightness,
+            emailVerified: false,
+            user: _admin(
+                studentCard:
+                    const StudentCard(status: StudentCardStatus.pending)));
         expectNoSmallText(tester);
         expectTapTargets(tester);
       });
@@ -367,8 +441,11 @@ void main() {
       expect(find.byType(ChangePasswordScreen), findsOneWidget);
     });
 
-    testWidgets('phone tile asks for a number, validates it and starts the OTP flow', (tester) async {
-      when(() => h.service.sendPhoneOtp(any())).thenAnswer((_) async => '+21620123456');
+    testWidgets(
+        'phone tile asks for a number, validates it and starts the OTP flow',
+        (tester) async {
+      when(() => h.service.sendPhoneOtp(any()))
+          .thenAnswer((_) async => '+21620123456');
       await open(tester);
 
       await tapText(tester, 'Numéro de téléphone');
@@ -395,18 +472,23 @@ void main() {
           .thenAnswer((inv) async => inv.positionalArguments.first as AppUser);
       await open(tester);
 
-      final row = find.ancestor(of: find.text('Authentification à deux facteurs'), matching: find.byType(SettingRow));
+      final row = find.ancestor(
+          of: find.text('Authentification à deux facteurs'),
+          matching: find.byType(SettingRow));
       final toggle = find.descendant(of: row, matching: find.byType(Switch));
       await tester.ensureVisible(toggle);
       await tester.tap(toggle);
       await tester.pumpAndSettle();
 
-      final saved = verify(() => h.service.updateProfile(captureAny())).captured.single as AppUser;
+      final saved = verify(() => h.service.updateProfile(captureAny()))
+          .captured
+          .single as AppUser;
       expect(saved.twoFactorEnabled, isTrue);
       expect(tester.widget<Switch>(toggle).value, isTrue);
     });
 
-    testWidgets('logout signs out and leaves the profile route', (tester) async {
+    testWidgets('logout signs out and leaves the profile route',
+        (tester) async {
       when(() => h.service.signOut()).thenAnswer((_) async {});
       await open(tester);
 
@@ -420,8 +502,10 @@ void main() {
       expect(find.text('VISITOR'), findsOneWidget);
     });
 
-    testWidgets('a failed logout keeps the user on the profile', (tester) async {
-      when(() => h.service.signOut()).thenThrow(AuthFailure.fromCode('network-request-failed'));
+    testWidgets('a failed logout keeps the user on the profile',
+        (tester) async {
+      when(() => h.service.signOut())
+          .thenThrow(AuthFailure.fromCode('network-request-failed'));
       await open(tester);
 
       await tapText(tester, 'Déconnexion');
@@ -436,12 +520,15 @@ void main() {
     testWidgets('export shows the JSON and copies it', (tester) async {
       // Le presse-papiers passe par un canal natif : on l'intercepte.
       String? copied;
-      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
-        if (call.method == 'Clipboard.setData') copied = (call.arguments as Map)['text'] as String;
+      tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        if (call.method == 'Clipboard.setData') {
+          copied = (call.arguments as Map)['text'] as String;
+        }
         return null;
       });
-      addTearDown(() =>
-          tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, null));
+      addTearDown(() => tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null));
 
       when(() => h.service.exportUserData('uid-1')).thenAnswer((_) async => {
             'account': {'email': 'amel@esprit.tn'},
@@ -458,12 +545,14 @@ void main() {
       await tapText(tester, 'Copier');
       await tester.pumpAndSettle();
       expect(find.text('Mes données'), findsNothing);
-      expect(find.text('Données copiées dans le presse-papiers.'), findsOneWidget);
+      expect(
+          find.text('Données copiées dans le presse-papiers.'), findsOneWidget);
       expect(copied, contains('"fullName": "Amel Ben Salah"'));
     });
 
     testWidgets('export failure is reported', (tester) async {
-      when(() => h.service.exportUserData(any())).thenThrow(AuthFailure.fromCode('network-request-failed'));
+      when(() => h.service.exportUserData(any()))
+          .thenThrow(AuthFailure.fromCode('network-request-failed'));
       await open(tester);
 
       await tapText(tester, 'Exporter mes données (RGPD)');
@@ -474,7 +563,8 @@ void main() {
       expect(find.text('Mes données'), findsNothing);
     });
 
-    testWidgets('deletion requires the password and reports a wrong one inside the dialog',
+    testWidgets(
+        'deletion requires the password and reports a wrong one inside the dialog',
         (tester) async {
       when(() => h.service.deleteAccount(password: any(named: 'password')))
           .thenThrow(AuthFailure.fromCode('wrong-password'));
@@ -487,7 +577,8 @@ void main() {
       await tapText(tester, 'Supprimer définitivement');
       await tester.pump();
       expect(find.text('Mot de passe requis'), findsOneWidget);
-      verifyNever(() => h.service.deleteAccount(password: any(named: 'password')));
+      verifyNever(
+          () => h.service.deleteAccount(password: any(named: 'password')));
 
       await tester.enterText(find.byType(TextFormField).last, 'bad');
       await tapText(tester, 'Supprimer définitivement');
@@ -495,12 +586,15 @@ void main() {
 
       verify(() => h.service.deleteAccount(password: 'bad')).called(1);
       expect(find.text('Email ou mot de passe incorrect.'), findsOneWidget);
-      expect(find.text('Supprimer le compte'), findsOneWidget); // le dialogue reste ouvert
+      expect(find.text('Supprimer le compte'),
+          findsOneWidget); // le dialogue reste ouvert
       expect(h.provider.status, AuthStatus.authenticated);
     });
 
-    testWidgets('a confirmed deletion closes the dialog and ends the session', (tester) async {
-      when(() => h.service.deleteAccount(password: 'secret123')).thenAnswer((_) async {});
+    testWidgets('a confirmed deletion closes the dialog and ends the session',
+        (tester) async {
+      when(() => h.service.deleteAccount(password: 'secret123'))
+          .thenAnswer((_) async {});
       await open(tester);
 
       await tapText(tester, 'Supprimer mon compte');
@@ -517,8 +611,10 @@ void main() {
       expect(find.text('VISITOR'), findsOneWidget);
     });
 
-    testWidgets('Google-only accounts delete without a password field', (tester) async {
-      when(() => h.service.deleteAccount(password: null)).thenAnswer((_) async {});
+    testWidgets('Google-only accounts delete without a password field',
+        (tester) async {
+      when(() => h.service.deleteAccount(password: null))
+          .thenAnswer((_) async {});
       await open(tester, providers: const ['google.com']);
 
       await tapText(tester, 'Supprimer mon compte');
@@ -532,7 +628,9 @@ void main() {
   });
 
   group('email verification confirms itself', () {
-    testWidgets('re-checks in the background every 10 s and removes the banner once verified', (tester) async {
+    testWidgets(
+        're-checks in the background every 10 s and removes the banner once verified',
+        (tester) async {
       var verified = false;
       when(() => h.service.reloadUser()).thenAnswer((_) async => verified);
       await open(tester, emailVerified: false);
@@ -542,7 +640,8 @@ void main() {
       await tester.pump();
       verify(() => h.service.reloadUser()).called(1); // sans aucun tap
       expect(find.text('Email non vérifié'), findsOneWidget);
-      expect(find.byType(CircularProgressIndicator), findsNothing, reason: 'vérification silencieuse');
+      expect(find.byType(CircularProgressIndicator), findsNothing,
+          reason: 'vérification silencieuse');
 
       verified = true; // l'utilisateur a cliqué sur le lien dans sa boîte mail
       await tester.pump(const Duration(seconds: 10));
@@ -552,7 +651,8 @@ void main() {
       expect(find.text('Email vérifié'), findsOneWidget);
     });
 
-    testWidgets('re-checks when the app comes back to the foreground', (tester) async {
+    testWidgets('re-checks when the app comes back to the foreground',
+        (tester) async {
       when(() => h.service.reloadUser()).thenAnswer((_) async => true);
       await open(tester, emailVerified: false);
 
@@ -565,7 +665,8 @@ void main() {
     });
 
     testWidgets('a background check that fails stays silent', (tester) async {
-      when(() => h.service.reloadUser()).thenThrow(AuthFailure.fromCode('network-request-failed'));
+      when(() => h.service.reloadUser())
+          .thenThrow(AuthFailure.fromCode('network-request-failed'));
       await open(tester, emailVerified: false);
 
       await tester.pump(const Duration(seconds: 10));

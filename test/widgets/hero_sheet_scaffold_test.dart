@@ -102,4 +102,26 @@ void main() {
     expect(t.getBottomLeft(find.byKey(const Key('bar'))).dy,
         lessThanOrEqualTo(640 - 300));
   });
+
+  testWidgets('heroOverlay straddles the sheet top edge and does not scroll',
+      (t) async {
+    await pumpThemed(
+        t,
+        const SizedBox(
+          width: 420,
+          height: 1000,
+          child: HeroSheetScaffold(
+            hero: ColoredBox(key: Key('hero'), color: Colors.red),
+            heroOverlay: SizedBox(key: Key('overlay'), width: 64, height: 64),
+            children: [SizedBox(key: Key('content'), height: 40)],
+          ),
+        ),
+        size: const Size(420, 1000));
+    final heroBottom = t.getBottomLeft(find.byKey(const Key('hero'))).dy;
+    final overlay = t.getRect(find.byKey(const Key('overlay')));
+    final sheetTop = heroBottom - 28;
+    expect(overlay.top, lessThan(sheetTop));
+    expect(overlay.bottom, greaterThan(sheetTop));
+    expect(overlay.left, 20);
+  });
 }
