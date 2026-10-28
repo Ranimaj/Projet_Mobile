@@ -5,6 +5,7 @@ import 'package:campusconnect/providers/article_provider.dart';
 import 'package:campusconnect/providers/event_provider.dart';
 import 'package:campusconnect/providers/job_provider.dart';
 import 'package:campusconnect/providers/auth_provider.dart';
+import 'package:campusconnect/screens/auth/register_screen.dart';
 import 'package:campusconnect/screens/onboarding/onboarding_screen.dart';
 import 'package:campusconnect/screens/visitor/visitor_home_screen.dart';
 import 'package:campusconnect/services/app_prefs.dart';
@@ -30,6 +31,8 @@ void main() {
     final prefs = await AppPrefs.load();
     final auth = _MockAuth();
     when(() => auth.status).thenReturn(AuthStatus.visitor);
+    when(() => auth.isLoading).thenReturn(false);
+    when(() => auth.errorMessage).thenReturn(null);
     final articles = _MockArticles();
     final annonces = _MockAnnonces();
     final events = _MockEvents();
@@ -74,6 +77,19 @@ void main() {
 
   testWidgets('shows the visitor home once onboarding was seen', (t) async {
     await pumpRouter(t, {'onboarding_seen': true});
+    expect(find.byType(VisitorHomeScreen), findsOneWidget);
+    expect(find.byType(OnboardingScreen), findsNothing);
+  });
+
+  testWidgets('popping the auth screen after onboarding shows the visitor home',
+      (t) async {
+    await pumpRouter(t, {});
+    await t.tap(find.text('Commencer'));
+    await t.pumpAndSettle();
+    expect(find.byType(RegisterScreen), findsOneWidget);
+
+    Navigator.of(t.element(find.byType(RegisterScreen))).pop();
+    await t.pumpAndSettle();
     expect(find.byType(VisitorHomeScreen), findsOneWidget);
     expect(find.byType(OnboardingScreen), findsNothing);
   });

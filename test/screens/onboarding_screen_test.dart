@@ -20,12 +20,14 @@ void main() {
     VoidCallback? onLogin,
     Brightness brightness = Brightness.light,
     Size size = const Size(420, 1000),
+    double textScale = 1,
   }) =>
       pumpThemed(
         t,
         OnboardingScreen(prefs: prefs, onStart: onStart, onLogin: onLogin),
         brightness: brightness,
         size: size,
+        textScale: textScale,
       );
 
   testWidgets('swiping reaches the second and third pages', (t) async {
@@ -56,6 +58,20 @@ void main() {
     await t.pumpAndSettle();
     expect(prefs.onboardingSeen, isTrue);
     expect(logins, 1);
+  });
+
+  testWidgets('a double tap on Commencer calls onStart once', (t) async {
+    var started = 0;
+    await pump(t, onStart: () => started++);
+    await t.tap(find.text('Commencer'));
+    await t.tap(find.text('Commencer'));
+    await t.pumpAndSettle();
+    expect(started, 1);
+  });
+
+  testWidgets('does not overflow at 360x640 with text scale 1.3', (t) async {
+    await pump(t, size: const Size(360, 640), textScale: 1.3);
+    expect(t.takeException(), isNull);
   });
 
   for (final b in Brightness.values) {
