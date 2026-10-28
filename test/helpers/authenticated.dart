@@ -39,6 +39,8 @@ class AuthHarness {
 
   AuthHarness({StudentCardService? studentCardService}) {
     when(() => service.authStateChanges).thenAnswer((_) => _stream.stream);
+    when(() => service.watchProfile(any()))
+        .thenAnswer((_) => const Stream<AppUser?>.empty().asBroadcastStream());
     when(() => connectivity.isOnline).thenReturn(true);
     when(() => connectivity.pendingActionsCount).thenReturn(0);
     provider = AuthProvider(

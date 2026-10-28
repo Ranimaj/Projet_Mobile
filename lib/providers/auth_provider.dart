@@ -21,6 +21,8 @@ class AuthProvider extends ChangeNotifier {
   final AuthService _authService;
   final DateTime Function() _now;
   StreamSubscription<User?>? _authSub;
+  StreamSubscription<AppUser?>? _profileSub;
+  String? _watchedUid;
 
   // Instancié à la demande : FirebaseStorage.instance exige une app Firebase
   // initialisée, ce qui n'est pas le cas dans les tests ni avant `runApp`.
@@ -102,6 +104,7 @@ class AuthProvider extends ChangeNotifier {
 
   Future<void> _onAuthStateChanged(User? firebaseUser) async {
     if (firebaseUser == null) {
+      _stopProfileWatch();
       status = AuthStatus.visitor;
       currentUser = null;
       emailVerified = false;
@@ -115,24 +118,64 @@ class AuthProvider extends ChangeNotifier {
         // Profil indisponible (hors-ligne...) : on garde la session ouverte.
       }
       if (profile?.disabled == true) {
-        try {
-          await _authService.signOut();
-        } catch (_) {
-          // La session sera de toute façon masquée : l'app repasse en visiteur.
-        }
-        currentUser = null;
-        emailVerified = false;
-        hasPasswordProvider = false;
-        status = AuthStatus.visitor;
-        errorCode = accountDisabledCode;
-        errorMessage = "Compte désactivé. Contacte l'administration.";
-        notifyListeners();
+        await _signOutDisabled();
         return;
       }
       currentUser = profile ?? currentUser;
       status = AuthStatus.authenticated;
+      _watchProfile(firebaseUser.uid);
     }
     notifyListeners();
+  }
+
+  /// Un admin a désactivé le compte : session fermée, message expliqué.
+  Future<void> _signOutDisabled() async {
+    _stopProfileWatch();
+    try {
+      await _authService.signOut();
+    } catch (_) {
+      // La session sera de toute façon masquée : l'app repasse en visiteur.
+    }
+    currentUser = null;
+    emailVerified = false;
+    hasPasswordProvider = false;
+    status = AuthStatus.visitor;
+    errorCode = accountDisabledCode;
+    errorMessage = "Compte désactivé. Contacte l'administration.";
+    notifyListeners();
+  }
+
+  /// Écoute le profil tant que la session est ouverte : la décision d'un
+  /// admin sur la carte étudiant apparaît en direct et une désactivation
+  /// ferme la session immédiatement.
+  void _watchProfile(String uid) {
+    if (_watchedUid == uid && _profileSub != null) return;
+    _stopProfileWatch();
+    Stream<AppUser?> stream;
+    try {
+      stream = _authService.watchProfile(uid);
+    } catch (_) {
+      return; // Firestore indisponible : la lecture ponctuelle suffit.
+    }
+    _watchedUid = uid;
+    _profileSub = stream.listen((profile) {
+      if (profile == null || status != AuthStatus.authenticated) return;
+      if (profile.id != uid) return;
+      if (profile.disabled) {
+        _signOutDisabled();
+        return;
+      }
+      currentUser = profile;
+      notifyListeners();
+    }, onError: (Object _) {
+      // Lecture refusée (session en cours de fermeture) ou hors-ligne.
+    });
+  }
+
+  void _stopProfileWatch() {
+    _profileSub?.cancel();
+    _profileSub = null;
+    _watchedUid = null;
   }
 
   void _syncAccountFlags(User firebaseUser) {
@@ -144,6 +187,7 @@ class AuthProvider extends ChangeNotifier {
   @override
   void dispose() {
     _authSub?.cancel();
+    _stopProfileWatch();
     super.dispose();
   }
 
@@ -326,6 +370,7 @@ class AuthProvider extends ChangeNotifier {
           } catch (_) {}
         }
         await _authService.signOut();
+        _stopProfileWatch();
         currentUser = null;
         status = AuthStatus.visitor;
       });
@@ -334,7 +379,16 @@ class AuthProvider extends ChangeNotifier {
   /// mot de passe (ré-authentification) ; les comptes Google se ré-authentifient
   /// via Google.
   Future<bool> deleteAccount({String? password}) => _run(() async {
+        final uid = currentUser?.id;
+        if (uid != null) {
+          try {
+            // Comme à la déconnexion : la carte en file ne doit pas partir
+            // après la suppression du compte.
+            await _studentCardService.discardQueued(uid);
+          } catch (_) {}
+        }
         await _authService.deleteAccount(password: password);
+        _stopProfileWatch();
         currentUser = null;
         status = AuthStatus.visitor;
       });
