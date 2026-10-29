@@ -3,7 +3,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
-import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_tokens.dart';
 import '../../models/event_model.dart';
 import '../../providers/event_provider.dart';
 import 'event_style.dart';
@@ -121,15 +121,16 @@ class _ExpandHint extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.9), borderRadius: BorderRadius.circular(8)),
-      child: const Row(
+      child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.open_in_full_rounded, size: 14, color: AppColors.primary),
-          SizedBox(width: 4),
-          Text('Agrandir', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: AppColors.primary)),
+          Icon(Icons.open_in_full_rounded, size: 14, color: t.primary),
+          const SizedBox(width: 4),
+          Text('Agrandir', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: t.primary)),
         ],
       ),
     );
@@ -143,6 +144,7 @@ class _MapPlaceholder extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
     return Semantics(
       label: 'Carte indisponible hors ligne. Lieu : $location',
       excludeSemantics: true,
@@ -151,13 +153,13 @@ class _MapPlaceholder extends StatelessWidget {
         width: double.infinity,
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: AppColors.border.withValues(alpha: 0.5),
+          color: t.outline.withValues(alpha: 0.5),
           borderRadius: BorderRadius.circular(16),
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.map_outlined, color: AppColors.textSecondary),
+            Icon(Icons.map_outlined, color: t.textSecondary),
             const SizedBox(height: 6),
             Text(location,
                 textAlign: TextAlign.center,
@@ -374,7 +376,7 @@ class _EventMapScreenState extends State<EventMapScreen> {
               width: 20,
               height: 20,
               decoration: BoxDecoration(
-                color: AppColors.primary,
+                color: AppTokens.of(context).primary,
                 shape: BoxShape.circle,
                 border: Border.all(color: Colors.white, width: 3),
                 boxShadow: const [BoxShadow(color: Color(0x55000000), blurRadius: 6)],
@@ -413,7 +415,7 @@ class _EventMapScreenState extends State<EventMapScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(children: [
-              const Icon(Icons.error_outline_rounded, color: AppColors.danger, size: 20),
+              Icon(Icons.error_outline_rounded, color: AppTokens.of(context).danger, size: 20),
               const SizedBox(width: 8),
               Expanded(child: Text(_error ?? 'Itinéraire indisponible.')),
             ]),
@@ -443,7 +445,7 @@ class _EventMapScreenState extends State<EventMapScreen> {
 
     return Material(
       elevation: 8,
-      color: Colors.white,
+      color: AppTokens.of(context).surface,
       child: SafeArea(
         top: false,
         child: Padding(
@@ -483,12 +485,12 @@ class _MapButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: Colors.white,
+      color: AppTokens.of(context).surface,
       shape: const CircleBorder(),
       elevation: 3,
       child: IconButton(
         tooltip: tooltip,
-        icon: Icon(icon, color: AppColors.primary),
+        icon: Icon(icon, color: AppTokens.of(context).primary),
         constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
         onPressed: onPressed,
       ),

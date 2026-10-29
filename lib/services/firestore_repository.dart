@@ -44,11 +44,15 @@ class FirestoreRepository<T> {
         for (final doc in snapshot.docs) {
           byId[doc.id] = doc.data();
         }
-        await cache.cacheCollection(cacheBoxName, byId);
+        // Un échec du cache local ne doit jamais faire perdre le résultat
+        // réseau : on l'ignore et on renvoie les données fraîches.
+        try {
+          await cache.cacheCollection(cacheBoxName, byId);
+        } catch (_) {}
         return byId.entries.map((e) => fromMap(e.key, e.value)).toList();
       } catch (e) {
         debugPrint('[$collectionName] fetchAll a échoué : $e');
-        // tombe au cache ci-dessous
+        // réseau indisponible : tombe au cache ci-dessous
       }
     }
     final cached = cache.readCollection(cacheBoxName);

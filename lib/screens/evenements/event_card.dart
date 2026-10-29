@@ -1,7 +1,7 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_tokens.dart';
 import '../../models/event_model.dart';
 import 'event_detail_screen.dart';
 import 'itinerary_rules.dart';
@@ -29,6 +29,7 @@ class EventCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
     final color = EventStyle.categoryColor(event.category);
     final when = '${DateFormat('d MMM', 'fr_FR').format(event.startDate)} · '
         '${DateFormat('HH:mm', 'fr_FR').format(event.startDate)} · ${event.location}';
@@ -42,7 +43,7 @@ class EventCard extends StatelessWidget {
       label: '${event.category}, ${event.title}, $when'
           '${distanceMeters == null ? '' : ', à ${ItineraryRules.formatDistance(distanceMeters!)}'}',
       child: Material(
-        color: Colors.white,
+        color: t.surface,
         borderRadius: BorderRadius.circular(radius),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
@@ -51,7 +52,7 @@ class EventCard extends StatelessWidget {
           ),
           child: Container(
             decoration: BoxDecoration(
-              border: Border.all(color: AppColors.border),
+              border: Border.all(color: t.outline),
               borderRadius: BorderRadius.circular(radius),
             ),
             child: IntrinsicHeight(
@@ -88,7 +89,7 @@ class EventCard extends StatelessWidget {
                                         ?.copyWith(fontSize: 15.5, fontWeight: FontWeight.w600)),
                                 const SizedBox(height: 6),
                                 Row(children: [
-                                  const Icon(Icons.schedule_rounded, size: 14, color: AppColors.textSecondary),
+                                  Icon(Icons.schedule_rounded, size: 14, color: t.textSecondary),
                                   const SizedBox(width: 4),
                                   Expanded(
                                     child: Text(when,
@@ -100,14 +101,14 @@ class EventCard extends StatelessWidget {
                                 if (distanceMeters != null) ...[
                                   const SizedBox(height: 4),
                                   Row(children: [
-                                    const Icon(Icons.near_me_outlined, size: 14, color: AppColors.primary),
+                                    Icon(Icons.near_me_outlined, size: 14, color: t.primary),
                                     const SizedBox(width: 4),
                                     Flexible(
                                       child: Text(ItineraryRules.formatDistance(distanceMeters!),
                                           maxLines: 1,
                                           overflow: TextOverflow.ellipsis,
-                                          style: const TextStyle(
-                                              fontWeight: FontWeight.w600, color: AppColors.primary)),
+                                          style: TextStyle(
+                                              fontWeight: FontWeight.w600, color: t.primary)),
                                     ),
                                   ]),
                                 ],
@@ -122,11 +123,11 @@ class EventCard extends StatelessWidget {
                           Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              const Icon(Icons.people_alt_outlined, size: 16, color: AppColors.primary),
+                              Icon(Icons.people_alt_outlined, size: 16, color: t.primary),
                               const SizedBox(height: 2),
                               Text(seats,
-                                  style: const TextStyle(
-                                      fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.primary)),
+                                  style: TextStyle(
+                                      fontSize: 12, fontWeight: FontWeight.w700, color: t.primary)),
                             ],
                           ),
                         ],
@@ -185,25 +186,28 @@ class EventChip extends StatelessWidget {
   final String label;
   final bool selected;
   final VoidCallback onTap;
-  final Color color;
+  /// Couleur du chip ; par défaut la couleur primaire du thème.
+  final Color? color;
   const EventChip({
     super.key,
     required this.label,
     required this.selected,
     required this.onTap,
-    this.color = AppColors.primary,
+    this.color,
   });
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
+    final color = this.color ?? t.primary;
     return Semantics(
       button: true,
       selected: selected,
       label: 'Filtre $label',
       excludeSemantics: true,
       child: Material(
-        color: selected ? color : Colors.white,
-        shape: StadiumBorder(side: BorderSide(color: selected ? color : AppColors.border)),
+        color: selected ? color : t.surface,
+        shape: StadiumBorder(side: BorderSide(color: selected ? color : t.outline)),
         child: InkWell(
           customBorder: const StadiumBorder(),
           onTap: onTap,
@@ -226,7 +230,7 @@ class EventChip extends StatelessWidget {
                       style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
-                          color: selected ? Colors.white : AppColors.textPrimary)),
+                          color: selected ? t.onPrimary : t.textPrimary)),
                 ],
               ),
             ),

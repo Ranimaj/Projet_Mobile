@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_tokens.dart';
 import '../../models/event_model.dart';
 import '../../providers/event_provider.dart';
 import 'event_card.dart';
@@ -177,6 +177,7 @@ class _AttendeesScreenState extends State<AttendeesScreen> {
   }
 
   Widget _buildBody(EventProvider provider, EventModel event, {required bool isLoading, required bool isOffline}) {
+    final t = AppTokens.of(context);
     final now = DateTime.now();
     final paidEvent = !EventRules.isFree(event);
     final stats = EventRules.attendeeStats(event);
@@ -232,9 +233,9 @@ class _AttendeesScreenState extends State<AttendeesScreen> {
         ),
         const SizedBox(height: 12),
         if (_namesLoading)
-          const Padding(
-            padding: EdgeInsets.only(bottom: 8),
-            child: Text('Chargement des noms…', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text('Chargement des noms…', style: TextStyle(fontSize: 12, color: t.textSecondary)),
           ),
         if (attendees.isEmpty)
           _Message(icon: Icons.people_outline_rounded, text: _emptyMessage(event))
@@ -283,12 +284,13 @@ class _SummaryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
     final ratio = stats.fillRatio;
     final registeredText =
         stats.capacity == null ? '${stats.registered} inscrit(s)' : '${stats.registered} / ${stats.capacity} inscrits';
     final barColor = ratio == null
-        ? AppColors.success
-        : (ratio >= 1 ? AppColors.danger : (ratio >= 0.8 ? AppColors.warning : AppColors.success));
+        ? t.success
+        : (ratio >= 1 ? t.danger : (ratio >= 0.8 ? t.warning : t.success));
 
     return Semantics(
       container: true,
@@ -298,8 +300,8 @@ class _SummaryCard extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: Colors.white,
-          border: Border.all(color: AppColors.border),
+          color: t.surface,
+          border: Border.all(color: t.outline),
           borderRadius: BorderRadius.circular(16),
         ),
         child: Column(
@@ -311,7 +313,7 @@ class _SummaryCard extends StatelessWidget {
               ClipRRect(
                 borderRadius: BorderRadius.circular(8),
                 child: LinearProgressIndicator(
-                    value: ratio, minHeight: 8, color: barColor, backgroundColor: AppColors.border),
+                    value: ratio, minHeight: 8, color: barColor, backgroundColor: t.outline),
               ),
             ],
             const SizedBox(height: 12),
@@ -326,7 +328,7 @@ class _SummaryCard extends StatelessWidget {
             if (paidEvent) ...[
               const SizedBox(height: 8),
               Text('Recette attendue : ${_money(stats.expectedRevenue)} TND',
-                  style: const TextStyle(fontWeight: FontWeight.w600, color: AppColors.primary)),
+                  style: TextStyle(fontWeight: FontWeight.w600, color: t.primary)),
             ],
           ],
         ),
@@ -342,7 +344,7 @@ class _Stat extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Row(mainAxisSize: MainAxisSize.min, children: [
-        Icon(icon, size: 18, color: AppColors.textSecondary),
+        Icon(icon, size: 18, color: AppTokens.of(context).textSecondary),
         const SizedBox(width: 6),
         Text(text),
       ]);
@@ -382,8 +384,8 @@ class _AttendeeRow extends StatelessWidget {
         children: [
           CircleAvatar(
             radius: 20,
-            backgroundColor: AppColors.primary.withValues(alpha: 0.12),
-            child: Text(initial, style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.w700)),
+            backgroundColor: AppTokens.of(context).primary.withValues(alpha: 0.12),
+            child: Text(initial, style: TextStyle(color: AppTokens.of(context).primary, fontWeight: FontWeight.w700)),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -440,7 +442,7 @@ class _ToggleChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final enabled = blockedReason == null;
-    final color = on ? AppColors.success : AppColors.textSecondary;
+    final color = on ? AppTokens.of(context).success : AppTokens.of(context).textSecondary;
     return Semantics(
       toggled: on,
       enabled: enabled,
@@ -448,9 +450,9 @@ class _ToggleChip extends StatelessWidget {
       label: '$label : $semanticsName${enabled ? '' : ', $blockedReason'}',
       excludeSemantics: true,
       child: Material(
-        color: on ? AppColors.success.withValues(alpha: enabled ? 0.14 : 0.07) : Colors.white,
+        color: on ? AppTokens.of(context).success.withValues(alpha: enabled ? 0.14 : 0.07) : AppTokens.of(context).surface,
         shape: StadiumBorder(
-          side: BorderSide(color: on ? AppColors.success : AppColors.border),
+          side: BorderSide(color: on ? AppTokens.of(context).success : AppTokens.of(context).outline),
         ),
         child: InkWell(
           customBorder: const StadiumBorder(),
@@ -496,7 +498,7 @@ class _ScanResultSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = ok ? AppColors.success : AppColors.danger;
+    final color = ok ? AppTokens.of(context).success : AppTokens.of(context).danger;
     return SafeArea(
       child: SingleChildScrollView(
         padding: EdgeInsets.fromLTRB(24, 0, 24, 16 + MediaQuery.viewInsetsOf(context).bottom),
@@ -551,11 +553,11 @@ class _Note extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(color: const Color(0xFFFFF7ED), borderRadius: BorderRadius.circular(10)),
+      decoration: BoxDecoration(color: AppTokens.of(context).warningSoft, borderRadius: BorderRadius.circular(10)),
       child: Row(children: [
-        Icon(icon, size: 16, color: AppColors.accent2),
+        Icon(icon, size: 16, color: AppTokens.of(context).warning),
         const SizedBox(width: 8),
-        Expanded(child: Text(text, style: const TextStyle(fontSize: 12.5, color: Color(0xFF9A3412)))),
+        Expanded(child: Text(text, style: TextStyle(fontSize: 12.5, color: AppTokens.of(context).warning))),
       ]),
     );
   }
@@ -571,7 +573,7 @@ class _Message extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 40),
       child: Column(children: [
-        Icon(icon, size: 32, color: AppColors.textSecondary),
+        Icon(icon, size: 32, color: AppTokens.of(context).textSecondary),
         const SizedBox(height: 10),
         Text(text, textAlign: TextAlign.center, style: Theme.of(context).textTheme.bodyLarge),
       ]),

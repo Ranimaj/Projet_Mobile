@@ -1,3 +1,4 @@
+import 'package:campusconnect/core/theme/app_theme.dart';
 import 'package:campusconnect/models/event_model.dart';
 import 'package:campusconnect/screens/evenements/event_card.dart';
 import 'package:campusconnect/screens/evenements/event_hero_card.dart';
@@ -80,6 +81,7 @@ void main() {
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.reset);
       await tester.pumpWidget(MaterialApp(
+        theme: AppTheme.light, // StatusBadge lit les AppTokens du thème
         home: MediaQuery(
           data: const MediaQueryData(size: Size(320, 900), textScaler: TextScaler.linear(1.3)),
           child: Scaffold(

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
-import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_tokens.dart';
 import '../../models/event_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/event_provider.dart';
@@ -59,6 +59,7 @@ class _EventCalendarScreenState extends State<EventCalendarScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
     final provider = context.watch<EventProvider>();
     final userId = context.watch<AuthProvider>().currentUser?.id;
     final categoriesByDay = EventRules.categoriesByDay(provider.calendarEvents(userId));
@@ -102,8 +103,8 @@ class _EventCalendarScreenState extends State<EventCalendarScreen> {
                               textAlign: TextAlign.center,
                               maxLines: 1,
                               overflow: TextOverflow.clip,
-                              style: const TextStyle(
-                                  fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.textSecondary)),
+                              style: TextStyle(
+                                  fontSize: 11, fontWeight: FontWeight.w600, color: t.textSecondary)),
                         ),
                     ],
                   ),
@@ -210,6 +211,7 @@ class _DayCell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
     final label = DateFormat('EEEE d MMMM', 'fr_FR').format(day);
     final semantics = categories.isEmpty ? label : '$label, événements : ${categories.join(', ')}';
     return Semantics(
@@ -218,10 +220,10 @@ class _DayCell extends StatelessWidget {
       label: semantics,
       excludeSemantics: true,
       child: Material(
-        color: isSelected ? AppColors.primary : Colors.transparent,
+        color: isSelected ? t.primary : Colors.transparent,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
-          side: isToday && !isSelected ? const BorderSide(color: AppColors.primary) : BorderSide.none,
+          side: isToday && !isSelected ? BorderSide(color: t.primary) : BorderSide.none,
         ),
         child: InkWell(
           customBorder: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -233,7 +235,7 @@ class _DayCell extends StatelessWidget {
                   style: TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.w600,
-                      color: isSelected ? Colors.white : AppColors.textPrimary)),
+                      color: isSelected ? t.onPrimary : t.textPrimary)),
               const SizedBox(height: 4),
               // Garde la même hauteur avec ou sans points.
               SizedBox(
@@ -250,7 +252,7 @@ class _DayCell extends StatelessWidget {
                           shape: BoxShape.circle,
                           color: EventStyle.categoryColor(c),
                           // Contour blanc pour rester visible sur la case sélectionnée.
-                          border: isSelected ? Border.all(color: Colors.white, width: 1) : null,
+                          border: isSelected ? Border.all(color: t.onPrimary, width: 1) : null,
                         ),
                       ),
                   ],
@@ -270,6 +272,7 @@ class _NoEventsThatDay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 24),
       child: Column(
@@ -277,8 +280,8 @@ class _NoEventsThatDay extends StatelessWidget {
           Container(
             width: 48,
             height: 48,
-            decoration: BoxDecoration(color: AppColors.primary.withValues(alpha: 0.08), shape: BoxShape.circle),
-            child: const Icon(Icons.event_available_outlined, size: 22, color: AppColors.primary),
+            decoration: BoxDecoration(color: t.primary.withValues(alpha: 0.08), shape: BoxShape.circle),
+            child: Icon(Icons.event_available_outlined, size: 22, color: t.primary),
           ),
           const SizedBox(height: 10),
           Text('Aucun événement ce jour', style: Theme.of(context).textTheme.bodyLarge),

@@ -78,6 +78,48 @@ Firestore → Index.
 
 ## 4. Lancer l'application
 
+### En une commande
+
+```bash
+tool/run.sh emu     # émulateurs Firebase locaux : aucun compte, aucun SMS réel
+tool/run.sh prod    # projet Firebase réel : Google Sign-In et vrais SMS
+```
+
+- `emu` démarre les émulateurs (Auth 9099, Firestore 8085, Storage 9199) s'ils ne tournent pas,
+  puis lance l'app dessus. Les codes SMS et les liens de vérification d'email s'affichent dans
+  l'UI des émulateurs (http://127.0.0.1:4000), rien n'est envoyé pour de vrai.
+- `prod` lit `.env.json` (copie de `.env.example.json`) pour `GOOGLE_WEB_CLIENT_ID`,
+  le client OAuth *Web* du projet (Firebase console → Authentication → Google). Ce fichier
+  n'est pas versionné.
+
+Pour Google Sign-In sur Android, l'empreinte SHA-1 de la clé de debug doit être déclarée sur
+l'app Android du projet Firebase et `android/app/google-services.json` téléchargé :
+
+```bash
+keytool -list -v -keystore ~/.android/debug.keystore -alias androiddebugkey -storepass android | grep SHA1
+```
+
+### Comptes de démonstration (émulateurs)
+
+Avec les émulateurs lancés, `tool/seed.sh` crée (de façon idempotente) des comptes
+et leurs documents `users/{uid}` :
+
+```bash
+tool/seed.sh
+```
+
+| Email | Rôle | Carte étudiante |
+|---|---|---|
+| `admin@esprit.tn` | admin | aucune |
+| `amel@esprit.tn` | étudiant | en attente |
+| `sarra@esprit.tn` | étudiant | en attente |
+| `youssef@esprit.tn` | étudiant | en attente |
+| `recruteur@vermeg.tn` | recruteur | aucune |
+
+Mot de passe commun : `Campus2026!`.
+
+### Manuellement
+
 ```bash
 flutter run
 ```
@@ -128,10 +170,55 @@ lib/
 
 ## 7. Design system
 
-Polices **Outfit** (titres) et **Inter** (texte courant) via `google_fonts`,
-palette indigo/violet/orange définie dans `lib/core/theme/app_colors.dart`,
-cartes arrondies (16 px) avec ombres douces — cohérent avec les maquettes
-validées du projet.
+Polices **Outfit** (titres) et **Inter** (texte courant) via `google_fonts`.
+Palette orange de marque (voir [décisions](docs/decisions.md)).
+
+- **Tokens** : `lib/core/theme/app_colors.dart` (palette), `app_tokens.dart`
+  (`ThemeExtension` avec les jeux `AppTokens.light` / `AppTokens.dark` : surfaces, textes,
+  ombres, dégradés), `app_theme.dart` (thèmes Material clair et sombre), `contrast.dart`
+  (vérification des contrastes en test).
+- **Composants** (`lib/widgets/`) : `PrimaryButton`, `PillButton`, `RoundIconButton`,
+  `SearchPill`, `FilterChipPill`, `StatusChip`, `StatusBadge`, `InitialsAvatar`,
+  `SectionCard`, `SettingRow`, `StatTile`, `PhotoCard`, `FeaturedCard`, `EmptyState`,
+  `SkeletonBox`, `HeroSheetScaffold` (héros + feuille), `BottomActionBar` et les
+  graphiques `charts/` (`AreaLineChart`, `DonutChart`, `HBarChart`, basés sur `fl_chart`).
+- **Barre flottante** : `FloatingNavBar` porte 5 onglets ; le profil s'ouvre par l'avatar
+  de l'accueil. Chaque onglet réserve un espace bas pour ne pas être masqué par la barre.
+- **Mode de thème** : `ThemeProvider` (`shared_preferences`) ; par défaut le thème suit le
+  système, la ligne « Thème » du profil force Clair ou Sombre.
+- **Galerie** : `lib/screens/debug/design_gallery_screen.dart` montre tous les composants
+  en clair et en sombre. Elle n'est pas reliée à une route : on l'ouvre temporairement
+  en la passant en `home` de l'app, ou via son test (`test/screens/design_gallery_screen_test.dart`).
+
+### Concepts du cours mis en œuvre
+
+| Concept | Où |
+|---|---|
+| `shared_preferences` | mode de thème, drapeau d'onboarding, préférence biométrique |
+| `fl_chart` | accueil (activité de la semaine), anneau du profil, statistiques admin |
+| `LayoutBuilder` | mise en page adaptative (accueil visiteur et connecté, héros d'authentification) |
+| Hive (file d'attente) | `uploadStudentCard` : soumission de carte hors-ligne rejouée au retour du réseau |
+| `path_provider` | copies locales des photos de carte en attente d'envoi |
+
+## Captures d'écran
+
+Thème clair et sombre dans `docs/screenshots/`. Les captures sont prises sur les émulateurs
+Firebase avec les données de `tool/seed.sh` (comptes et cartes de démonstration, aucun
+contenu des modules Vente & Don, Annonces, Événements ni Stages) :
+
+| Écran | Clair | Sombre |
+|---|---|---|
+| Onboarding | [clair](docs/screenshots/onboarding_light.png) | [sombre](docs/screenshots/onboarding_dark.png) |
+| Visiteur | [clair](docs/screenshots/visitor_light.png) | [sombre](docs/screenshots/visitor_dark.png) |
+| Connexion | [clair](docs/screenshots/login_light.png) | [sombre](docs/screenshots/login_dark.png) |
+| Inscription | [clair](docs/screenshots/register_light.png) | [sombre](docs/screenshots/register_dark.png) |
+| Accueil | [clair](docs/screenshots/home_light.png) | [sombre](docs/screenshots/home_dark.png) |
+| Profil | [clair](docs/screenshots/profile_light.png) | [sombre](docs/screenshots/profile_dark.png) |
+| Édition du profil | [clair](docs/screenshots/edit_profile_light.png) | [sombre](docs/screenshots/edit_profile_dark.png) |
+| Carte étudiante | [clair](docs/screenshots/student_card_light.png) | [sombre](docs/screenshots/student_card_dark.png) |
+| Admin : utilisateurs | [clair](docs/screenshots/admin_users_light.png) | [sombre](docs/screenshots/admin_users_dark.png) |
+| Admin : revue d'une carte | [clair](docs/screenshots/admin_card_review_light.png) | [sombre](docs/screenshots/admin_card_review_dark.png) |
+| Admin : statistiques | [clair](docs/screenshots/admin_analytics_light.png) | [sombre](docs/screenshots/admin_analytics_dark.png) |
 
 ## 8. Builder pour la remise (APK de démonstration)
 

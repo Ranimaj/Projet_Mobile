@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:shimmer/shimmer.dart';
+import '../../core/theme/app_tokens.dart';
 import '../../core/constants/app_constants.dart';
-import '../../core/theme/app_colors.dart';
 import '../../models/event_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/event_provider.dart';
@@ -210,6 +210,7 @@ class _EvenementsListScreenState extends State<EvenementsListScreen> with Ticker
   }
 
   PreferredSizeWidget _buildAppBar(EventProvider provider) {
+    final t = AppTokens.of(context);
     final activeFilters =
         EventRules.activeFilterCount(
             category: provider.categoryFilter, day: provider.selectedDay, price: provider.priceFilter);
@@ -219,7 +220,7 @@ class _EvenementsListScreenState extends State<EvenementsListScreen> with Ticker
       icon: Badge(
         isLabelVisible: activeFilters > 0,
         label: Text('$activeFilters'),
-        backgroundColor: AppColors.accent,
+        backgroundColor: t.primary,
         child: const Icon(Icons.tune_rounded),
       ),
     );
@@ -259,15 +260,16 @@ class _EvenementsListScreenState extends State<EvenementsListScreen> with Ticker
   }
 
   Widget _buildTabBar(EventProvider provider) {
+    final t = AppTokens.of(context);
     return Container(
-      decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: AppColors.border))),
+      decoration: BoxDecoration(border: Border(bottom: BorderSide(color: t.outline))),
       child: TabBar(
         controller: _tabCtrl,
         isScrollable: true,
         tabAlignment: TabAlignment.start,
-        labelColor: AppColors.primary,
-        unselectedLabelColor: AppColors.textSecondary,
-        indicatorColor: AppColors.primary,
+        labelColor: t.primary,
+        unselectedLabelColor: t.textSecondary,
+        indicatorColor: t.primary,
         indicatorWeight: 3,
         labelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
         unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
@@ -286,6 +288,7 @@ class _EvenementsListScreenState extends State<EvenementsListScreen> with Ticker
   /// Bande compacte des jours du mois (À venir uniquement) : point sous les
   /// jours qui ont des événements, aujourd'hui entouré.
   Widget _buildDayStrip(EventProvider provider, String? userId) {
+    final t = AppTokens.of(context);
     final selected = provider.selectedDay == null ? null : EventRules.dateOnly(provider.selectedDay!);
     final focus = selected ?? DateTime.now();
     final month = DateTime(focus.year, focus.month);
@@ -299,7 +302,7 @@ class _EvenementsListScreenState extends State<EvenementsListScreen> with Ticker
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
           child: Text(monthLabel[0].toUpperCase() + monthLabel.substring(1),
-              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textSecondary)),
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: t.textSecondary)),
         ),
         SizedBox(
           height: 66,
@@ -322,10 +325,10 @@ class _EvenementsListScreenState extends State<EvenementsListScreen> with Ticker
                   label: DateFormat('EEEE d MMMM', 'fr_FR').format(day) + (hasEvents ? ', avec événements' : ''),
                   excludeSemantics: true,
                   child: Material(
-                    color: isSelected ? AppColors.primary : Colors.white,
+                    color: isSelected ? t.primary : t.surface,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(14),
-                      side: BorderSide(color: isSelected || isToday ? AppColors.primary : AppColors.border),
+                      side: BorderSide(color: isSelected || isToday ? t.primary : t.outline),
                     ),
                     child: InkWell(
                       customBorder: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
@@ -343,12 +346,12 @@ class _EvenementsListScreenState extends State<EvenementsListScreen> with Ticker
                               style: TextStyle(
                                   fontSize: 10,
                                   fontWeight: FontWeight.w600,
-                                  color: isSelected ? Colors.white70 : AppColors.textSecondary)),
+                                  color: isSelected ? t.onPrimary.withValues(alpha: 0.7) : t.textSecondary)),
                           Text('${day.day}',
                               style: TextStyle(
                                   fontSize: 15,
                                   fontWeight: FontWeight.w700,
-                                  color: isSelected ? Colors.white : AppColors.textPrimary)),
+                                  color: isSelected ? t.onPrimary : t.textPrimary)),
                           const SizedBox(height: 2),
                           Container(
                             width: 5,
@@ -357,7 +360,7 @@ class _EvenementsListScreenState extends State<EvenementsListScreen> with Ticker
                               shape: BoxShape.circle,
                               color: !hasEvents
                                   ? Colors.transparent
-                                  : (isSelected ? Colors.white : AppColors.primary),
+                                  : (isSelected ? t.onPrimary : t.primary),
                             ),
                           ),
                         ],
@@ -615,13 +618,14 @@ class _StateMessage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
     return Column(
       children: [
         Container(
           width: 56,
           height: 56,
-          decoration: BoxDecoration(color: AppColors.primary.withValues(alpha: 0.08), shape: BoxShape.circle),
-          child: Icon(icon, size: 26, color: AppColors.primary),
+          decoration: BoxDecoration(color: t.primary.withValues(alpha: 0.08), shape: BoxShape.circle),
+          child: Icon(icon, size: 26, color: t.primary),
         ),
         const SizedBox(height: 14),
         Text(message, textAlign: TextAlign.center, style: Theme.of(context).textTheme.bodyLarge),
@@ -642,6 +646,7 @@ class _ShimmerList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
     return Shimmer.fromColors(
       baseColor: const Color(0xFFE5E7EB),
       highlightColor: const Color(0xFFF9FAFB),
@@ -651,13 +656,13 @@ class _ShimmerList extends StatelessWidget {
         children: [
           Container(
             height: 150,
-            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20)),
+            decoration: BoxDecoration(color: t.surface, borderRadius: BorderRadius.circular(20)),
           ),
           for (var i = 0; i < 4; i++) ...[
             const SizedBox(height: 12),
             Container(
               height: 96,
-              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(EventCard.radius)),
+              decoration: BoxDecoration(color: t.surface, borderRadius: BorderRadius.circular(EventCard.radius)),
             ),
           ],
         ],

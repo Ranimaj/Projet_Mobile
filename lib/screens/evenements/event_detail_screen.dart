@@ -3,12 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
-import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_tokens.dart';
 import '../../models/event_model.dart';
 import '../../models/user_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/event_provider.dart';
-import '../../widgets/primary_button.dart';
+import '../../widgets/pill_button.dart';
 import 'add_event_screen.dart';
 import 'attendees_screen.dart';
 import 'event_calendar_launcher.dart';
@@ -270,6 +270,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
   // ------------------------------------------------------- Menu organisateur
 
   Widget _organizerMenu(EventModel event, {required bool isAdmin, required DateTime now}) {
+    final t = AppTokens.of(context);
     final canCancel = EventRules.cancelBlocked(event, now) == null;
     return PopupMenuButton<_MenuAction>(
       tooltip: 'Actions organisateur',
@@ -300,11 +301,11 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
           enabled: canCancel,
           child: const ListTile(leading: Icon(Icons.event_busy_outlined), title: Text("Annuler l'événement")),
         ),
-        const PopupMenuItem(
+        PopupMenuItem(
           value: _MenuAction.delete,
           child: ListTile(
-            leading: Icon(Icons.delete_outline_rounded, color: AppColors.danger),
-            title: Text('Supprimer', style: TextStyle(color: AppColors.danger)),
+            leading: Icon(Icons.delete_outline_rounded, color: t.danger),
+            title: Text('Supprimer', style: TextStyle(color: t.danger)),
           ),
         ),
       ],
@@ -393,6 +394,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     String cancelLabel = 'Annuler',
     bool destructive = false,
   }) async {
+    final t = AppTokens.of(context);
     final result = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -402,7 +404,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(cancelLabel)),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: destructive ? TextButton.styleFrom(foregroundColor: AppColors.danger) : null,
+            style: destructive ? TextButton.styleFrom(foregroundColor: t.danger) : null,
             child: Text(confirmLabel),
           ),
         ],
@@ -415,6 +417,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
 
   Widget _buildRegisterBar(EventModel event,
       {required String? userId, required bool isRegistered, required DateTime now}) {
+    final t = AppTokens.of(context);
     final provider = context.watch<EventProvider>();
     final isGuest = context.watch<AuthProvider>().status != AuthStatus.authenticated;
     final status = event.statusAt(now);
@@ -430,7 +433,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
 
     return Material(
       elevation: 8,
-      color: Colors.white,
+      color: t.surface,
       child: SafeArea(
         top: false,
         child: Padding(
@@ -441,7 +444,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
             children: [
               Text(seatsText,
                   textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: AppColors.textSecondary)),
+                  style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: t.textSecondary)),
               const SizedBox(height: 8),
               if (isGuest || userId == null)
                 Text('Connectez-vous pour vous inscrire à cet événement.',
@@ -462,12 +465,12 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                   button: true,
                   enabled: blockedReason == null,
                   label: blockedReason ?? (isRegistered ? "Annuler l'inscription" : "S'inscrire à l'événement"),
-                  child: PrimaryButton(
+                  child: PillButton(
                     label: blockedReason == null
                         ? (isRegistered ? "Annuler l'inscription" : "S'inscrire à l'événement")
                         : _closedLabel(status, isRegistered),
                     icon: isRegistered ? Icons.close_rounded : Icons.check_circle_outline_rounded,
-                    gradient: isRegistered ? AppColors.accentGradient : AppColors.primaryGradient,
+                    style: isRegistered ? PillStyle.ghost : PillStyle.primary,
                     isLoading: provider.isRegistrationBusy(event.id), // ignore les taps pendant l'envoi
                     onPressed: blockedReason == null ? () => _toggleRegistration(event, userId) : null,
                   ),
@@ -519,7 +522,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     }
 
     try {
-      final registered = await provider.toggleRegistration(event, userId);
+      final registered = await provider.toggleRegistrationWithResult(event, userId);
       if (registered == null) return; // tap ignoré, une requête est déjà en cours
       messenger.showSnackBar(SnackBar(
         content: Text(registered ? 'Inscription confirmée !' : 'Désinscription effectuée.'),
@@ -701,15 +704,16 @@ class _QuickAction extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
     final enabled = onTap != null;
-    final fg = enabled ? AppColors.primary : AppColors.textSecondary.withValues(alpha: 0.6);
+    final fg = enabled ? t.primary : t.textSecondary.withValues(alpha: 0.6);
     final button = Semantics(
       button: true,
       enabled: enabled,
       label: enabled ? (semanticLabel ?? label) : '$label, indisponible : $disabledMessage',
       excludeSemantics: true,
       child: Material(
-        color: enabled ? AppColors.primary.withValues(alpha: 0.08) : AppColors.border.withValues(alpha: 0.5),
+        color: enabled ? t.primary.withValues(alpha: 0.08) : t.outline.withValues(alpha: 0.5),
         borderRadius: BorderRadius.circular(14),
         child: InkWell(
           borderRadius: BorderRadius.circular(14),
@@ -841,11 +845,12 @@ class _InfoCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border.all(color: AppColors.border),
+        color: t.surface,
+        border: Border.all(color: t.outline),
         borderRadius: BorderRadius.circular(16),
       ),
       child: Row(
@@ -881,11 +886,12 @@ class _CapacityCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
     final n = event.registeredUserIds.length;
     final ratio = EventRules.capacityRatio(event);
     final Color barColor = event.isFull
-        ? AppColors.danger
-        : (EventRules.isAlmostFull(event) ? AppColors.warning : AppColors.success);
+        ? t.danger
+        : (EventRules.isAlmostFull(event) ? t.warning : t.success);
     // « Places illimitées » n'est affiché qu'une fois : dans la barre du bas.
     final label = ratio == null ? '$n inscrit(s)' : '$n / ${event.capacity} inscrits';
 
@@ -897,8 +903,8 @@ class _CapacityCard extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: Colors.white,
-          border: Border.all(color: AppColors.border),
+          color: t.surface,
+          border: Border.all(color: t.outline),
           borderRadius: BorderRadius.circular(16),
         ),
         child: Column(
@@ -906,12 +912,12 @@ class _CapacityCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                const Icon(Icons.people_alt_outlined, size: 20, color: AppColors.primary),
+                Icon(Icons.people_alt_outlined, size: 20, color: t.primary),
                 const SizedBox(width: 8),
                 Expanded(child: Text(label, style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600))),
                 if (event.isFull)
-                  const Text('Complet',
-                      style: TextStyle(color: AppColors.danger, fontWeight: FontWeight.w700, fontSize: 13)),
+                  Text('Complet',
+                      style: TextStyle(color: t.danger, fontWeight: FontWeight.w700, fontSize: 13)),
               ],
             ),
             if (ratio != null) ...[
@@ -922,7 +928,7 @@ class _CapacityCard extends StatelessWidget {
                   value: ratio,
                   minHeight: 8,
                   color: barColor,
-                  backgroundColor: AppColors.border,
+                  backgroundColor: t.outline,
                 ),
               ),
             ],
@@ -939,16 +945,17 @@ class _OfflineNote extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(color: const Color(0xFFFFF7ED), borderRadius: BorderRadius.circular(8)),
-      child: const Row(
+      child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.wifi_off_rounded, size: 14, color: AppColors.accent2),
-          SizedBox(width: 6),
+          Icon(Icons.wifi_off_rounded, size: 14, color: t.warning),
+          const SizedBox(width: 6),
           // Passe à la ligne au lieu de déborder (écran étroit, grand texte).
-          Flexible(
+          const Flexible(
             child: Text('Hors ligne : dernières données connues',
                 style: TextStyle(fontSize: 12, color: Color(0xFF9A3412))),
           ),
@@ -995,6 +1002,7 @@ class _CancelledBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
     final when = event.cancelledAt == null
         ? ''
         : ' le ${DateFormat('d MMMM à HH:mm', 'fr_FR').format(event.cancelledAt!)}';
@@ -1003,7 +1011,7 @@ class _CancelledBanner extends StatelessWidget {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: const Color(0xFFFEE2E2),
-        border: Border.all(color: AppColors.danger),
+        border: Border.all(color: t.danger),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Text(
@@ -1034,6 +1042,7 @@ class _CancelDialogState extends State<_CancelDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
     return AlertDialog(
       title: const Text("Annuler l'événement ?"),
       content: Form(
@@ -1055,7 +1064,7 @@ class _CancelDialogState extends State<_CancelDialog> {
       actions: [
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('Retour')),
         TextButton(
-          style: TextButton.styleFrom(foregroundColor: AppColors.danger),
+          style: TextButton.styleFrom(foregroundColor: t.danger),
           onPressed: () {
             if (_formKey.currentState!.validate()) Navigator.pop(context, _reasonCtrl.text);
           },

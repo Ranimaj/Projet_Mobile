@@ -6,7 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
-import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_tokens.dart';
 import '../../models/event_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/event_provider.dart';
@@ -587,6 +587,7 @@ class _AddEventScreenState extends State<AddEventScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
     final registeredCount = widget.existing?.registeredUserIds.length ?? 0;
 
     // Clavier fermé (bouton retour Android) : on ferme aussi la liste.
@@ -666,9 +667,9 @@ class _AddEventScreenState extends State<AddEventScreen> {
                             child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
                           )
                         : (_placeLocated
-                            ? const Tooltip(
+                            ? Tooltip(
                                 message: 'Lieu localisé',
-                                child: Icon(Icons.check_circle, color: AppColors.success),
+                                child: Icon(Icons.check_circle, color: t.success),
                               )
                             : null),
                     helperText: _placeLocated
@@ -677,7 +678,7 @@ class _AddEventScreenState extends State<AddEventScreen> {
                             ? null
                             : "Choisissez une suggestion pour activer la carte et l'itinéraire"),
                     helperStyle: _placeLocated
-                        ? const TextStyle(color: AppColors.success, fontWeight: FontWeight.w600)
+                        ? TextStyle(color: t.success, fontWeight: FontWeight.w600)
                         : null,
                     helperMaxLines: 2,
                     errorMaxLines: 2,
@@ -787,10 +788,10 @@ class _AddEventScreenState extends State<AddEventScreen> {
                   onPressed: _submit,
                 ),
                 if (_posterUploading)
-                  const Padding(
-                    padding: EdgeInsets.only(top: 8),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
                     child: Text("Envoi de l'affiche…",
-                        textAlign: TextAlign.center, style: TextStyle(color: AppColors.textSecondary)),
+                        textAlign: TextAlign.center, style: TextStyle(color: t.textSecondary)),
                   ),
               ],
             ),
@@ -821,15 +822,16 @@ class _PosterPicker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
     final hasImage = bytes != null || existingUrl != null;
-    const placeholder = Column(
+    final placeholder = Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Icon(Icons.add_photo_alternate_outlined, size: 36, color: AppColors.primary),
-        SizedBox(height: 6),
-        Text('Ajouter une affiche', style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.primary)),
-        SizedBox(height: 2),
-        Text('JPG ou PNG, 5 Mo maximum (optionnel)', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+        Icon(Icons.add_photo_alternate_outlined, size: 36, color: t.primary),
+        const SizedBox(height: 6),
+        Text('Ajouter une affiche', style: TextStyle(fontWeight: FontWeight.w700, color: t.primary)),
+        const SizedBox(height: 2),
+        Text('JPG ou PNG, 5 Mo maximum (optionnel)', style: TextStyle(fontSize: 12, color: t.textSecondary)),
       ],
     );
 
@@ -865,10 +867,10 @@ class _PosterPicker extends StatelessWidget {
         AspectRatio(
           aspectRatio: 16 / 9,
           child: Material(
-            color: AppColors.primary.withValues(alpha: 0.05),
+            color: t.primary.withValues(alpha: 0.05),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(16),
-              side: const BorderSide(color: AppColors.border),
+              side: BorderSide(color: t.outline),
             ),
             clipBehavior: Clip.antiAlias,
             child: InkWell(
@@ -885,7 +887,7 @@ class _PosterPicker extends StatelessWidget {
               Expanded(
                 child: bytes != null
                     ? Text('Affiche compressée : ${PosterRules.formatSize(bytes!.length)}',
-                        maxLines: 2, style: const TextStyle(fontSize: 12.5, color: AppColors.textSecondary))
+                        maxLines: 2, style: TextStyle(fontSize: 12.5, color: t.textSecondary))
                     : const SizedBox.shrink(),
               ),
               TextButton.icon(
@@ -895,7 +897,7 @@ class _PosterPicker extends StatelessWidget {
                 label: const Text('Changer'),
               ),
               TextButton.icon(
-                style: TextButton.styleFrom(minimumSize: const Size(44, 48), foregroundColor: AppColors.danger),
+                style: TextButton.styleFrom(minimumSize: const Size(44, 48), foregroundColor: t.danger),
                 onPressed: enabled ? onRemove : null,
                 icon: const Icon(Icons.delete_outline_rounded),
                 label: const Text('Retirer'),
@@ -918,10 +920,11 @@ class _PlaceSuggestionList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
     return Padding(
       padding: const EdgeInsets.only(top: 4),
       child: Material(
-        color: Colors.white,
+        color: t.surface,
         elevation: 3,
         borderRadius: BorderRadius.circular(12),
         clipBehavior: Clip.antiAlias,
@@ -929,10 +932,10 @@ class _PlaceSuggestionList extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             if (noResult)
-              const Padding(
-                padding: EdgeInsets.all(14),
+              Padding(
+                padding: const EdgeInsets.all(14),
                 child: Text('Aucun lieu trouvé : le texte sera enregistré tel quel',
-                    style: TextStyle(color: AppColors.textSecondary)),
+                    style: TextStyle(color: t.textSecondary)),
               ),
             for (final s in suggestions)
               Semantics(
@@ -947,7 +950,7 @@ class _PlaceSuggestionList extends StatelessWidget {
                       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                       child: Row(
                         children: [
-                          const Icon(Icons.place_outlined, size: 20, color: AppColors.primary),
+                          Icon(Icons.place_outlined, size: 20, color: t.primary),
                           const SizedBox(width: 10),
                           Expanded(
                             child: Column(
@@ -962,7 +965,7 @@ class _PlaceSuggestionList extends StatelessWidget {
                                   Text(s.secondary,
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(fontSize: 12.5, color: AppColors.textSecondary)),
+                                      style: TextStyle(fontSize: 12.5, color: t.textSecondary)),
                               ],
                             ),
                           ),
@@ -973,10 +976,10 @@ class _PlaceSuggestionList extends StatelessWidget {
                 ),
               ),
             // Données OpenStreetMap via Photon : attribution demandée.
-            const Padding(
-              padding: EdgeInsets.fromLTRB(14, 2, 14, 8),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 2, 14, 8),
               child: Text('Suggestions : Photon · © OpenStreetMap contributors',
-                  style: TextStyle(fontSize: 10.5, color: AppColors.textSecondary)),
+                  style: TextStyle(fontSize: 10.5, color: t.textSecondary)),
             ),
           ],
         ),

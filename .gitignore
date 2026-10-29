@@ -46,3 +46,13 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# Gradle output of the android project
+/android/build/
+
+# Secrets locaux (identifiants OAuth) : ne jamais versionner
+/.env.json
+
+# Superpowers scratch (brainstorm mockups, SDD ledgers)
+.superpowers/
+test/rules/node_modules/

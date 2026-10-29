@@ -1,14 +1,21 @@
 import 'package:flutter/material.dart';
-import '../core/theme/app_colors.dart';
+import '../core/theme/app_tokens.dart';
+import 'pill_button.dart';
 
-/// Bouton principal dégradé — utilisé pour toutes les actions CTA
-/// (publier, postuler, s'inscrire, se connecter...).
+/// Main CTA button (publish, apply, save…). Renders through
+/// `PillButton(style: PillStyle.primary)`.
 class PrimaryButton extends StatelessWidget {
   final String label;
   final VoidCallback? onPressed;
   final bool isLoading;
   final IconData? icon;
-  final Gradient gradient;
+
+  /// Optional fill tint (module screens); defaults to the theme primary.
+  final Color? color;
+
+  /// Kept for compatibility: only its first colour is used, as a flat fill,
+  /// when [color] is not given (no gradients on buttons).
+  final Gradient? gradient;
 
   const PrimaryButton({
     super.key,
@@ -16,62 +23,25 @@ class PrimaryButton extends StatelessWidget {
     required this.onPressed,
     this.isLoading = false,
     this.icon,
-    this.gradient = AppColors.primaryGradient,
+    this.color,
+    this.gradient,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        gradient: onPressed == null ? null : gradient,
-        color: onPressed == null ? AppColors.border : null,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: onPressed == null
-            ? null
-            : [
-                BoxShadow(
-                  color: AppColors.primary.withValues(alpha: 0.3),
-                  blurRadius: 16,
-                  offset: const Offset(0, 8),
-                ),
-              ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(12),
-          onTap: isLoading ? null : onPressed,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 14),
-            child: isLoading
-                ? const Center(
-                    child: SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white),
-                    ),
-                  )
-                : Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      if (icon != null) ...[
-                        Icon(icon, size: 18, color: Colors.white),
-                        const SizedBox(width: 8),
-                      ],
-                      Text(
-                        label,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 14,
-                        ),
-                      ),
-                    ],
-                  ),
-          ),
-        ),
-      ),
+    final button = PillButton(
+      label: label,
+      onPressed: onPressed,
+      isLoading: isLoading,
+      icon: icon,
+    );
+    final g = gradient;
+    final tint = color ?? (g is LinearGradient && g.colors.isNotEmpty ? g.colors.first : null);
+    if (tint == null) return button;
+    final theme = Theme.of(context);
+    return Theme(
+      data: theme.copyWith(extensions: [AppTokens.of(context).copyWith(primary: tint)]),
+      child: button,
     );
   }
 }

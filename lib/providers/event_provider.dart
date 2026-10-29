@@ -477,6 +477,11 @@ class EventProvider extends ChangeNotifier {
 
   // ------------------------------------------------------------ Inscription
 
+  /// Même chose que [toggleRegistrationWithResult], sans le résultat
+  /// (bouton « Je participe » de l'accueil).
+  Future<void> toggleRegistration(EventModel event, String? userId) =>
+      toggleRegistrationWithResult(event, userId);
+
   /// Inscription / désinscription (règles 1, 2 et 4), en ligne uniquement.
   ///
   /// - Sans capacité : arrayUnion / arrayRemove, le serveur ajoute ou retire
@@ -488,7 +493,7 @@ class EventProvider extends ChangeNotifier {
   /// place limitée ne peut pas être promise sans le serveur.
   /// Renvoie true si l'utilisateur est maintenant inscrit, false s'il est
   /// désinscrit, null si le tap est ignoré (requête déjà en cours).
-  Future<bool?> toggleRegistration(EventModel event, String? userId) async {
+  Future<bool?> toggleRegistrationWithResult(EventModel event, String? userId) async {
     if (_busyEventIds.contains(event.id)) return null; // double tap ignoré
 
     final current = findById(event.id) ?? event;

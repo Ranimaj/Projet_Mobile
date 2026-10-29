@@ -1,0 +1,102 @@
+import 'package:campusconnect/screens/onboarding/onboarding_screen.dart';
+import 'package:campusconnect/services/app_prefs.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import '../helpers/pump_themed.dart';
+
+void main() {
+  late AppPrefs prefs;
+
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    prefs = await AppPrefs.load();
+  });
+
+  Future<void> pump(
+    WidgetTester t, {
+    VoidCallback? onStart,
+    VoidCallback? onLogin,
+    Brightness brightness = Brightness.light,
+    Size size = const Size(420, 1000),
+    double textScale = 1,
+  }) =>
+      pumpThemed(
+        t,
+        OnboardingScreen(prefs: prefs, onStart: onStart, onLogin: onLogin),
+        brightness: brightness,
+        size: size,
+        textScale: textScale,
+      );
+
+  testWidgets('swiping reaches the second and third pages', (t) async {
+    await pump(t);
+    expect(find.textContaining('Toute la vie du campus'), findsOneWidget);
+    await t.drag(find.byType(PageView), const Offset(-400, 0));
+    await t.pumpAndSettle();
+    expect(find.textContaining('Vends, donne'), findsOneWidget);
+    await t.drag(find.byType(PageView), const Offset(-400, 0));
+    await t.pumpAndSettle();
+    expect(find.textContaining('Ne rate'), findsOneWidget);
+  });
+
+  testWidgets('Commencer marks onboarding seen then calls onStart', (t) async {
+    var started = 0;
+    await pump(t, onStart: () => started++);
+    expect(prefs.onboardingSeen, isFalse);
+    await t.tap(find.text('Commencer'));
+    await t.pumpAndSettle();
+    expect(prefs.onboardingSeen, isTrue);
+    expect(started, 1);
+  });
+
+  testWidgets('the login link marks seen then calls onLogin', (t) async {
+    var logins = 0;
+    await pump(t, onLogin: () => logins++);
+    await t.tap(find.textContaining('Se connecter'));
+    await t.pumpAndSettle();
+    expect(prefs.onboardingSeen, isTrue);
+    expect(logins, 1);
+  });
+
+  testWidgets('a double tap on Commencer calls onStart once', (t) async {
+    var started = 0;
+    await pump(t, onStart: () => started++);
+    await t.tap(find.text('Commencer'));
+    await t.tap(find.text('Commencer'));
+    await t.pumpAndSettle();
+    expect(started, 1);
+  });
+
+  testWidgets('does not overflow at 360x640 with text scale 1.3', (t) async {
+    await pump(t, size: const Size(360, 640), textScale: 1.3);
+    expect(t.takeException(), isNull);
+  });
+
+  testWidgets('photo area and sheet fill the screen with no gap', (t) async {
+    await pump(t);
+    final pageView = t.getSize(find.byType(PageView)).height;
+    final sheet = t.getSize(find.byKey(const Key('onboarding-sheet'))).height;
+    expect(pageView + sheet, 1000);
+    expect(pageView, greaterThan(1000 / 3));
+  });
+
+  testWidgets('Commencer is reachable by scrolling at 360x640, scale 1.3',
+      (t) async {
+    await pump(t, size: const Size(360, 640), textScale: 1.3);
+    await t.scrollUntilVisible(find.text('Commencer'), 50,
+        scrollable: find.descendant(
+            of: find.byType(SingleChildScrollView),
+            matching: find.byType(Scrollable)));
+    expect(find.text('Commencer').hitTestable(), findsOneWidget);
+  });
+
+  for (final b in Brightness.values) {
+    testWidgets('no small text at 360x640 (${b.name})', (t) async {
+      await pump(t, brightness: b, size: const Size(360, 640));
+      expectNoSmallText(t);
+      expect(t.takeException(), isNull);
+    });
+  }
+}

@@ -1,7 +1,7 @@
+import '../../core/theme/app_tokens.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
-import '../../core/theme/app_colors.dart';
 
 /// Scanner de billets (organisateur / admin) : lit UN code QR et renvoie
 /// son texte brut à l'écran précédent (Navigator.pop). L'analyse du billet
@@ -100,16 +100,17 @@ class _CameraError extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
     final denied = error.errorCode == MobileScannerErrorCode.permissionDenied;
     return Container(
-      color: Colors.white,
+      color: t.surface,
       padding: const EdgeInsets.all(24),
       alignment: Alignment.center,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(denied ? Icons.no_photography_outlined : Icons.error_outline_rounded,
-              size: 40, color: AppColors.textSecondary),
+              size: 40, color: t.textSecondary),
           const SizedBox(height: 12),
           Text(
             denied
