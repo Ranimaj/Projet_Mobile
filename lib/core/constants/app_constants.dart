@@ -43,6 +43,14 @@ class AppConstants {
     'Générale',
   ];
 
+  // --- Ciblage des annonces (notifications push par filière / année) ---
+  // Réutilise les listes du profil (filière / année) pour que le ciblage
+  // corresponde exactement à ce que l'étudiant a choisi.
+  static List<String> get campusMajors =>
+      departments.where((d) => d != 'Autre').toList();
+  static List<String> get campusYears =>
+      studyYears.where((y) => y != 'Alumni').toList();
+
   // --- Catégories Événements ---
   static const List<String> eventCategories = [
     'Conférence',

@@ -230,3 +230,42 @@ flutter build apk --release
 ---
 
 Projet réalisé dans le cadre du module **Développement Mobile** — ESPRIT.
+
+---
+
+## Module Gestion Annonces (intégré)
+
+| Fonctionnalité | Où |
+|---|---|
+| CRUD : créer / lire / **modifier** / supprimer (auteur ou admin) | `lib/screens/annonces/`, `lib/providers/annonce_provider.dart` |
+| Recherche plein texte + filtres (catégorie, urgentes, « pour moi », « mes annonces ») | `annonces_list_screen.dart`, `lib/core/utils/annonce_filter.dart` |
+| Épinglage automatique des annonces **Officielle** (aussi imposé par `firestore.rules`) + épinglage manuel admin | `annonce_provider.dart` |
+| Notifications push ciblées par **filière / année** (topics FCM `all_campus`, `major_*`, `year_*`) | `lib/services/notification_service.dart`, `lib/core/utils/segment_topics.dart`, `functions/index.js` |
+| Clic sur une notification → ouvre l'annonce ; bandeau si l'app est ouverte ; bouton 🔔 pour couper les notifications | `annonces_list_screen.dart` |
+| Hors-ligne : cache Hive, file d'attente, badge « en attente de synchro » | `annonce_provider.dart` (`_applyPending`) |
+| API gratuites : traduction (MyMemory) et recherche de lieu (OpenStreetMap) | `translation_service.dart`, `place_search_service.dart` |
+
+Les filières/années ciblables reprennent celles du profil (`AppConstants.departments` / `studyYears`,
+via `AppConstants.campusMajors` / `campusYears`).
+
+### Cloud Function — notifications push ciblées
+
+La fonction `functions/index.js` est déclenchée à la création d'une annonce avec
+« Envoyer une notification push ». Elle nécessite le plan **Blaze** de Firebase
+(gratuit dans les quotas usuels) :
+
+```bash
+cd functions && npm install && cd ..
+firebase deploy --only functions
+```
+
+Sur iOS, activez aussi les notifications push (clé APNs dans Firebase →
+Paramètres du projet → Cloud Messaging).
+
+### Fichiers partagés touchés par l'intégration
+
+- `lib/main.dart` : `AnnonceProvider` reçoit aussi l'utilisateur courant (`ProxyProvider2`).
+- `lib/core/utils/offline_queue_service.dart` : les `Timestamp` de la file hors-ligne passent par `FirestoreCodec`.
+- `lib/core/constants/app_constants.dart` : `campusMajors` / `campusYears`.
+- `lib/services/notification_service.dart` : abonnement aux topics et clic sur notification.
+- `firestore.rules` (bloc `annonces`), `firebase.json` (`functions`), `pubspec.yaml` (`http`, `url_launcher`), `AndroidManifest.xml` (permissions `INTERNET`, `POST_NOTIFICATIONS`).

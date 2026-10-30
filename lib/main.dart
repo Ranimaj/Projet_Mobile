@@ -86,10 +86,13 @@ class CampusConnectApp extends StatelessWidget {
           update: (_, connectivity, provider) =>
               provider!..updateConnectivity(connectivity.isOnline),
         ),
-        ChangeNotifierProxyProvider<ConnectivityProvider, AnnonceProvider>(
+        // Annonces : reçoit aussi l'utilisateur courant (droits d'édition,
+        // abonnement aux topics push filière/année).
+        ChangeNotifierProxyProvider2<ConnectivityProvider, AuthProvider, AnnonceProvider>(
           create: (_) => AnnonceProvider(),
-          update: (_, connectivity, provider) =>
-              provider!..updateConnectivity(connectivity.isOnline),
+          update: (_, connectivity, auth, provider) => provider!
+            ..updateConnectivity(connectivity.isOnline)
+            ..updateUser(auth.currentUser),
         ),
         ChangeNotifierProxyProvider<ConnectivityProvider, EventProvider>(
           create: (_) => EventProvider(),

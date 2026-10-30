@@ -1,35 +1,129 @@
+import 'dart:async';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
+import 'package:hive_flutter/hive_flutter.dart';
+import '../core/constants/app_constants.dart';
+import '../core/utils/segment_topics.dart';
 
-/// Notifications push (BF12) — annonces urgentes, nouveau message,
-/// mise à jour du statut d'une candidature, rappel d'événement.
-/// Les annonces officielles peuvent cibler un segment d'utilisateurs
-/// (filière/année) via des topics Firebase Messaging — fonctionnalité
-/// avancée du module Annonces.
+/// Notification reçue pendant que l'app est au premier plan.
+class PushEvent {
+  final String? title;
+  final String? body;
+  final String? annonceId;
+  const PushEvent({this.title, this.body, this.annonceId});
+}
+
+/// Notifications push (Firebase Cloud Messaging) — API dédiée du module
+/// Gestion Annonces.
+///
+/// Ciblage par filière / année :
+///  - chaque appareil s'abonne aux topics de SON profil
+///    (`all_campus`, `major_<filière>`, `year_<n>`) — voir [syncTopics] ;
+///  - à la publication d'une annonce, la Cloud Function (dossier
+///    `functions/`) envoie le message aux topics ciblés par l'annonce.
 class NotificationService {
-  final FirebaseMessaging _messaging = FirebaseMessaging.instance;
+  NotificationService._();
+  static final NotificationService _instance = NotificationService._();
+  factory NotificationService() => _instance;
+
+  static const _topicsKey = 'annonce_push_topics';
+  static const _enabledKey = 'annonce_push_enabled';
+
+  FirebaseMessaging get _messaging => FirebaseMessaging.instance;
+  Box get _box => Hive.box(AppConstants.hiveUserBox);
+
+  /// Faux si la boîte Hive n'est pas (encore) ouverte, ex. dans les tests
+  /// d'écran : on retombe alors sur les valeurs par défaut.
+  bool get _hasBox => Hive.isBoxOpen(AppConstants.hiveUserBox);
+
+  bool _initialized = false;
+
+  final _foreground = StreamController<PushEvent>.broadcast();
+
+  /// Notifications reçues app ouverte (affichées en SnackBar par l'écran).
+  Stream<PushEvent> get onForeground => _foreground.stream;
+
+  /// Id de l'annonce à ouvrir après un clic sur une notification.
+  final ValueNotifier<String?> openedAnnonceId = ValueNotifier<String?>(null);
 
   Future<void> initialize() async {
+    if (_initialized) return;
+    _initialized = true;
+
     await _messaging.requestPermission(alert: true, badge: true, sound: true);
+
     FirebaseMessaging.onMessage.listen((message) {
-      debugPrint('Notification reçue: ${message.notification?.title}');
+      _foreground.add(PushEvent(
+        title: message.notification?.title,
+        body: message.notification?.body,
+        annonceId: message.data['annonceId']?.toString(),
+      ));
     });
+
+    // Clic sur une notification (app en arrière-plan).
+    FirebaseMessaging.onMessageOpenedApp.listen(_handleOpened);
+
+    // Clic sur une notification (app fermée).
+    final initial = await _messaging.getInitialMessage();
+    if (initial != null) _handleOpened(initial);
+  }
+
+  void _handleOpened(RemoteMessage message) {
+    final id = message.data['annonceId']?.toString();
+    if (id != null && id.isNotEmpty) openedAnnonceId.value = id;
   }
 
   Future<String?> getDeviceToken() => _messaging.getToken();
 
-  /// S'abonne à un topic de segmentation, ex. "major_genie-info" ou
-  /// "year_3eme-annee", pour recevoir uniquement les annonces ciblées.
-  Future<void> subscribeToSegment(String major, String year) async {
-    await _messaging.subscribeToTopic('major_${_slug(major)}');
-    await _messaging.subscribeToTopic('year_${_slug(year)}');
+  // ---------------------------------------------------------------------
+  // Préférence utilisateur : recevoir (ou non) les notifications d'annonces
+  // ---------------------------------------------------------------------
+  bool get pushEnabled =>
+      !_hasBox || (_box.get(_enabledKey, defaultValue: true) as bool);
+
+  Future<void> setPushEnabled(bool value) async {
+    if (_hasBox) await _box.put(_enabledKey, value);
   }
 
-  Future<void> unsubscribeFromSegment(String major, String year) async {
-    await _messaging.unsubscribeFromTopic('major_${_slug(major)}');
-    await _messaging.unsubscribeFromTopic('year_${_slug(year)}');
+  // ---------------------------------------------------------------------
+  // Abonnement aux topics de segmentation
+  // ---------------------------------------------------------------------
+  Set<String> get _subscribed => !_hasBox
+      ? <String>{}
+      : Set<String>.from(
+          (_box.get(_topicsKey, defaultValue: <dynamic>[]) as List).cast<String>());
+
+  /// Aligne les abonnements de l'appareil sur le profil [major]/[year].
+  /// N'abonne / désabonne que la différence (et mémorise l'état localement,
+  /// donc un échec réseau est simplement rejoué au prochain appel).
+  Future<void> syncTopics({String? major, String? year}) async {
+    final wanted = pushEnabled ? SegmentTopics.forUser(major, year) : <String>{};
+    await _applyTopics(wanted);
   }
 
-  String _slug(String value) =>
-      value.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '-');
+  /// Désabonne tout (déconnexion).
+  Future<void> clearTopics() => _applyTopics(<String>{});
+
+  Future<void> _applyTopics(Set<String> wanted) async {
+    final current = _subscribed;
+    final next = <String>{...current};
+
+    for (final topic in current.difference(wanted)) {
+      try {
+        await _messaging.unsubscribeFromTopic(topic);
+        next.remove(topic);
+      } catch (e) {
+        debugPrint('Désabonnement $topic impossible: $e');
+      }
+    }
+    for (final topic in wanted.difference(current)) {
+      try {
+        await _messaging.subscribeToTopic(topic);
+        next.add(topic);
+      } catch (e) {
+        debugPrint('Abonnement $topic impossible: $e');
+      }
+    }
+    if (_hasBox) await _box.put(_topicsKey, next.toList());
+  }
 }

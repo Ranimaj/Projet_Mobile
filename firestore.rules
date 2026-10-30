@@ -100,10 +100,25 @@ service cloud.firestore {
     // --- Gestion Annonces ---
     match /annonces/{annonceId} {
       allow read: if true;
+
+      // Création : auteur authentifié ; seule une annonce "Officielle" est
+      // épinglée (épinglage automatique) et seul un admin peut en publier.
       allow create: if isSignedIn() &&
         request.resource.data.authorId == request.auth.uid &&
-        (request.resource.data.category != 'Officielle' || isAdmin());
-      allow update: if isAdmin(); // épinglage / modération réservés à l'admin
+        (request.resource.data.category != 'Officielle' || isAdmin()) &&
+        request.resource.data.isPinned == (request.resource.data.category == 'Officielle');
+
+      // Modification : l'admin (épinglage / modération) ou l'auteur pour ses
+      // annonces non officielles, sans pouvoir changer l'auteur ni l'épinglage.
+      allow update: if isAdmin() || (
+        isSignedIn() &&
+        resource.data.authorId == request.auth.uid &&
+        request.resource.data.authorId == resource.data.authorId &&
+        request.resource.data.isPinned == resource.data.isPinned &&
+        resource.data.category != 'Officielle' &&
+        request.resource.data.category != 'Officielle'
+      );
+
       allow delete: if isSignedIn() &&
         (resource.data.authorId == request.auth.uid || isAdmin());
     }

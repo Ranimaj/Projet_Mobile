@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../../models/user_model.dart';
 import '../constants/app_constants.dart';
+import 'firestore_codec.dart';
 
 enum QueueActionType {
   create,
@@ -42,7 +43,7 @@ class QueuedAction {
         'type': type.name,
         'collection': collection,
         'docId': docId,
-        'payload': payload,
+        'payload': FirestoreCodec.encodeMap(payload),
         'queuedAt': queuedAt.toIso8601String(),
       };
 
@@ -52,7 +53,7 @@ class QueuedAction {
       type: QueueActionType.values.firstWhere((t) => t.name == json['type']),
       collection: json['collection'],
       docId: json['docId'],
-      payload: Map<String, dynamic>.from(json['payload'] ?? {}),
+      payload: FirestoreCodec.decodeMap(json['payload'] as Map? ?? {}),
       queuedAt: DateTime.parse(json['queuedAt']),
     );
   }
