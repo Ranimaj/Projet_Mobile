@@ -133,6 +133,37 @@ Pour créer un compte **admin** (modération des annonces) ou **recruteur**
 utilisateur correspondant dans la console Firestore (`student` → `admin` /
 `recruiter`).
 
+## Gestion Vente & Don
+
+Écrans dans `lib/screens/vente_don/`, logique dans `lib/providers/article_provider.dart`
+et `lib/core/utils/article_search.dart`.
+
+- **CRUD** : publier (`ArticleFormScreen`), consulter (grille + détail), **modifier**
+  (menu du propriétaire → « Modifier »), réserver / remettre disponible / marquer
+  vendu ou donné, supprimer (avec confirmation).
+- **Avancé 1 — photos** : jusqu'à 6 photos par article, compressées (1080 px, qualité 70)
+  avant l'envoi dans Firebase Storage (`articles/`) ; la première sert de couverture
+  dans la grille et le détail affiche un carrousel.
+- **Avancé 2 — recherche intelligente** : recherche sans accents ni majuscules, par début
+  de mot, dans le titre, la catégorie et la description (le titre pèse le plus), combinée
+  avec les filtres catégorie, gratuit, **fourchette de prix**, **rayon autour de
+  l'utilisateur** (1 à 25 km, position GPS facultative) et un tri (récents, prix ↑/↓,
+  plus proches, plus vus).
+- **Contacter le vendeur** : vraie messagerie Firestore (`conversations/{articleId}_{acheteur}`
+  + sous-collection `messages`), liste « Mes messages » avec non-lus.
+- **Favoris** (écran « Mes favoris »), **compteur de vues** (une vue par session, jamais
+  pour le propriétaire), écran **« Mes articles »** (tous les états, vues et favoris).
+- **Hors-ligne** : un article publié sans réseau part en file d'attente (sans photo) et
+  apparaît tout de suite ; favoris et changements d'état aussi.
+- **Sécurité** (`firestore.rules`) : seul le propriétaire modifie son article ; les autres
+  utilisateurs ne peuvent toucher qu'à **leur** favori et ajouter 1 au compteur de vues ;
+  les conversations ne sont lisibles que par l'acheteur et le vendeur. Après une
+  modification des règles : `firebase deploy --only firestore:rules,storage`.
+- **Tests** : `test/core/article_search_test.dart`, `test/models/article_model_test.dart`,
+  `test/providers/article_provider_test.dart`, `test/services/chat_service_test.dart`,
+  `test/screens/vente_don_list_screen_test.dart`, `article_detail_screen_test.dart`,
+  `article_form_screen_test.dart` ; règles : `test/rules/` (`npm test`).
+
 ## 5. Architecture offline-first
 
 - **Hive** (`lib/core/utils/local_cache_service.dart`) met en cache chaque
