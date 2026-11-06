@@ -5,7 +5,20 @@ import {
   assertSucceeds,
   initializeTestEnvironment,
 } from '@firebase/rules-unit-testing';
-import { doc, serverTimestamp, setDoc, Timestamp, updateDoc } from 'firebase/firestore';
+import {
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  query,
+  serverTimestamp,
+  setDoc,
+  Timestamp,
+  updateDoc,
+  where,
+} from 'firebase/firestore';
 
 let env;
 
@@ -263,6 +276,196 @@ describe('users rules', () => {
         },
         isVerifiedStudent: false,
       }),
+    );
+  });
+});
+
+// --- Vente & Don ---------------------------------------------------------------
+
+const baseArticle = (overrides = {}) => ({
+  ownerId: 'alice',
+  ownerName: 'Amel Ben Salah',
+  title: 'Calculatrice TI-83',
+  description: 'Très bon état, avec piles.',
+  price: 40,
+  category: 'Électronique',
+  imageUrls: [],
+  status: 'available',
+  latitude: null,
+  longitude: null,
+  createdAt: new Date('2026-11-01'),
+  viewCount: 3,
+  favoritedBy: [],
+  ...overrides,
+});
+
+async function seedArticle(overrides = {}) {
+  await seed();
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    const db = ctx.firestore();
+    await setDoc(doc(db, 'users/bob'), baseUser({ fullName: 'Bob' }));
+    await setDoc(doc(db, 'articles/a1'), baseArticle(overrides));
+  });
+}
+
+describe('articles rules', () => {
+  it('a visitor can read articles', async () => {
+    await seedArticle();
+    const db = env.unauthenticatedContext().firestore();
+    await assertSucceeds(getDoc(doc(db, 'articles/a1')));
+  });
+
+  it('owner can create a valid article', async () => {
+    await seed();
+    const db = env.authenticatedContext('alice').firestore();
+    await assertSucceeds(setDoc(doc(db, 'articles/new'), baseArticle()));
+  });
+
+  it('cannot create an article for someone else', async () => {
+    await seed();
+    const db = env.authenticatedContext('bob').firestore();
+    await assertFails(setDoc(doc(db, 'articles/new'), baseArticle()));
+  });
+
+  it('cannot create an article with a negative price or 7 photos', async () => {
+    await seed();
+    const db = env.authenticatedContext('alice').firestore();
+    await assertFails(setDoc(doc(db, 'articles/n1'), baseArticle({ price: -5 })));
+    await assertFails(
+      setDoc(doc(db, 'articles/n2'), baseArticle({ imageUrls: ['1', '2', '3', '4', '5', '6', '7'] })),
+    );
+  });
+
+  it('owner can edit title, price and status', async () => {
+    await seedArticle();
+    const db = env.authenticatedContext('alice').firestore();
+    await assertSucceeds(
+      updateDoc(doc(db, 'articles/a1'), { title: 'TI-83 Plus', price: 35, status: 'reserved' }),
+    );
+  });
+
+  it('owner cannot give the article to another owner', async () => {
+    await seedArticle();
+    const db = env.authenticatedContext('alice').firestore();
+    await assertFails(updateDoc(doc(db, 'articles/a1'), { ownerId: 'bob' }));
+  });
+
+  it('another user cannot edit the title', async () => {
+    await seedArticle();
+    const db = env.authenticatedContext('bob').firestore();
+    await assertFails(updateDoc(doc(db, 'articles/a1'), { title: 'Volé' }));
+  });
+
+  it('another user can add and remove their own favorite', async () => {
+    await seedArticle({ favoritedBy: ['carol'] });
+    const db = env.authenticatedContext('bob').firestore();
+    await assertSucceeds(updateDoc(doc(db, 'articles/a1'), { favoritedBy: ['carol', 'bob'] }));
+    await assertSucceeds(updateDoc(doc(db, 'articles/a1'), { favoritedBy: ['carol'] }));
+  });
+
+  it('another user cannot remove someone else\'s favorite', async () => {
+    await seedArticle({ favoritedBy: ['carol'] });
+    const db = env.authenticatedContext('bob').firestore();
+    await assertFails(updateDoc(doc(db, 'articles/a1'), { favoritedBy: [] }));
+  });
+
+  it('a view adds exactly one to viewCount', async () => {
+    await seedArticle({ viewCount: 3 });
+    const db = env.authenticatedContext('bob').firestore();
+    await assertSucceeds(updateDoc(doc(db, 'articles/a1'), { viewCount: 4 }));
+    await assertFails(updateDoc(doc(db, 'articles/a1'), { viewCount: 100 }));
+  });
+
+  it('only the owner can delete', async () => {
+    await seedArticle();
+    await assertFails(deleteDoc(doc(env.authenticatedContext('bob').firestore(), 'articles/a1')));
+    await assertSucceeds(deleteDoc(doc(env.authenticatedContext('alice').firestore(), 'articles/a1')));
+  });
+});
+
+const baseConversation = (overrides = {}) => ({
+  articleId: 'a1',
+  articleTitle: 'Calculatrice TI-83',
+  articleImageUrl: null,
+  sellerId: 'alice',
+  buyerId: 'bob',
+  names: { alice: 'Amel', bob: 'Bob' },
+  participants: ['bob', 'alice'],
+  lastMessage: '',
+  lastSenderId: null,
+  updatedAt: new Date('2026-11-05'),
+  unreadBy: [],
+  ...overrides,
+});
+
+async function seedConversation() {
+  await seedArticle();
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'conversations/a1_bob'), baseConversation());
+  });
+}
+
+describe('conversations rules', () => {
+  it('a buyer can check for and create the conversation', async () => {
+    await seedArticle();
+    const db = env.authenticatedContext('bob').firestore();
+    await assertSucceeds(getDoc(doc(db, 'conversations/a1_bob')));
+    await assertSucceeds(setDoc(doc(db, 'conversations/a1_bob'), baseConversation()));
+  });
+
+  it('cannot create a conversation in someone else\'s name', async () => {
+    await seedArticle();
+    const db = env.authenticatedContext('carol').firestore();
+    await assertFails(setDoc(doc(db, 'conversations/a1_bob'), baseConversation()));
+  });
+
+  it('only participants can read the conversation and its messages', async () => {
+    await seedConversation();
+    const carol = env.authenticatedContext('carol').firestore();
+    await assertFails(getDoc(doc(carol, 'conversations/a1_bob')));
+    await assertFails(getDocs(collection(carol, 'conversations/a1_bob/messages')));
+    const alice = env.authenticatedContext('alice').firestore();
+    await assertSucceeds(getDoc(doc(alice, 'conversations/a1_bob')));
+    await assertSucceeds(
+      getDocs(query(collection(alice, 'conversations'), where('participants', 'array-contains', 'alice'))),
+    );
+  });
+
+  it('participants can send messages as themselves only', async () => {
+    await seedConversation();
+    const bob = env.authenticatedContext('bob').firestore();
+    await assertSucceeds(
+      addDoc(collection(bob, 'conversations/a1_bob/messages'), {
+        senderId: 'bob',
+        text: 'Bonjour, toujours dispo ?',
+        sentAt: serverTimestamp(),
+      }),
+    );
+    await assertFails(
+      addDoc(collection(bob, 'conversations/a1_bob/messages'), {
+        senderId: 'alice',
+        text: 'Usurpation',
+        sentAt: serverTimestamp(),
+      }),
+    );
+    const carol = env.authenticatedContext('carol').firestore();
+    await assertFails(
+      addDoc(collection(carol, 'conversations/a1_bob/messages'), {
+        senderId: 'carol',
+        text: 'Intrus',
+        sentAt: serverTimestamp(),
+      }),
+    );
+  });
+
+  it('participants can update the header but not the participants', async () => {
+    await seedConversation();
+    const alice = env.authenticatedContext('alice').firestore();
+    await assertSucceeds(
+      updateDoc(doc(alice, 'conversations/a1_bob'), { lastMessage: 'Oui !', unreadBy: ['bob'] }),
+    );
+    await assertFails(
+      updateDoc(doc(alice, 'conversations/a1_bob'), { participants: ['alice', 'carol'] }),
     );
   });
 });
