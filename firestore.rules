@@ -90,11 +90,79 @@ service cloud.firestore {
     }
 
     // --- Gestion Vente & Don ---
+    function validArticle(data) {
+      return data.title is string && data.title.size() > 0 && data.title.size() <= 80
+        && (data.price == null || (data.price is number && data.price >= 0))
+        && data.get('imageUrls', []).size() <= 6;
+    }
+
+    // Un favori ne touche que l'uid de celui qui clique (ajout ou retrait).
+    function favoriteChangeIsOwn() {
+      let before = resource.data.get('favoritedBy', []).toSet();
+      let after = request.resource.data.get('favoritedBy', []).toSet();
+      return after.difference(before).union(before.difference(after))
+        .hasOnly([request.auth.uid]);
+    }
+
+    // Une vue ajoute exactement 1 au compteur.
+    function viewCountIsIncrement() {
+      return request.resource.data.get('viewCount', 0) == resource.data.get('viewCount', 0) + 1;
+    }
+
+    // Tout utilisateur connecté (non propriétaire) ne peut modifier que ses
+    // favoris et le compteur de vues.
+    function isFavoriteOrViewUpdate() {
+      return changedKeys().hasOnly(['favoritedBy', 'viewCount'])
+        && (!changedKeys().hasAny(['favoritedBy']) || favoriteChangeIsOwn())
+        && (!changedKeys().hasAny(['viewCount']) || viewCountIsIncrement());
+    }
+
     match /articles/{articleId} {
       allow read: if true; // visible par le visiteur non connecté
-      allow create: if isSignedIn() && request.resource.data.ownerId == request.auth.uid;
-      allow update, delete: if isSignedIn() &&
+      allow create: if isSignedIn() && request.resource.data.ownerId == request.auth.uid
+        && validArticle(request.resource.data);
+      allow update: if isSignedIn() && (
+        ((resource.data.ownerId == request.auth.uid || isAdmin())
+          && request.resource.data.ownerId == resource.data.ownerId
+          && validArticle(request.resource.data))
+        || isFavoriteOrViewUpdate());
+      allow delete: if isSignedIn() &&
         (resource.data.ownerId == request.auth.uid || isAdmin());
+    }
+
+    // Messagerie Vente & Don : visible uniquement par l'acheteur et le vendeur.
+    match /conversations/{conversationId} {
+      // Lire une conversation absente est permis (on vérifie si elle existe
+      // avant de la créer) ; une conversation existante, seulement par ses
+      // deux participants.
+      allow get: if isSignedIn() &&
+        (resource == null || request.auth.uid in resource.data.participants);
+      allow list: if isSignedIn() && request.auth.uid in resource.data.participants;
+      allow create: if isSignedIn()
+        && request.resource.data.buyerId == request.auth.uid
+        && request.resource.data.sellerId != request.auth.uid
+        && request.resource.data.participants.size() == 2
+        && request.auth.uid in request.resource.data.participants
+        && request.resource.data.sellerId in request.resource.data.participants
+        && conversationId == request.resource.data.articleId + '_' + request.auth.uid;
+      allow update: if isSignedIn()
+        && request.auth.uid in resource.data.participants
+        && request.resource.data.participants == resource.data.participants
+        && request.resource.data.buyerId == resource.data.buyerId
+        && request.resource.data.sellerId == resource.data.sellerId;
+
+      match /messages/{messageId} {
+        function participants() {
+          return get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants;
+        }
+        allow read: if isSignedIn() && request.auth.uid in participants();
+        allow create: if isSignedIn()
+          && request.auth.uid in participants()
+          && request.resource.data.senderId == request.auth.uid
+          && request.resource.data.text is string
+          && request.resource.data.text.size() > 0
+          && request.resource.data.text.size() <= 1000;
+      }
     }
 
     // --- Gestion Annonces ---

@@ -34,7 +34,7 @@ service firebase.storage {
     // Images d'articles (Vente & Don)
     match /articles/{file=**} {
       allow read: if true;
-      allow write: if isSignedIn();
+      allow write: if isSignedIn() && (request.resource == null || isSmallImage());
     }
 
     // CV et lettres de motivation (Stage & Emploi) — jamais publics

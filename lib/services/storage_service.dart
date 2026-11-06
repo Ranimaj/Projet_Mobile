@@ -37,7 +37,7 @@ class StorageService {
   Future<String> uploadImage(File file, {required String folder}) async {
     final compressed = await _compressImage(file);
     final ref = _storage.ref().child('$folder/${_uuid.v4()}.jpg');
-    final task = await ref.putFile(compressed);
+    final task = await ref.putFile(compressed, SettableMetadata(contentType: 'image/jpeg'));
     return task.ref.getDownloadURL();
   }
 

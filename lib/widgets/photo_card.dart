@@ -1,6 +1,9 @@
+import 'dart:io';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import '../core/theme/app_tokens.dart';
+import '../services/local_photo_store.dart';
 import 'round_icon_button.dart';
 import 'status_chip.dart';
 
@@ -51,7 +54,15 @@ class PhotoCard extends StatelessWidget {
     final url = imageUrl;
     final image = url == null
         ? _placeholder(t)
-        : CachedNetworkImage(
+        : isLocalImage(url)
+            ? Image.file(
+                File(url),
+                width: double.infinity,
+                height: imageHeight,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => _placeholder(t),
+              )
+            : CachedNetworkImage(
             imageUrl: url,
             width: double.infinity,
             height: imageHeight,
