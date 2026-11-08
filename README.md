@@ -164,6 +164,40 @@ et `lib/core/utils/article_search.dart`.
   `test/screens/vente_don_list_screen_test.dart`, `article_detail_screen_test.dart`,
   `article_form_screen_test.dart` ; règles : `test/rules/` (`npm test`).
 
+### Base de données SQLite (Vente & Don)
+
+Les articles sont stockés dans une **base SQLite sur le téléphone**
+(`campusconnect_vente_don.db`, paquet `sqflite`) : c'est la base principale,
+celle que l'app lit toujours. Firebase sert à partager les articles avec les
+autres étudiants.
+
+- Table `articles` : une colonne par champ (`title`, `price`, `category`,
+  `status`, `latitude`, `created_at`…), les listes (photos, favoris,
+  étiquettes IA) en JSON, et `sync_state` = `synced` / `pending` / `deleted`.
+- Écriture : d'abord dans SQLite (`pending`), puis envoi à Firestore ; sans
+  réseau, l'envoi attend dans la file hors-ligne et la ligne reste `pending`.
+- Lecture en ligne : les articles de Firestore remplacent ceux de SQLite,
+  sauf les modifications du téléphone pas encore envoyées.
+- Code : `lib/services/sqlite/article_database.dart` (schéma, requêtes) et
+  `lib/services/sqlite/sqlite_article_repository.dart` (synchronisation).
+  Tests : `test/services/sqlite_article_repository_test.dart`.
+
+### IA de la gestion Vente & Don
+
+Code dans `lib/services/ai/`, tests dans `test/ai/`.
+
+| Fonction | Où | Technique | Hors-ligne |
+|---|---|---|---|
+| Catégorie et mots-clés reconnus sur la photo | Formulaire « Publier » | Google ML Kit Image Labeling (modèle embarqué) | Oui |
+| Prix conseillé (fourchette + bouton « Utiliser ») | Formulaire | Articles comparables : mots du titre puis catégorie, quartiles | Oui |
+| Rédaction de la description | Formulaire, bouton « Rédiger avec l'IA » | Gemini 2.5 Flash via Firebase AI Logic (`firebase_ai`) | Non |
+| Recommandations « Pour toi » | Liste Vente & Don | Profil favoris (×2) + articles consultés : catégorie, mots, étiquettes photo | Oui |
+| Modération avant publication | Formulaire | Règles : objets interdits / insultes (bloquant), coordonnées, majuscules, prix suspect (avertissement) | Oui |
+| Recherche par photo | Liste, bouton appareil photo | Étiquettes ML Kit de la photo comparées (Jaccard) à celles des articles | Oui |
+
+Pour la rédaction par Gemini : console Firebase → **AI Logic** → **Commencer** → choisir
+**Gemini Developer API** (gratuit, sans forfait Blaze).
+
 ## 5. Architecture offline-first
 
 - **Hive** (`lib/core/utils/local_cache_service.dart`) met en cache chaque

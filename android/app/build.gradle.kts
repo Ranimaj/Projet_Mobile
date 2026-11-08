@@ -50,3 +50,9 @@ kotlin {
 flutter {
     source = "../.."
 }
+
+// firebase-iid (obsolète) entre en conflit avec firebase-messaging 24.x :
+// les deux contiennent FirebaseInstanceIdReceiver. On garde firebase-messaging.
+configurations.all {
+    exclude(group = "com.google.firebase", module = "firebase-iid")
+}

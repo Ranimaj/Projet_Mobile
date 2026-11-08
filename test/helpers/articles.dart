@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:campusconnect/models/article_model.dart';
+import 'package:campusconnect/services/ai/article_ai.dart';
+import 'package:campusconnect/services/ai/category_mapper.dart';
 import 'package:campusconnect/services/local_photo_store.dart';
 import 'package:campusconnect/services/firestore_repository.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -22,6 +24,7 @@ ArticleModel article(
   DateTime? createdAt,
   int viewCount = 0,
   List<String> favoritedBy = const [],
+  List<String> labels = const [],
 }) {
   return ArticleModel(
     id: id,
@@ -38,6 +41,7 @@ ArticleModel article(
     createdAt: createdAt ?? DateTime(2026, 11, 1),
     viewCount: viewCount,
     favoritedBy: favoritedBy,
+    labels: labels,
   );
 }
 
@@ -119,5 +123,32 @@ class FakePhotoStore implements LocalPhotoStore {
   Future<void> discard(String path) async {
     files.remove(path);
     discarded.add(path);
+  }
+}
+
+/// IA factice : étiquettes et description fixées par le test.
+class FakeTagger implements ImageTagger {
+  FakeTagger(this.tags, {this.fail = false});
+  List<ImageTag> tags;
+  bool fail;
+  int calls = 0;
+
+  @override
+  Future<List<ImageTag>> tag(File image) async {
+    calls++;
+    if (fail) throw StateError('ML Kit indisponible');
+    return tags;
+  }
+}
+
+class FakeWriter implements DescriptionWriter {
+  FakeWriter([this.text = 'Description rédigée par l\'IA.']);
+  String text;
+  DescriptionRequest? last;
+
+  @override
+  Future<String> write(DescriptionRequest request) async {
+    last = request;
+    return text;
   }
 }

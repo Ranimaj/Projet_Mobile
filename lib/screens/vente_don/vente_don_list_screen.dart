@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/constants/app_constants.dart';
@@ -8,6 +11,8 @@ import '../../core/utils/article_search.dart';
 import '../../models/article_model.dart';
 import '../../providers/article_provider.dart';
 import '../../providers/auth_provider.dart';
+import '../../services/ai/article_ai.dart';
+import '../../services/ai/category_mapper.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/filter_chip_pill.dart';
 import '../../widgets/offline_banner.dart';
@@ -25,7 +30,11 @@ import 'widgets/article_filter_sheet.dart';
 /// intelligente, filtres combinés (catégorie, gratuit, prix, distance, tri),
 /// favoris, messages et articles de l'utilisateur.
 class VenteDonListScreen extends StatefulWidget {
-  const VenteDonListScreen({super.key});
+  /// Services IA (recherche par photo) et choix de photo ; remplaçables en test.
+  final ArticleAi? ai;
+  final Future<File?> Function()? pickPhoto;
+
+  const VenteDonListScreen({super.key, this.ai, this.pickPhoto});
 
   @override
   State<VenteDonListScreen> createState() => _VenteDonListScreenState();
@@ -68,6 +77,43 @@ class _VenteDonListScreenState extends State<VenteDonListScreen> {
       },
     );
     if (result != null) provider.setFilters(result);
+  }
+
+  bool _photoSearching = false;
+  List<String> _photoKeywords = const [];
+
+  static Future<File?> _pickFromGallery() async {
+    final x = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 85);
+    return x == null ? null : File(x.path);
+  }
+
+  /// Recherche par photo : l'IA reconnaît l'objet et la liste est classée
+  /// par ressemblance avec les photos des articles.
+  Future<void> _searchByPhoto(ArticleProvider provider) async {
+    final photo = await (widget.pickPhoto ?? _pickFromGallery)();
+    if (photo == null || !mounted) return;
+    setState(() => _photoSearching = true);
+    try {
+      final tags = await (widget.ai ?? ArticleAi.instance).tagger.tag(photo);
+      if (!mounted) return;
+      final labels = labelsForSearch(tags);
+      if (labels.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Aucun objet reconnu sur cette photo.')),
+        );
+        return;
+      }
+      _photoKeywords = suggestCategory(tags)?.keywords ?? labels.take(3).toList();
+      provider.setPhotoSearch(labels);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('La recherche par photo n\'est pas disponible.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _photoSearching = false);
+    }
   }
 
   void _clearSearch(ArticleProvider provider) {
@@ -153,6 +199,8 @@ class _VenteDonListScreenState extends State<VenteDonListScreen> {
                     onClear: () => _clearSearch(provider),
                     onFilter: () => _openFilters(provider),
                     activeFilters: filters.advancedCount,
+                    onPhoto: () => _searchByPhoto(provider),
+                    photoBusy: _photoSearching,
                   ),
                 ),
               ),
@@ -192,6 +240,24 @@ class _VenteDonListScreenState extends State<VenteDonListScreen> {
                   ),
                 ),
               ),
+              if (provider.isPhotoSearch)
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(kPagePadding, 4, kPagePadding, 0),
+                  sliver: SliverToBoxAdapter(
+                    child: InputChip(
+                      key: const Key('photo-search-chip'),
+                      avatar: const Icon(Icons.photo_camera_outlined, size: 18),
+                      label: Text('Photo : ${_photoKeywords.join(', ')}'),
+                      onDeleted: provider.clearPhotoSearch,
+                      deleteButtonTooltipMessage: 'Arrêter la recherche par photo',
+                    ),
+                  ),
+                ),
+              if (user != null && filters.isEmpty && !provider.isPhotoSearch)
+                _ForYouRail(
+                  articles: provider.recommendationsFor(user.id),
+                  cardBuilder: (context, a) => _cardFor(context, a, provider, user.id),
+                ),
               SliverPadding(
                 padding: const EdgeInsets.fromLTRB(kPagePadding, 4, kPagePadding, 8),
                 sliver: SliverToBoxAdapter(
@@ -215,10 +281,21 @@ class _VenteDonListScreenState extends State<VenteDonListScreen> {
               else if (items.isEmpty)
                 SliverToBoxAdapter(
                   child: filters.isEmpty
-                      ? const EmptyState(
-                          icon: Icons.storefront_outlined,
-                          title: 'Aucun article pour le moment',
-                          subtitle: 'Sois le premier à publier un article à vendre ou à donner !',
+                      ? Column(
+                          children: [
+                            const EmptyState(
+                              icon: Icons.storefront_outlined,
+                              title: 'Aucun article pour le moment',
+                              subtitle: 'Sois le premier à publier un article à vendre ou à donner !',
+                            ),
+                            if (user != null)
+                              OutlinedButton.icon(
+                                key: const Key('add-demo-articles'),
+                                onPressed: () => addDemoArticles(context),
+                                icon: const Icon(Icons.auto_awesome_outlined),
+                                label: const Text('Ajouter 4 articles de démo'),
+                              ),
+                          ],
                         )
                       : const EmptyState(
                           icon: Icons.search_off_rounded,
@@ -261,6 +338,8 @@ class _SearchField extends StatelessWidget {
   final VoidCallback onClear;
   final VoidCallback onFilter;
   final int activeFilters;
+  final VoidCallback onPhoto;
+  final bool photoBusy;
 
   const _SearchField({
     required this.controller,
@@ -268,6 +347,8 @@ class _SearchField extends StatelessWidget {
     required this.onClear,
     required this.onFilter,
     required this.activeFilters,
+    required this.onPhoto,
+    required this.photoBusy,
   });
 
   @override
@@ -315,6 +396,19 @@ class _SearchField extends StatelessWidget {
                     onPressed: onClear,
                   ),
           ),
+          photoBusy
+              ? const SizedBox(
+                  width: 48,
+                  height: 48,
+                  child: Padding(padding: EdgeInsets.all(14), child: CircularProgressIndicator(strokeWidth: 2)),
+                )
+              : RoundIconButton(
+                  key: const Key('photo-search'),
+                  icon: Icons.photo_camera_outlined,
+                  tooltip: 'Rechercher avec une photo',
+                  style: RoundButtonStyle.soft,
+                  onPressed: onPhoto,
+                ),
           RoundIconButton(
             key: const Key('open-filters'),
             icon: Icons.tune_rounded,
@@ -367,6 +461,56 @@ class _ResultsBar extends StatelessWidget {
   }
 }
 
+/// « Pour toi » : recommandations IA (favoris + articles consultés), en
+/// rangée horizontale. Rien n'est affiché sans recommandation.
+class _ForYouRail extends StatelessWidget {
+  final List<ArticleModel> articles;
+  final Widget Function(BuildContext context, ArticleModel article) cardBuilder;
+
+  const _ForYouRail({required this.articles, required this.cardBuilder});
+
+  @override
+  Widget build(BuildContext context) {
+    if (articles.isEmpty) return const SliverToBoxAdapter(child: SizedBox.shrink());
+    final t = AppTokens.of(context);
+    final text = Theme.of(context).textTheme;
+    return SliverToBoxAdapter(
+      child: Column(
+        key: const Key('for-you'),
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(kPagePadding, 8, kPagePadding, 8),
+            child: Row(
+              children: [
+                Icon(Icons.auto_awesome_rounded, size: 20, color: t.primary),
+                const SizedBox(width: 6),
+                Text('Pour toi', style: text.titleMedium),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text('selon tes favoris et tes visites',
+                      maxLines: 1, overflow: TextOverflow.ellipsis, style: text.labelMedium),
+                ),
+              ],
+            ),
+          ),
+          SizedBox(
+            height: articleCardHeight(context),
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: kPagePadding),
+              itemCount: articles.length,
+              separatorBuilder: (_, __) => const SizedBox(width: kCardGap),
+              itemBuilder: (context, i) => SizedBox(width: 170, child: cardBuilder(context, articles[i])),
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
+  }
+}
+
 class _LoadingGrid extends StatelessWidget {
   const _LoadingGrid();
 
@@ -388,4 +532,19 @@ class _LoadingGrid extends StatelessWidget {
       itemBuilder: (_, __) => const SkeletonBox(radius: 20),
     );
   }
+}
+
+/// Ajoute les articles de démonstration au compte connecté et le confirme.
+Future<void> addDemoArticles(BuildContext context) async {
+  final user = context.read<AuthProvider>().currentUser;
+  if (user == null) return;
+  final messenger = ScaffoldMessenger.of(context);
+  final added = await context
+      .read<ArticleProvider>()
+      .addDemoArticles(ownerId: user.id, ownerName: user.fullName);
+  messenger.showSnackBar(SnackBar(
+    content: Text(added == 0
+        ? 'Les articles de démo sont déjà publiés.'
+        : '$added article${added > 1 ? 's' : ''} de démo ajouté${added > 1 ? 's' : ''}.'),
+  ));
 }

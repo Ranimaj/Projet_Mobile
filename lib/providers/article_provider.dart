@@ -8,7 +8,11 @@ import '../core/constants/app_constants.dart';
 import '../core/utils/article_search.dart';
 import '../core/utils/geo.dart';
 import '../models/article_model.dart';
+import '../services/ai/price_advisor.dart';
+import '../services/ai/recommender.dart';
+import '../services/demo_articles.dart';
 import '../services/firestore_repository.dart';
+import '../services/sqlite/sqlite_article_repository.dart';
 import '../services/local_photo_store.dart';
 import '../services/location_service.dart';
 import '../services/storage_service.dart';
@@ -16,7 +20,8 @@ import '../services/storage_service.dart';
 /// Gestion Vente & Don — CRUD complet, recherche intelligente avec filtres
 /// combinés (texte, catégorie, gratuit, prix, distance, tri), upload
 /// multi-images compressées, favoris et compteur de vues. Fonctionne
-/// hors-ligne (BNF3) grâce au [FirestoreRepository], photos comprises : sans
+/// hors-ligne (BNF3) grâce à la base SQLite du téléphone
+/// ([SqliteArticleRepository]), synchronisée avec Firebase, photos comprises : sans
 /// réseau elles restent sur le téléphone puis partent au retour de la
 /// connexion ([syncPendingPhotos]).
 class ArticleProvider extends ChangeNotifier {
@@ -50,13 +55,9 @@ class ArticleProvider extends ChangeNotifier {
 
   // Créés à la première utilisation : les tests qui injectent des doublures
   // ne touchent jamais Firebase.
-  late final FirestoreRepository<ArticleModel> _repo = _repoOverride ??
-      FirestoreRepository<ArticleModel>(
-        collectionName: AppConstants.articlesCollection,
-        cacheBoxName: AppConstants.hiveArticlesBox,
-        fromMap: ArticleModel.fromMap,
-        toMap: (a) => a.toMap(),
-      );
+  // Base principale des articles : SQLite sur le téléphone, synchronisée
+  // avec Firebase (voir SqliteArticleRepository).
+  late final FirestoreRepository<ArticleModel> _repo = _repoOverride ?? SqliteArticleRepository();
   late final StorageService _storage = _storageOverride ?? StorageService();
   late final LocalPhotoStore _photos = _photosOverride ?? LocalPhotoStore();
 
@@ -93,12 +94,45 @@ class ArticleProvider extends ChangeNotifier {
   String? get categoryFilter => _filters.category;
   bool get showOnlyFree => _filters.freeOnly;
 
-  /// Articles visibles dans la liste : non terminés, filtrés et triés.
-  List<ArticleModel> get items => filterArticles(
-        _all.where((a) => a.status != ArticleStatus.done),
-        _filters,
-        from: _position,
-      );
+  /// Articles visibles dans la liste : non terminés, filtrés et triés — ou,
+  /// pendant une recherche par photo, classés par ressemblance avec la photo.
+  List<ArticleModel> get items {
+    final filtered = filterArticles(
+      _all.where((a) => a.status != ArticleStatus.done),
+      _filters,
+      from: _position,
+    );
+    final labels = _photoLabels;
+    return labels == null ? filtered : rankByPhoto(filtered, labels);
+  }
+
+  // --- IA : recherche par photo, recommandations, prix conseillé ------------
+
+  List<String>? _photoLabels;
+
+  /// Une recherche par photo est en cours.
+  bool get isPhotoSearch => _photoLabels != null;
+
+  /// Classe la liste par ressemblance avec une photo ([labels] = étiquettes
+  /// reconnues sur cette photo).
+  void setPhotoSearch(List<String> labels) {
+    _photoLabels = [for (final l in labels) l.toLowerCase()];
+    notifyListeners();
+  }
+
+  void clearPhotoSearch() {
+    if (_photoLabels == null) return;
+    _photoLabels = null;
+    notifyListeners();
+  }
+
+  /// « Pour toi » : articles proches des favoris et des articles consultés.
+  List<ArticleModel> recommendationsFor(String userId, {int limit = 6}) =>
+      recommendArticles(_all, userId, viewedIds: _viewed, limit: limit, now: _clock());
+
+  /// Fourchette de prix conseillée d'après les articles comparables.
+  PriceAdvice? priceAdviceFor({required String title, required String category, String? excludeId}) =>
+      advisePrice(title: title, category: category, market: _all, excludeId: excludeId);
 
   void setFilters(ArticleFilters filters) {
     if (filters == _filters) return;
@@ -229,6 +263,27 @@ class ArticleProvider extends ChangeNotifier {
     return id;
   }
 
+  /// Ajoute les 4 articles de démonstration au compte [ownerId] (photos
+  /// embarquées dans l'app). Ceux qu'il a déjà publiés (même titre) sont
+  /// ignorés. Renvoie le nombre d'articles ajoutés.
+  Future<int> addDemoArticles({required String ownerId, required String ownerName}) async {
+    final existing = {for (final a in _all) if (a.ownerId == ownerId) a.title};
+    final base = _clock();
+    var added = 0;
+    for (var i = 0; i < kDemoArticles.length; i++) {
+      final demo = kDemoArticles[i];
+      if (existing.contains(demo.title)) continue;
+      // Écart d'une minute : garde l'ordre de la liste (le plus récent en tête).
+      final draft = demoArticleFor(demo,
+          ownerId: ownerId, ownerName: ownerName, createdAt: base.subtract(Duration(minutes: i)));
+      final id = _uuid.v4();
+      await _onlineOrQueue((online) => _repo.create(draft, isOnline: online, explicitId: id));
+      added++;
+    }
+    if (added > 0) await load();
+    return added;
+  }
+
   /// Modifie un article existant : champs du formulaire, photos gardées
   /// ([keptUrls]) et nouvelles photos ([newImages]) ajoutées à la suite.
   Future<void> editArticle(
@@ -241,6 +296,7 @@ class ArticleProvider extends ChangeNotifier {
     List<File> newImages = const [],
     GeoPoint2? location,
     bool removeLocation = false,
+    List<String>? labels,
   }) async {
     final room = ArticleModel.maxPhotos - keptUrls.length;
     final added = await _uploadOrKeep(newImages.take(room < 0 ? 0 : room).toList());
@@ -251,6 +307,7 @@ class ArticleProvider extends ChangeNotifier {
       'price': price,
       'imageUrls': [...keptUrls, ...added],
       'updatedAt': _clock(),
+      if (labels != null) 'labels': labels,
     };
     if (removeLocation) {
       patch['latitude'] = null;
