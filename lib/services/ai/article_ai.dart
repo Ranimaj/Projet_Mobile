@@ -1,8 +1,10 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:firebase_ai/firebase_ai.dart'
     show Content, FirebaseAI, GenerativeModel, InlineDataPart, Part, TextPart;
 import 'package:firebase_app_check/firebase_app_check.dart' show FirebaseAppCheck;
+import 'package:flutter_image_compress/flutter_image_compress.dart' show CompressFormat, FlutterImageCompress;
 import 'package:google_mlkit_image_labeling/google_mlkit_image_labeling.dart'
     show ImageLabeler, ImageLabelerOptions, InputImage;
 
@@ -70,15 +72,41 @@ class GeminiDescriptionWriter implements DescriptionWriter {
     // Le jeton App Check n'est envoyé que si on passe l'instance explicitement.
     final m = _model ??= FirebaseAI.googleAI(appCheck: FirebaseAppCheck.instance)
         .generativeModel(model: model);
-    final photo = request.photo;
+    final photo = await _smallJpeg(request.photo);
+    String text;
+    try {
+      text = await _generate(m, request.prompt, photo);
+    } catch (_) {
+      // Serveur saturé ou délai dépassé (503) : un 2e essai, sans la photo
+      // (plus léger, donc plus rapide).
+      await Future<void>.delayed(const Duration(seconds: 2));
+      text = await _generate(m, request.prompt, null);
+    }
+    return text.length > 1000 ? text.substring(0, 1000) : text;
+  }
+
+  Future<String> _generate(GenerativeModel m, String prompt, List<int>? photo) async {
     final parts = <Part>[
-      TextPart(request.prompt),
-      if (photo != null) InlineDataPart('image/jpeg', await photo.readAsBytes()),
+      TextPart(prompt),
+      if (photo != null) InlineDataPart('image/jpeg', Uint8List.fromList(photo)),
     ];
-    final response = await m.generateContent([Content.multi(parts)]);
+    final response = await m
+        .generateContent([Content.multi(parts)])
+        .timeout(const Duration(seconds: 40));
     final text = response.text?.trim() ?? '';
     if (text.isEmpty) throw StateError('Réponse vide');
-    return text.length > 1000 ? text.substring(0, 1000) : text;
+    return text;
+  }
+
+  /// Réduit la photo (≤ 768 px, JPEG) pour un envoi rapide. Null si absente.
+  static Future<List<int>?> _smallJpeg(File? photo) async {
+    if (photo == null) return null;
+    try {
+      final out = await FlutterImageCompress.compressWithFile(photo.path,
+          minWidth: 768, minHeight: 768, quality: 75, format: CompressFormat.jpeg);
+      if (out != null) return out;
+    } catch (_) {}
+    return photo.readAsBytes();
   }
 }
 
