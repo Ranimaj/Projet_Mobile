@@ -186,9 +186,11 @@ Fichier `campusconnect_vente_don.db` sur le téléphone (paquet `sqflite`), vers
 Code dans `lib/services/ai/`, tests dans `test/ai/`. Tout tourne **sur le téléphone**,
 sauf la rédaction par Gemini qui passe par internet (sans Firebase).
 
-**Activer Gemini** : crée une clé gratuite sur <https://aistudio.google.com/apikey>, puis lance
-`flutter run --dart-define=GEMINI_API_KEY=ta_cle`. Ne mets jamais la clé dans le code ni
-dans Git. Sans clé, le bouton utilise la rédaction locale.
+**Activer Gemini** : crée une clé gratuite sur <https://aistudio.google.com/apikey> et mets-la
+dans `.env.json` (copie de `.env.example.json`, **non versionné**) sous `GEMINI_API_KEY`, puis
+lance `flutter run --dart-define-from-file=.env.json` (ou le bouton Run, configuré dans
+`.vscode/launch.json`). Ne mets jamais la clé dans le code ni dans Git. Sans clé, le bouton
+utilise la rédaction locale.
 
 | Fonction | Où | Technique |
 |---|---|---|
