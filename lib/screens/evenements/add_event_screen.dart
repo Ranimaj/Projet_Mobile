@@ -743,8 +743,11 @@ class _AddEventScreenState extends State<AddEventScreen> {
                   initialValue: _category,
                   autovalidateMode: _modeFor(_Field.category),
                   decoration: const InputDecoration(labelText: 'Catégorie', errorMaxLines: 2),
+                  // Prend toute la largeur : pas de débordement à 320 px / grand texte.
+                  isExpanded: true,
                   items: EventCategories.all
-                      .map((c) => DropdownMenuItem(value: c, child: Text(c)))
+                      .map((c) => DropdownMenuItem(
+                          value: c, child: Text(c, maxLines: 1, overflow: TextOverflow.ellipsis)))
                       .toList(),
                   onChanged: (v) => setState(() {
                     _category = v;
@@ -824,15 +827,25 @@ class _PosterPicker extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
     final hasImage = bytes != null || existingUrl != null;
-    final placeholder = Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Icon(Icons.add_photo_alternate_outlined, size: 36, color: t.primary),
-        const SizedBox(height: 6),
-        Text('Ajouter une affiche', style: TextStyle(fontWeight: FontWeight.w700, color: t.primary)),
-        const SizedBox(height: 2),
-        Text('JPG ou PNG, 5 Mo maximum (optionnel)', style: TextStyle(fontSize: 12, color: t.textSecondary)),
-      ],
+    // Zone de hauteur fixe (16/9) : à 320 px avec un grand texte, le contenu
+    // est réduit pour tenir au lieu de déborder.
+    final placeholder = Center(
+      child: Padding(
+        padding: const EdgeInsets.all(8),
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.add_photo_alternate_outlined, size: 36, color: t.primary),
+              const SizedBox(height: 6),
+              Text('Ajouter une affiche', style: TextStyle(fontWeight: FontWeight.w700, color: t.primary)),
+              const SizedBox(height: 2),
+              Text('JPG ou PNG, 5 Mo maximum (optionnel)', style: TextStyle(fontSize: 12, color: t.textSecondary)),
+            ],
+          ),
+        ),
+      ),
     );
 
     Widget content;
