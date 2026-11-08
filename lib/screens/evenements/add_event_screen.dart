@@ -11,6 +11,8 @@ import '../../models/event_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/event_provider.dart';
 import '../../widgets/primary_button.dart';
+import 'category_classifier.dart';
+import 'category_classifier_loader.dart';
 import 'event_categories.dart';
 import 'event_rules.dart';
 import 'event_validators.dart';
@@ -23,7 +25,13 @@ import 'poster_rules.dart';
 /// Création si [existing] est null, modification sinon.
 class AddEventScreen extends StatefulWidget {
   final EventModel? existing;
-  const AddEventScreen({super.key, this.existing});
+
+  /// Chargement du classifieur de catégorie (par défaut : l'asset embarqué).
+  /// Remplaçable dans les tests.
+  @visibleForTesting
+  final Future<CategoryClassifier?> Function()? loadClassifier;
+
+  const AddEventScreen({super.key, this.existing, this.loadClassifier});
 
   @override
   State<AddEventScreen> createState() => _AddEventScreenState();
@@ -97,6 +105,31 @@ class _AddEventScreenState extends State<AddEventScreen> {
 
   bool get _placeLocated => _placeLat != null && _placeLng != null;
 
+  // --- Suggestion de catégorie (modèle embarqué, aucun réseau) ---
+  /// Nombre minimal de caractères (titre + description) avant de proposer.
+  static const int _suggestMinChars = 15;
+  static const Duration _suggestDelay = Duration(milliseconds: 600);
+  final _categoryFieldKey = GlobalKey<FormFieldState<String>>();
+  CategoryClassifier? _classifier;
+  Timer? _suggestDebounce;
+  CategorySuggestion? _suggestion;
+
+  /// Texte (titre + description) déjà analysé ou en attente : un simple
+  /// déplacement du curseur ne relance pas le calcul.
+  String? _suggestText;
+
+  /// Catégorie proposée que l'utilisateur a ignorée : elle n'est plus
+  /// reproposée tant que le texte suggère la même catégorie.
+  String? _dismissedSuggestion;
+
+  /// Le choix reste toujours manuel : la puce n'apparaît que si la
+  /// suggestion diffère de la catégorie choisie et n'a pas été ignorée.
+  bool get _showSuggestion =>
+      _suggestion != null &&
+      _suggestion!.category != _category &&
+      _suggestion!.category != _dismissedSuggestion &&
+      !_submitting;
+
   // --- Affiche (Cloudinary, preset unsigned) ---
   /// JPEG déjà compressé, choisi mais PAS encore envoyé : l'envoi se fait à
   /// l'enregistrement, pour ne pas laisser d'images orphelines quand le
@@ -157,10 +190,67 @@ class _AddEventScreenState extends State<AddEventScreen> {
       _start = DateTime(tomorrow.year, tomorrow.month, tomorrow.day, 14, 0);
       _end = _start.add(EventModel.defaultDuration);
     }
+    // Ajoutés APRÈS le pré-remplissage : en modification, rien n'est
+    // proposé tant que l'utilisateur ne retouche pas le titre ou la description.
+    _titleCtrl.addListener(_onSuggestTextChanged);
+    _descCtrl.addListener(_onSuggestTextChanged);
+    (widget.loadClassifier ?? CategoryClassifierLoader.load)().then((classifier) {
+      if (!mounted || classifier == null) return;
+      _classifier = classifier;
+      // Texte saisi avant la fin du chargement : on le traite maintenant.
+      if (_suggestText != null) _scheduleSuggestion();
+    }, onError: (Object e) => debugPrint('Suggestion de catégorie indisponible : $e'));
+  }
+
+  void _onSuggestTextChanged() {
+    final text = '${_titleCtrl.text}\n${_descCtrl.text}';
+    if (text == _suggestText) return;
+    _suggestText = text;
+    _scheduleSuggestion();
+  }
+
+  /// Attend 600 ms sans frappe, puis calcule la suggestion. Sous 15
+  /// caractères, la puce disparaît tout de suite.
+  void _scheduleSuggestion() {
+    _suggestDebounce?.cancel();
+    final title = _titleCtrl.text.trim();
+    final description = _descCtrl.text.trim();
+    if (title.length + description.length < _suggestMinChars) {
+      if (_suggestion != null) setState(() => _suggestion = null);
+      return;
+    }
+    final classifier = _classifier;
+    if (classifier == null) return;
+    _suggestDebounce = Timer(_suggestDelay, () {
+      if (!mounted) return;
+      final next = classifier.suggest(title, description);
+      setState(() {
+        _suggestion = next;
+        // Nouvelle catégorie proposée (ou plus rien) : l'ancien refus ne compte plus.
+        if (next?.category != _dismissedSuggestion) _dismissedSuggestion = null;
+      });
+    });
+  }
+
+  void _applySuggestion() {
+    final s = _suggestion;
+    if (s == null) return;
+    _categoryFieldKey.currentState?.didChange(s.category);
+    setState(() {
+      _category = s.category;
+      _touched.add(_Field.category);
+    });
+  }
+
+  void _dismissSuggestion() {
+    final s = _suggestion;
+    if (s == null) return;
+    setState(() => _dismissedSuggestion = s.category);
   }
 
   @override
   void dispose() {
+    _suggestDebounce?.cancel();
     _placeDebounce?.cancel();
     for (final c in [_titleCtrl, _descCtrl, _locationCtrl, _capacityCtrl, _priceCtrl]) {
       c.dispose();
@@ -740,6 +830,7 @@ class _AddEventScreenState extends State<AddEventScreen> {
                 ),
                 const SizedBox(height: 8),
                 DropdownButtonFormField<String>(
+                  key: _categoryFieldKey,
                   initialValue: _category,
                   autovalidateMode: _modeFor(_Field.category),
                   decoration: const InputDecoration(labelText: 'Catégorie', errorMaxLines: 2),
@@ -755,6 +846,12 @@ class _AddEventScreenState extends State<AddEventScreen> {
                   }),
                   validator: EventValidators.category,
                 ),
+                if (_showSuggestion)
+                  _CategorySuggestionChip(
+                    suggestion: _suggestion!,
+                    onApply: _applySuggestion,
+                    onDismiss: _dismissSuggestion,
+                  ),
                 const SizedBox(height: 16),
                 FormField<DateTime>(
                   autovalidateMode: _modeFor(_Field.start),
@@ -925,6 +1022,73 @@ class _PosterPicker extends StatelessWidget {
 
 /// Liste des suggestions de lieu sous le champ : épingle, nom en gras,
 /// ligne grise (rue / quartier, ville, pays). Ou « Aucun lieu trouvé ».
+/// Puce « Suggestion : Sport (87 %) » sous la catégorie. Rien n'est appliqué
+/// sans un appui sur « Appliquer ». Le texte passe à la ligne et les boutons
+/// se replient sous le texte si la place manque (320 px, grand texte).
+class _CategorySuggestionChip extends StatelessWidget {
+  final CategorySuggestion suggestion;
+  final VoidCallback onApply;
+  final VoidCallback onDismiss;
+  const _CategorySuggestionChip({required this.suggestion, required this.onApply, required this.onDismiss});
+
+  @override
+  Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
+    final percent = (suggestion.probability * 100).round();
+    // Espaces insécables : « 87 % » et « : » ne sont jamais coupés en fin de ligne.
+    final label = 'Suggestion : ${suggestion.category} ($percent %)';
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Semantics(
+        container: true,
+        liveRegion: true,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(12, 8, 4, 4),
+          decoration: BoxDecoration(
+            color: t.primarySoft,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Icon(Icons.auto_awesome_outlined, size: 18, color: t.onPrimarySoft),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(label,
+                        style: TextStyle(color: t.onPrimarySoft, fontWeight: FontWeight.w600)),
+                  ),
+                ],
+              ),
+              OverflowBar(
+                alignment: MainAxisAlignment.end,
+                overflowAlignment: OverflowBarAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: onDismiss,
+                    style: TextButton.styleFrom(foregroundColor: t.textSecondary),
+                    child: const Text('Ignorer'),
+                  ),
+                  TextButton(
+                    onPressed: onApply,
+                    style: TextButton.styleFrom(foregroundColor: t.onPrimarySoft),
+                    child: const Text('Appliquer'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _PlaceSuggestionList extends StatelessWidget {
   final List<PlaceSuggestion> suggestions;
   final bool noResult;
