@@ -1,3 +1,4 @@
+import 'package:campusconnect/services/local_photo_store.dart';
 import 'package:campusconnect/core/utils/geo.dart';
 import 'package:campusconnect/models/article_model.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -75,5 +76,13 @@ void main() {
     expect(a.isFavoriteOf(null), isFalse);
     expect(a.coverUrl, 'c.jpg');
     expect(article('2').coverUrl, isNull);
+  });
+
+  test('bundled demo photos are neither local nor remote', () {
+    expect(isAssetImage('asset:assets/images/demo/lampe_bureau.jpg'), isTrue);
+    expect(isLocalImage('asset:assets/images/demo/lampe_bureau.jpg'), isFalse);
+    expect(assetPathOf('asset:assets/images/demo/lampe_bureau.jpg'), 'assets/images/demo/lampe_bureau.jpg');
+    expect(isLocalImage('/data/photo.jpg'), isTrue);
+    expect(isLocalImage('https://x/y.jpg'), isFalse);
   });
 }

@@ -48,6 +48,8 @@ void main() {
     when(() => articles.showOnlyFree).thenReturn(false);
     when(() => articles.searchQuery).thenReturn('');
     when(() => articles.filters).thenReturn(ArticleFilters.none);
+    when(() => articles.isPhotoSearch).thenReturn(false);
+    when(() => articles.recommendationsFor(any())).thenReturn([]);
     when(() => articles.load()).thenAnswer((_) async {});
     when(() => annonces.items).thenReturn(const []);
     when(() => annonces.isLoading).thenReturn(false);

@@ -5,7 +5,17 @@ import 'package:uuid/uuid.dart';
 
 /// true si [url] désigne une photo encore stockée sur le téléphone (pas
 /// encore envoyée dans Firebase Storage).
-bool isLocalImage(String url) => !url.startsWith('http://') && !url.startsWith('https://');
+bool isLocalImage(String url) =>
+    !url.startsWith('http://') && !url.startsWith('https://') && !isAssetImage(url);
+
+/// Préfixe des photos livrées avec l'app (articles de démonstration).
+const String kAssetImagePrefix = 'asset:';
+
+/// true si [url] désigne une image embarquée dans l'app (`asset:assets/...`).
+bool isAssetImage(String url) => url.startsWith(kAssetImagePrefix);
+
+/// Chemin de l'asset Flutter correspondant à [url] (`asset:` retiré).
+String assetPathOf(String url) => url.substring(kAssetImagePrefix.length);
 
 /// Photos d'articles publiées sans réseau : copiées dans le dossier documents
 /// de l'app (le cache d'image_picker peut être vidé par Android) puis

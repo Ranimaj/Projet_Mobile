@@ -5,6 +5,10 @@ import 'package:campusconnect/screens/vente_don/article_form_screen.dart';
 import 'package:campusconnect/screens/vente_don/favorites_screen.dart';
 import 'package:campusconnect/screens/vente_don/my_articles_screen.dart';
 import 'package:campusconnect/screens/vente_don/vente_don_list_screen.dart';
+import 'dart:io';
+
+import 'package:campusconnect/services/ai/article_ai.dart';
+import 'package:campusconnect/services/ai/category_mapper.dart';
 import 'package:campusconnect/services/location_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -172,7 +176,7 @@ void main() {
     expect(find.byTooltip('Ajouter aux favoris'), findsNothing);
   });
 
-  testWidgets('an article published offline shows its local photo and a waiting note', (tester) async {
+  testWidgets('an article with a photo stored on the phone shows no network note', (tester) async {
     await h.signIn(tester);
     final photos = FakePhotoStore()..files.add('/local/photo-9.jpg');
     repo = FakeArticleRepo([
@@ -180,12 +184,57 @@ void main() {
     ]);
     await pumpMarket(tester, h, marketProvider(repo, online: false, photos: photos), const VenteDonListScreen());
     expect(find.text('Lampe hors ligne'), findsOneWidget);
-    expect(find.textContaining('En attente de réseau'), findsOneWidget);
+    expect(find.textContaining('En attente de réseau'), findsNothing);
   });
 
   testWidgets('empty market shows the empty state', (tester) async {
     await h.signIn(tester);
     await pumpMarket(tester, h, marketProvider(FakeArticleRepo()), const VenteDonListScreen());
     expect(find.text('Aucun article pour le moment'), findsOneWidget);
+  });
+
+  testWidgets('search by photo ranks lookalike articles and can be cleared', (tester) async {
+    await h.signIn(tester);
+    repo = FakeArticleRepo([
+      article('book', title: 'Livre de Java', category: 'Livres', labels: const ['book', 'paper']),
+      article('lamp', title: 'Lampe', category: 'Mobilier', labels: const ['lamp']),
+    ]);
+    final ai = ArticleAi(tagger: FakeTagger(const [ImageTag('Book', 0.9)]), writer: FakeWriter());
+    await pumpMarket(tester, h, marketProvider(repo),
+        VenteDonListScreen(ai: ai, pickPhoto: () async => File('/g/photo.jpg')));
+    await tester.tap(find.byKey(const Key('photo-search')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('photo-search-chip')), findsOneWidget);
+    expect(find.textContaining('Photo : livre'), findsOneWidget);
+    expect(card('book'), findsOneWidget);
+    expect(card('lamp'), findsNothing);
+
+    await tester.tap(find.byTooltip('Arrêter la recherche par photo'));
+    await tester.pumpAndSettle();
+    expect(card('lamp'), findsOneWidget);
+  });
+
+  testWidgets('a photo with no known object shows a message', (tester) async {
+    await h.signIn(tester);
+    final ai = ArticleAi(tagger: FakeTagger(const [ImageTag('Sky', 0.3)]), writer: FakeWriter());
+    await pumpMarket(tester, h, marketProvider(repo),
+        VenteDonListScreen(ai: ai, pickPhoto: () async => File('/g/ciel.jpg')));
+    await tester.tap(find.byKey(const Key('photo-search')));
+    await tester.pumpAndSettle();
+    expect(find.text('Aucun objet reconnu sur cette photo.'), findsOneWidget);
+  });
+
+  testWidgets('"Pour toi" recommends articles close to the favorites', (tester) async {
+    await h.signIn(tester);
+    repo = FakeArticleRepo([
+      article('fav', title: 'Livre de Java', category: 'Livres', favoritedBy: const ['uid-1']),
+      article('py', title: 'Livre Python', category: 'Livres'),
+      article('lamp', title: 'Lampe', category: 'Mobilier'),
+    ]);
+    await pumpMarket(tester, h, marketProvider(repo), const VenteDonListScreen());
+    final rail = find.byKey(const Key('for-you'));
+    expect(rail, findsOneWidget);
+    expect(find.descendant(of: rail, matching: find.text('Livre Python')), findsOneWidget);
+    expect(find.descendant(of: rail, matching: find.text('Lampe')), findsNothing);
   });
 }

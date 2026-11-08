@@ -1,4 +1,3 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -9,6 +8,7 @@ import '../../providers/auth_provider.dart';
 import '../../services/chat_service.dart';
 import '../../widgets/empty_state.dart';
 import 'chat_screen.dart';
+import 'widgets/article_photo.dart';
 
 /// Libellé court d'une date de message : heure aujourd'hui, « hier », sinon
 /// jour et mois.
@@ -65,7 +65,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
                   return const EmptyState(
                     icon: Icons.wifi_off_rounded,
                     title: 'Messages indisponibles',
-                    subtitle: 'Vérifie ta connexion et réessaie.',
+                    subtitle: 'Réessaie dans un instant.',
                   );
                 }
                 if (!snap.hasData) return const Center(child: CircularProgressIndicator());
@@ -127,7 +127,7 @@ class _ConversationTile extends StatelessWidget {
                   color: t.primarySoft,
                   child: Icon(Icons.shopping_bag_outlined, color: t.primary),
                 )
-              : CachedNetworkImage(imageUrl: url, fit: BoxFit.cover),
+              : ArticlePhoto(url: url),
         ),
       ),
       title: Text(
