@@ -2,6 +2,9 @@ import 'package:campusconnect/models/article_model.dart';
 import 'package:campusconnect/screens/vente_don/article_detail_screen.dart';
 import 'package:campusconnect/screens/vente_don/article_form_screen.dart';
 import 'package:campusconnect/screens/vente_don/chat_screen.dart';
+import 'package:campusconnect/services/ai/chat_assistant.dart';
+import 'package:campusconnect/services/ai/chat_replier.dart';
+import 'package:campusconnect/services/ai/fraud_detector.dart';
 import 'package:campusconnect/widgets/pill_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -10,6 +13,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import '../helpers/articles.dart';
 import '../helpers/authenticated.dart';
 import '../helpers/chat.dart';
+import '../helpers/fraud.dart';
 import '../helpers/market.dart';
 
 void main() {
@@ -25,7 +29,11 @@ void main() {
       viewCount: 4);
   final mine = article('mine', ownerId: 'uid-1', ownerName: 'Amel Ben Salah', title: 'Ma lampe', price: null);
 
-  setUpAll(() => initializeDateFormatting('fr_FR'));
+  setUpAll(() {
+    FraudModel.cached = loadFraudModel();
+    ChatIntentModel.cached = loadChatModel();
+    return initializeDateFormatting('fr_FR');
+  });
 
   setUp(() {
     h = AuthHarness();
@@ -61,7 +69,7 @@ void main() {
   testWidgets('contacting the seller opens a real conversation', (tester) async {
     await h.signIn(tester);
     final chat = FakeChatService();
-    await pumpMarket(tester, h, marketProvider(repo), ArticleDetailScreen(article: bike, chatService: chat));
+    await pumpMarket(tester, h, marketProvider(repo), ArticleDetailScreen(article: bike, chatService: chat, chatReplier: const EmbeddedChatReplier()));
     await tester.tap(find.byKey(const Key('contact-seller')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
@@ -74,6 +82,10 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
     await tester.pumpAndSettle();
     expect(find.text('Il est toujours dispo ?'), findsOneWidget);
+    // Sans internet, l'assistant embarqué répond tout de suite avec l'annonce.
+    expect(find.text('Oui, « Vélo de ville » est toujours disponible.'), findsOneWidget);
+    expect(find.byKey(const Key('assistant-badge')), findsOneWidget);
+    expect(chat.messages['bike_uid-1']!.last.senderId, kAssistantId);
 
     final header = chat.conversations['bike_uid-1']!;
     expect(header.participants, containsAll(['uid-1', 'seller-1']));
@@ -134,5 +146,33 @@ void main() {
     expect(find.textContaining('Hors ligne'), findsNothing);
     final button = tester.widget<PillButton>(find.byKey(const Key('contact-seller')));
     expect(button.onPressed, isNotNull);
+  });
+
+  testWidgets('a buyer sees the anti-scam analysis; the owner does not', (tester) async {
+    await h.signIn(tester);
+    final scam = article('scam',
+        ownerId: 'seller-2',
+        ownerName: 'Inconnu',
+        title: 'MacBook Air M2',
+        description: 'Neuf sous blister. Paiement par D17 avant l\'envoi, je suis à l\'étranger.',
+        price: 120,
+        category: 'Électronique');
+    await pumpMarket(tester, h, marketProvider(FakeArticleRepo([scam])), ArticleDetailScreen(article: scam));
+    expect(find.byKey(const Key('fraud-card')), findsOneWidget);
+    expect(find.text('Risque d\'arnaque élevé'), findsOneWidget);
+    expect(find.textContaining('paiement à l\'avance'), findsOneWidget);
+  });
+
+  testWidgets('a normal article shows a low risk', (tester) async {
+    await h.signIn(tester);
+    final provider = marketProvider(repo);
+    await pumpMarket(tester, h, provider, ArticleDetailScreen(article: bike));
+    expect(find.text('Risque d\'arnaque faible'), findsOneWidget);
+  });
+
+  testWidgets('no anti-scam analysis on my own article', (tester) async {
+    await h.signIn(tester);
+    await pumpMarket(tester, h, marketProvider(repo), ArticleDetailScreen(article: mine));
+    expect(find.byKey(const Key('fraud-card')), findsNothing);
   });
 }

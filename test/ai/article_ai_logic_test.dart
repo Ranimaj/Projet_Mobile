@@ -56,7 +56,7 @@ void main() {
     ];
 
     test('similar titles first, gifts ignored', () {
-      final a = advisePrice(title: 'Calculatrice TI-83', category: 'Électronique', market: market)!;
+      final a = advisePrice(title: 'Calculatrice TI-83', category: 'Électronique', market: market);
       expect(a.similarTitles, isTrue);
       expect(a.basedOn, 2);
       expect(a.low, 35);
@@ -66,21 +66,32 @@ void main() {
     });
 
     test('falls back to the whole category', () {
-      final a = advisePrice(title: 'Souris sans fil', category: 'Électronique', market: market)!;
+      final a = advisePrice(title: 'Souris sans fil', category: 'Électronique', market: market);
       expect(a.similarTitles, isFalse);
       expect(a.basedOn, 4);
       expect(a.suggested, 35);
     });
 
-    test('not enough data → null', () {
-      expect(advisePrice(title: 'Livre C', category: 'Livres', market: market), isNull);
-      expect(advisePrice(title: 'x', category: 'Mobilier', market: market), isNull);
+    test('one similar title is enough', () {
+      final a = advisePrice(title: 'Livre C', category: 'Livres', market: market);
+      expect(a.source, PriceAdviceSource.similar);
+      expect(a.basedOn, 1);
+      expect(a.label, '15 DT');
+    });
+
+    test('no comparable article → usual price of the category', () {
+      final a = advisePrice(title: 'Bureau', category: 'Mobilier', market: market);
+      expect(a.source, PriceAdviceSource.reference);
+      expect(a.basedOn, 0);
+      expect(a.label, '20 à 80 DT');
+      expect(a.suggested, 40);
+      expect(advisePrice(title: 'x', category: 'Inconnue', market: const []).label, '5 à 30 DT');
     });
 
     test('the article being edited is not compared with itself', () {
       final two = [market[0], market[1]];
-      expect(advisePrice(title: 'Calculatrice', category: 'Électronique', market: two), isNotNull);
-      expect(advisePrice(title: 'Calculatrice', category: 'Électronique', market: two, excludeId: '1'), isNull);
+      expect(advisePrice(title: 'Calculatrice', category: 'Électronique', market: two).basedOn, 2);
+      expect(advisePrice(title: 'Calculatrice', category: 'Électronique', market: two, excludeId: '1').basedOn, 1);
     });
   });
 

@@ -216,7 +216,7 @@ void main() {
     final p = make();
     await p.load();
     expect([for (final a in p.recommendationsFor('u9')) a.id], ['py']);
-    final advice = p.priceAdviceFor(title: 'Livre C++', category: 'Livres')!;
+    final advice = p.priceAdviceFor(title: 'Livre C++', category: 'Livres');
     expect(advice.basedOn, 2);
     expect(advice.suggested, 25);
   });

@@ -8,6 +8,7 @@ import '../../core/utils/geo.dart';
 import '../../models/article_model.dart';
 import '../../providers/article_provider.dart';
 import '../../providers/auth_provider.dart';
+import '../../services/ai/chat_replier.dart';
 import '../../services/chat_service.dart';
 import '../../widgets/hero_sheet_scaffold.dart';
 import '../../widgets/initials_avatar.dart';
@@ -18,6 +19,7 @@ import 'article_form_screen.dart';
 import 'chat_screen.dart';
 import 'widgets/article_card.dart';
 import 'widgets/article_photo.dart';
+import 'widgets/fraud_risk_card.dart';
 
 /// BF4 — détail d'un article : photos, prix, description, vendeur, vues et
 /// distance. Le propriétaire modifie, réserve, termine ou supprime ; les
@@ -25,8 +27,9 @@ import 'widgets/article_photo.dart';
 class ArticleDetailScreen extends StatefulWidget {
   final ArticleModel article;
   final ChatService? chatService;
+  final ChatReplier? chatReplier;
 
-  const ArticleDetailScreen({super.key, required this.article, this.chatService});
+  const ArticleDetailScreen({super.key, required this.article, this.chatService, this.chatReplier});
 
   @override
   State<ArticleDetailScreen> createState() => _ArticleDetailScreenState();
@@ -71,7 +74,7 @@ class _ArticleDetailScreenState extends State<ArticleDetailScreen> {
       );
       if (!mounted) return;
       await Navigator.of(context).push(MaterialPageRoute(
-        builder: (_) => ChatScreen(conversation: conversation, chatService: chat),
+        builder: (_) => ChatScreen(conversation: conversation, chatService: chat, replier: widget.chatReplier),
       ));
     } catch (_) {
       if (mounted) _snack('Impossible d\'ouvrir la conversation. Réessaie.');
@@ -325,6 +328,10 @@ class _ArticleDetailScreenState extends State<ArticleDetailScreen> {
         Text('Description', style: text.titleMedium),
         const SizedBox(height: 6),
         Text(article.description, style: text.bodyLarge),
+        if (!isOwner) ...[
+          const SizedBox(height: 16),
+          FraudRiskCard(article: article),
+        ],
         const SizedBox(height: 20),
         Container(
           padding: const EdgeInsets.all(14),
