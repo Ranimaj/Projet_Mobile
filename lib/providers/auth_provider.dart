@@ -330,7 +330,7 @@ class AuthProvider extends ChangeNotifier {
     try {
       return _studentCardService.hasQueuedSubmission(user.id);
     } catch (_) {
-      // Firebase ou la file Hive non initialisés (tests) : rien en attente.
+      // Firebase ou le stockage local non initialisés (tests) : rien en attente.
       return false;
     }
   }

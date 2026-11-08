@@ -9,7 +9,7 @@ class MockAuthService extends Mock implements AuthService {}
 
 class MockStorageService extends Mock implements StorageService {}
 
-/// Préférences de connexion en mémoire (pas de Hive dans les tests).
+/// Préférences de connexion en mémoire (pas de stockage SQLite dans les tests).
 class FakeLoginPrefs implements LoginPrefs {
   String? _email;
   final List<String?> writes = [];
@@ -26,7 +26,7 @@ class FakeLoginPrefs implements LoginPrefs {
   }
 }
 
-/// Le vrai ConnectivityProvider ouvre connectivity_plus et Hive dans son
+/// Le vrai ConnectivityProvider ouvre connectivity_plus et la file hors-ligne dans son
 /// constructeur ; on le remplace par un mock en ligne dans les tests d'écran.
 class MockConnectivityProvider extends Mock implements ConnectivityProvider {}
 

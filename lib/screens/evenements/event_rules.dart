@@ -1,0 +1,392 @@
+import 'dart:math' as math;
+import '../../models/event_model.dart';
+import '../../models/user_model.dart';
+import 'event_validators.dart';
+
+/// Filtre principal de la liste des événements.
+enum EventFilter { upcoming, past, myRegistrations, myEvents }
+
+/// Filtre de prix (feuille des filtres), combinable avec les autres.
+enum PriceFilter { all, free, paid }
+
+/// Filtre de la liste des participants (écran organisateur).
+enum AttendeeFilter { all, present, absent, unpaid }
+
+/// Tri de « À venir » : par date (défaut) ou par distance (« Près de moi »).
+enum EventSort { date, nearMe }
+
+/// Règles métier du module Événements (addendum, section 4).
+///
+/// Fonctions pures, comme EventValidators : tout est passé en paramètre
+/// (y compris « maintenant »), aucune dépendance à Firebase, donc testables.
+/// Les règles Firestore appliquent les mêmes contrôles côté serveur.
+class EventRules {
+  EventRules._();
+
+  /// Raison pour laquelle [userId] ne peut PAS s'inscrire, ou null.
+  /// Ordre des contrôles : connecté, actif, pas terminé, pas commencé,
+  /// pas déjà inscrit, places disponibles.
+  static String? registrationBlocked(EventModel event, String? userId, DateTime now) {
+    if (userId == null) return 'Connectez-vous pour vous inscrire.';
+    if (event.status == EventStatus.cancelled) return 'Cet événement est annulé.';
+    if (!now.isBefore(event.endDate)) return 'Cet événement est terminé.';
+    // Comme dans firestore.rules (request.time < startDate) : les inscriptions
+    // ferment au début de l'événement.
+    if (!now.isBefore(event.startDate)) return "Les inscriptions sont closes : l'événement a commencé.";
+    if (event.isUserRegistered(userId)) return 'Vous êtes déjà inscrit.';
+    if (event.isFull) return 'Complet : plus aucune place disponible.';
+    return null;
+  }
+
+  /// Raison pour laquelle [userId] ne peut PAS se désinscrire, ou null.
+  /// Règle 4 : désinscription possible jusqu'au début de l'événement.
+  static String? unregistrationBlocked(EventModel event, String? userId, DateTime now) {
+    if (userId == null) return 'Connectez-vous pour vous désinscrire.';
+    if (!event.isUserRegistered(userId)) return "Vous n'êtes pas inscrit.";
+    if (event.status == EventStatus.cancelled) return 'Cet événement est annulé.';
+    if (!now.isBefore(event.startDate)) return "Désinscription impossible : l'événement a commencé.";
+    return null;
+  }
+
+  /// Deux créneaux se chevauchent si chacun commence avant la fin de l'autre.
+  /// (Un événement qui finit à 16 h et un autre qui commence à 16 h : pas de conflit.)
+  static bool overlaps(EventModel a, EventModel b) =>
+      a.startDate.isBefore(b.endDate) && b.startDate.isBefore(a.endDate);
+
+  /// Règle 3 : premier événement actif et non terminé où [userId] est déjà
+  /// inscrit et qui chevauche [target], ou null.
+  static EventModel? findConflict(EventModel target, List<EventModel> all, String userId, DateTime now) {
+    for (final e in all) {
+      if (e.id == target.id || !e.isUserRegistered(userId)) continue;
+      if (e.status == EventStatus.cancelled || !now.isBefore(e.endDate)) continue;
+      if (overlaps(e, target)) return e;
+    }
+    return null;
+  }
+
+  /// Règle 7 : l'organisateur ne peut pas supprimer un événement qui a des
+  /// inscrits (il doit l'annuler) ; l'admin peut toujours (modération).
+  static String? deleteBlocked(EventModel event, {required bool isAdmin}) {
+    if (isAdmin || event.registeredUserIds.isEmpty) return null;
+    final n = event.registeredUserIds.length;
+    return "Impossible de supprimer : $n inscrit(s). Annulez plutôt l'événement.";
+  }
+
+  /// Règle 6 : on n'annule ni un événement déjà annulé, ni un événement terminé.
+  static String? cancelBlocked(EventModel event, DateTime now) {
+    if (event.status == EventStatus.cancelled) return 'Cet événement est déjà annulé.';
+    if (!now.isBefore(event.endDate)) return 'Un événement terminé ne peut pas être annulé.';
+    return null;
+  }
+
+  static bool _sameDay(DateTime a, DateTime b) => a.year == b.year && a.month == b.month && a.day == b.day;
+
+  /// Date sans l'heure (minuit), pour comparer des jours.
+  static DateTime dateOnly(DateTime d) => DateTime(d.year, d.month, d.day);
+
+  /// Nombre de jours du mois (le « jour 0 » du mois suivant = dernier jour).
+  static int daysInMonth(DateTime month) => DateTime(month.year, month.month + 1, 0).day;
+
+  /// Cases de la grille du mois, semaine commençant le lundi : null avant le
+  /// 1er (décalage) et après le dernier jour (pour finir la semaine).
+  static List<DateTime?> monthGrid(DateTime month) {
+    final first = DateTime(month.year, month.month, 1);
+    final offset = first.weekday - DateTime.monday; // lundi = 0 ... dimanche = 6
+    final cells = <DateTime?>[
+      for (var i = 0; i < offset; i++) null,
+      for (var d = 1; d <= daysInMonth(month); d++) DateTime(month.year, month.month, d),
+    ];
+    while (cells.length % 7 != 0) {
+      cells.add(null);
+    }
+    return cells;
+  }
+
+  /// Compte à rebours lisible jusqu'au début : « dans 25 min », « dans 3 h »
+  /// (moins de 6 h), « aujourd'hui », « demain », « dans 4 jours ».
+  /// Les jours sont comptés en jours de calendrier (arrondi : sûr même lors
+  /// d'un changement d'heure).
+  static String countdown(DateTime start, DateTime now) {
+    final diff = start.difference(now);
+    if (diff.isNegative) return 'en cours';
+    if (diff.inMinutes < 60) return 'dans ${diff.inMinutes < 1 ? 1 : diff.inMinutes} min';
+    if (diff.inHours < 6) return 'dans ${diff.inHours} h';
+    final days = (dateOnly(start).difference(dateOnly(now)).inHours / 24).round();
+    if (days == 0) return "aujourd'hui";
+    if (days == 1) return 'demain';
+    return 'dans $days jours';
+  }
+
+  /// Le lieu a-t-il changé ? Toujours vrai à la création ([oldLocation] null).
+  /// En modification, on ne regéocode que si le texte normalisé a changé.
+  static bool locationChanged(String newLocation, String? oldLocation) =>
+      oldLocation == null || EventValidators.normalize(newLocation) != EventValidators.normalize(oldLocation);
+
+  /// Taux de remplissage entre 0 et 1, ou null si les places sont illimitées.
+  static double? capacityRatio(EventModel event) {
+    final cap = event.capacity;
+    if (cap == null || cap <= 0) return null;
+    return (event.registeredUserIds.length / cap).clamp(0.0, 1.0);
+  }
+
+  /// Presque complet : au moins 80 % des places prises (la barre change de couleur).
+  static bool isAlmostFull(EventModel event) => (capacityRatio(event) ?? 0) >= 0.8;
+
+  /// Places restantes (jamais négatif), ou null si illimitées.
+  static int? remainingSeats(EventModel event) {
+    final cap = event.capacity;
+    if (cap == null) return null;
+    final left = cap - event.registeredUserIds.length;
+    return left < 0 ? 0 : left;
+  }
+
+  /// Règle 5 : bandeau « Modifié le… » si l'événement a été modifié (plus
+  /// d'une minute après sa création) ET que des personnes sont inscrites.
+  static bool showModifiedBanner(EventModel event) =>
+      event.registeredUserIds.isNotEmpty &&
+      event.updatedAt.difference(event.createdAt) > const Duration(minutes: 1);
+
+  /// Durée lisible : « 45 min », « 2 h », « 1 h 30 ».
+  static String durationLabel(DateTime start, DateTime end) {
+    final minutes = end.difference(start).inMinutes;
+    if (minutes < 60) return '$minutes min';
+    final h = minutes ~/ 60;
+    final m = minutes % 60;
+    return m == 0 ? '$h h' : '$h h ${m.toString().padLeft(2, '0')}';
+  }
+
+  /// Nombre de filtres actifs affiché sur l'icône filtre : catégorie, jour et prix.
+  static int activeFilterCount({String? category, DateTime? day, PriceFilter price = PriceFilter.all}) =>
+      (category == null ? 0 : 1) + (day == null ? 0 : 1) + (price == PriceFilter.all ? 0 : 1);
+
+  // ------------------------------------------------------------------ Prix
+  // Le prix est INFORMATIF : aucun paiement dans l'app (paiement sur place,
+  // noté plus tard par l'organisateur).
+
+  /// Gratuit : pas de prix, ou prix à 0.
+  static bool isFree(EventModel event) => event.price == null || event.price == 0;
+
+  /// « Gratuit », « 15 TND » ou « 12,50 TND » (virgule française).
+  static String priceLabel(EventModel event) {
+    if (isFree(event)) return 'Gratuit';
+    final p = event.price!;
+    final text = p == p.roundToDouble() ? p.toStringAsFixed(0) : p.toStringAsFixed(2).replaceAll('.', ',');
+    return '$text TND';
+  }
+
+  /// Le prix change-t-il ? (null et 0 comptent tous deux comme « gratuit ».)
+  static bool priceChanged(double? before, double? after) => (before ?? 0) != (after ?? 0);
+
+  // ----------------------------------------------------------- Près de moi
+
+  /// Distance à vol d'oiseau en km (formule de haversine, Terre sphérique de
+  /// rayon 6371 km) : suffisant pour trier des événements par proximité.
+  static double haversineKm(double lat1, double lng1, double lat2, double lng2) {
+    const earthRadiusKm = 6371.0;
+    double rad(double deg) => deg * math.pi / 180;
+    final dLat = rad(lat2 - lat1);
+    final dLng = rad(lng2 - lng1);
+    final a = math.pow(math.sin(dLat / 2), 2) +
+        math.cos(rad(lat1)) * math.cos(rad(lat2)) * math.pow(math.sin(dLng / 2), 2);
+    return 2 * earthRadiusKm * math.asin(math.sqrt(a));
+  }
+
+  /// Distance en mètres jusqu'à [event], ou null s'il n'a pas de coordonnées.
+  static double? distanceMeters(EventModel event, ({double lat, double lng}) origin) {
+    if (event.latitude == null || event.longitude == null) return null;
+    return haversineKm(origin.lat, origin.lng, event.latitude!, event.longitude!) * 1000;
+  }
+
+  /// Tri « Près de moi » : d'abord les événements localisés, du plus proche
+  /// au plus loin (à distance égale : le plus tôt d'abord), puis ceux sans
+  /// coordonnées, par date.
+  static List<EventModel> sortByDistance(List<EventModel> events, ({double lat, double lng}) origin) {
+    final located = <({EventModel event, double meters})>[];
+    final unlocated = <EventModel>[];
+    for (final e in events) {
+      final d = distanceMeters(e, origin);
+      if (d == null) {
+        unlocated.add(e);
+      } else {
+        located.add((event: e, meters: d));
+      }
+    }
+    located.sort((a, b) {
+      final byDistance = a.meters.compareTo(b.meters);
+      return byDistance != 0 ? byDistance : a.event.startDate.compareTo(b.event.startDate);
+    });
+    unlocated.sort((a, b) => a.startDate.compareTo(b.startDate));
+    return [for (final x in located) x.event, ...unlocated];
+  }
+
+  // ---------------------------------------------------------- Participants
+
+  /// Gérer la liste des participants : l'organisateur ou un admin seulement.
+  static bool canManageAttendees(EventModel event, AppUser? user) =>
+      user != null && (user.id == event.organizerId || user.role == UserRole.admin);
+
+  /// Raison pour laquelle on ne peut PAS pointer [uid] présent, ou null.
+  /// Pointage à partir d'1 h avant le début ; annulé ou terminé : lecture seule.
+  static String? presentBlockedReason(EventModel event, String uid, DateTime now) {
+    if (!event.isUserRegistered(uid)) return "Cette personne n'est pas inscrite.";
+    if (event.status == EventStatus.cancelled) return 'Événement annulé : liste en lecture seule.';
+    if (!now.isBefore(event.endDate)) return 'Événement terminé : présences en lecture seule.';
+    if (now.isBefore(event.startDate.subtract(const Duration(hours: 1)))) {
+      return "Pointage possible à partir d'1 h avant le début.";
+    }
+    return null;
+  }
+
+  static bool canMarkPresent(EventModel event, String uid, DateTime now) =>
+      presentBlockedReason(event, uid, now) == null;
+
+  /// Raison pour laquelle on ne peut PAS marquer [uid] « payé », ou null.
+  /// Encore possible après la fin (paiement noté plus tard), pas si annulé.
+  static String? paidBlockedReason(EventModel event, String uid) {
+    if (isFree(event)) return 'Événement gratuit : rien à payer.';
+    if (!event.isUserRegistered(uid)) return "Cette personne n'est pas inscrite.";
+    if (event.status == EventStatus.cancelled) return 'Événement annulé : liste en lecture seule.';
+    return null;
+  }
+
+  static bool canMarkPaid(EventModel event, String uid) => paidBlockedReason(event, uid) == null;
+
+  /// Chiffres du résumé. Présents et payés ne comptent que des personnes
+  /// encore inscrites (une ancienne entrée isolée est ignorée).
+  static ({int registered, int? capacity, int present, int paid, double expectedRevenue, double? fillRatio})
+      attendeeStats(EventModel event) {
+    final registered = event.registeredUserIds.toSet();
+    final present = event.checkedInUserIds.where(registered.contains).toSet().length;
+    final paid = event.paidUserIds.where(registered.contains).toSet().length;
+    final revenue = isFree(event) ? 0.0 : ((event.price! * paid) * 100).round() / 100;
+    return (
+      registered: registered.length,
+      capacity: event.capacity,
+      present: present,
+      paid: paid,
+      expectedRevenue: revenue,
+      fillRatio: capacityRatio(event),
+    );
+  }
+
+  /// Nom de repli quand le profil est introuvable : « Étudiant » + les 4
+  /// derniers caractères de l'uid.
+  static String fallbackName(String uid) => 'Étudiant ${uid.length <= 4 ? uid : uid.substring(uid.length - 4)}';
+
+  /// Liste des participants affichée : inscrits (sans doublon) avec leur
+  /// nom, filtre + recherche sans accents, triés par nom.
+  static List<({String uid, String name})> filterAttendees(
+    EventModel event,
+    Map<String, String> names, {
+    AttendeeFilter filter = AttendeeFilter.all,
+    String query = '',
+  }) {
+    final present = event.checkedInUserIds.toSet();
+    final paid = event.paidUserIds.toSet();
+    bool matchesFilter(String uid) {
+      switch (filter) {
+        case AttendeeFilter.all:
+          return true;
+        case AttendeeFilter.present:
+          return present.contains(uid);
+        case AttendeeFilter.absent:
+          return !present.contains(uid);
+        case AttendeeFilter.unpaid:
+          return !paid.contains(uid);
+      }
+    }
+
+    final q = foldForSearch(query);
+    final list = [
+      for (final uid in event.registeredUserIds.toSet())
+        if (matchesFilter(uid)) (uid: uid, name: names[uid] ?? fallbackName(uid)),
+    ].where((a) => q.isEmpty || foldForSearch(a.name).contains(q)).toList()
+      ..sort((a, b) => foldForSearch(a.name).compareTo(foldForSearch(b.name)));
+    return list;
+  }
+
+  /// Confirmation demandée dans le formulaire : le prix change alors que des
+  /// personnes sont déjà inscrites.
+  static bool needsPriceChangeConfirmation(EventModel original, double? newPrice) =>
+      original.registeredUserIds.isNotEmpty && priceChanged(original.price, newPrice);
+
+  /// Pour chaque jour : les catégories distinctes des événements qui y
+  /// commencent, dans l'ordre d'apparition (un point de couleur par catégorie).
+  static Map<DateTime, List<String>> categoriesByDay(List<EventModel> events) {
+    final byDay = <DateTime, List<String>>{};
+    for (final e in events) {
+      final categories = byDay.putIfAbsent(dateOnly(e.startDate), () => []);
+      if (!categories.contains(e.category)) categories.add(e.category);
+    }
+    return byDay;
+  }
+
+  /// Jours (sans l'heure) où commence au moins un des [events] : on y met un point.
+  static Set<DateTime> eventDays(List<EventModel> events) => {for (final e in events) dateOnly(e.startDate)};
+
+  static const Map<String, String> _accents = {
+    'à': 'a', 'â': 'a', 'ä': 'a', 'á': 'a', 'ã': 'a', 'å': 'a',
+    'ç': 'c',
+    'é': 'e', 'è': 'e', 'ê': 'e', 'ë': 'e',
+    'î': 'i', 'ï': 'i', 'í': 'i', 'ì': 'i',
+    'ô': 'o', 'ö': 'o', 'ó': 'o', 'ò': 'o', 'õ': 'o',
+    'ù': 'u', 'û': 'u', 'ü': 'u', 'ú': 'u',
+    'ÿ': 'y', 'ý': 'y', 'ñ': 'n', 'œ': 'oe', 'æ': 'ae',
+  };
+
+  /// Texte comparable pour la recherche : minuscules, sans accents, espaces
+  /// réduits. « École » et « ecole » deviennent identiques.
+  static String foldForSearch(String text) {
+    final buffer = StringBuffer();
+    for (final char in text.toLowerCase().split('')) {
+      buffer.write(_accents[char] ?? char);
+    }
+    return buffer.toString().trim().replaceAll(RegExp(r'\s+'), ' ');
+  }
+
+  /// Recherche dans le titre et le lieu (requête vide = tout correspond).
+  static bool matchesSearch(EventModel event, String query) {
+    final q = foldForSearch(query);
+    if (q.isEmpty) return true;
+    return foldForSearch(event.title).contains(q) || foldForSearch(event.location).contains(q);
+  }
+
+  /// Règles 6, 8 et 12 : filtre principal + catégorie + jour + recherche +
+  /// prix, triés par date de début. Tous les filtres se combinent.
+  /// - À venir : ni annulés, ni terminés (les événements en cours restent visibles).
+  /// - Passés : terminés et non annulés (lecture seule).
+  /// - Mes inscriptions / Mes événements : tout, y compris annulés et passés.
+  static List<EventModel> filter(
+    List<EventModel> all, {
+    required EventFilter filter,
+    required DateTime now,
+    String? userId,
+    String? category,
+    DateTime? day,
+    String query = '',
+    PriceFilter price = PriceFilter.all,
+  }) {
+    bool matchesFilter(EventModel e) {
+      switch (filter) {
+        case EventFilter.upcoming:
+          return e.status == EventStatus.active && now.isBefore(e.endDate);
+        case EventFilter.past:
+          return e.status == EventStatus.active && !now.isBefore(e.endDate);
+        case EventFilter.myRegistrations:
+          return userId != null && e.isUserRegistered(userId);
+        case EventFilter.myEvents:
+          return userId != null && e.organizerId == userId;
+      }
+    }
+
+    final list = all
+        .where(matchesFilter)
+        .where((e) => category == null || e.category == category)
+        .where((e) => day == null || _sameDay(e.startDate, day))
+        .where((e) => matchesSearch(e, query))
+        .where((e) => price == PriceFilter.all || (price == PriceFilter.free) == isFree(e))
+        .toList()
+      ..sort((a, b) => a.startDate.compareTo(b.startDate));
+    return list;
+  }
+}

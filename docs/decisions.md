@@ -56,7 +56,7 @@ après un refus passe la règle (test « resubmit after rejection »).
 
 ## 8. File d'attente hors-ligne des cartes étudiantes
 
-Les soumissions de carte faites hors-ligne sont stockées dans une file Hive
+Les soumissions de carte faites hors-ligne sont stockées dans une file SQLite (`sqflite`)
 (`uploadStudentCard`). La photo est copiée localement (`path_provider`) sous un nom de
 fichier relatif unique ; seul ce nom relatif est stocké, car le dossier de l'app peut
 changer d'un lancement à l'autre. La file est rejouée par utilisateur (une action ne

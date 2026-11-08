@@ -177,12 +177,166 @@ service cloud.firestore {
     }
 
     // --- Gestion Événements ---
+    // Règles v3 : miroir serveur des contrôles de l'app. On utilise
+    // data.get(champ, défaut) car les anciens documents n'ont pas les
+    // nouveaux champs, et request.time (horloge du serveur) pour tout ce qui
+    // dépend de l'heure : un téléphone mal réglé ne peut pas tricher.
+    // v3 : nouvelles catégories (une ancienne valeur reste acceptée si elle
+    // n'est pas modifiée) et prix informatif optionnel de 0 à 1000 TND.
+    // v4 : présences (checkedInUserIds) et paiements (paidUserIds) gérés
+    // seulement par l'organisateur ou un admin, une personne inscrite à la
+    // fois, dans une écriture à part ; à la désinscription, chacun peut se
+    // retirer lui-même de ces deux listes.
+    // v5 : affiche (posterUrl) absente/null, ou une URL https de NOTRE cloud
+    // Cloudinary (res.cloudinary.com/jmwc9h1o/), 500 caractères au plus.
     match /events/{eventId} {
+      // Champs modifiés par la requête (ajoutés, supprimés ou changés).
+      function changedKeys() {
+        return request.resource.data.diff(resource.data).affectedKeys();
+      }
+
+      // Contenu valide d'un événement (création et modification).
+      // Capacité absente ou null = places illimitées ; prix absent ou null =
+      // gratuit. [previousCategory] : catégorie actuelle du document en
+      // modification (null à la création). Une ancienne catégorie (« Job
+      // Fair »...) reste acceptée tant qu'elle n'est pas changée, pour ne pas
+      // bloquer la modification du titre d'un ancien événement.
+      function validEvent(d, previousCategory) {
+        let end = d.get('endDate', d.startDate + duration.value(2, 'h'));
+        let cap = d.get('capacity', null);
+        let price = d.get('price', null);
+        let poster = d.get('posterUrl', null);
+        let category = d.get('category', '');
+        let status = d.get('status', 'active');
+        let reason = d.get('cancelReason', '');
+        return d.title is string && d.title.size() >= 3 && d.title.size() <= 80 &&
+          d.description is string && d.description.size() >= 10 && d.description.size() <= 1000 &&
+          d.location is string && d.location.size() >= 3 && d.location.size() <= 100 &&
+          (category in ['Conférence', 'Carrière', 'Sport', 'Culture', 'Vie associative'] ||
+            (previousCategory != null && category == previousCategory)) &&
+          (price == null || (price is number && price >= 0 && price <= 1000)) &&
+          (poster == null || (poster is string && poster.size() <= 500 &&
+            poster.matches('https://res[.]cloudinary[.]com/jmwc9h1o/.+'))) &&
+          d.startDate is timestamp && end is timestamp &&
+          end > d.startDate && end <= d.startDate + duration.value(72, 'h') &&
+          (cap == null || (cap is int && cap >= 1 && cap <= 5000)) &&
+          (status == 'active' ||
+            (status == 'cancelled' && reason is string && reason.size() >= 5 && reason.size() <= 200));
+      }
+
+      // La liste des inscrits change d'UNE seule entrée, la mienne : ajout
+      // (dans la limite des places) ou retrait, seulement si l'événement est
+      // actif et avant son début (heure du serveur). Vaut pour TOUT le monde,
+      // organisateur et admin compris.
+      function isOwnRegistrationDelta() {
+        let before = resource.data.get('registeredUserIds', []);
+        let after = request.resource.data.get('registeredUserIds', []);
+        let me = [request.auth.uid].toSet();
+        let cap = request.resource.data.get('capacity', null);
+        return resource.data.get('status', 'active') == 'active' &&
+          request.time < resource.data.startDate && (
+            // inscription : avant + moi, dans la limite des places
+            (!(request.auth.uid in before) &&
+              after.size() == before.size() + 1 &&
+              after.toSet() == before.toSet().union(me) &&
+              (cap == null || after.size() <= cap)) ||
+            // désinscription : avant - moi
+            ((request.auth.uid in before) &&
+              after.size() == before.size() - 1 &&
+              after.toSet() == before.toSet().difference(me))
+          );
+      }
+
+      // Annulation seule : uniquement ces 4 champs, statut « cancelled »,
+      // motif de 5 à 200 caractères. On ne revérifie pas tout le contenu :
+      // un ancien événement (description courte...) peut quand même être annulé.
+      function isCancelOnly() {
+        let after = request.resource.data;
+        let reason = after.get('cancelReason', '');
+        return changedKeys().hasOnly(['status', 'cancelReason', 'cancelledAt', 'updatedAt']) &&
+          after.get('status', 'active') == 'cancelled' &&
+          reason is string && reason.size() >= 5 && reason.size() <= 200 &&
+          after.get('cancelledAt', null) is timestamp;
+      }
+
+      // Organisateur ou admin : modifie le contenu ou annule ; jamais
+      // organizerId ni createdAt ; jamais les présences / paiements ici (voir
+      // isAttendanceChange) ; inscrits modifiables seulement comme n'importe
+      // qui (sa propre inscription) ; capacité >= nombre d'inscrits ; un
+      // événement annulé ne redevient pas actif.
+      function isOrganizerEdit() {
+        let after = request.resource.data;
+        let cap = after.get('capacity', null);
+        return (resource.data.organizerId == request.auth.uid || isAdmin()) &&
+          !changedKeys().hasAny(['organizerId', 'createdAt', 'checkedInUserIds', 'paidUserIds']) &&
+          (!changedKeys().hasAny(['registeredUserIds']) || isOwnRegistrationDelta()) &&
+          !(resource.data.get('status', 'active') == 'cancelled' && after.get('status', 'active') == 'active') &&
+          (isCancelOnly() ||
+            (validEvent(after, resource.data.get('category', null)) &&
+              (cap == null || cap >= after.get('registeredUserIds', []).size())));
+      }
+
+      // [field] ne change que d'UN uid, ajouté OU retiré, et cet uid est inscrit.
+      function isSingleRegistrantDelta(field) {
+        let before = resource.data.get(field, []);
+        let after = request.resource.data.get(field, []);
+        let registered = resource.data.get('registeredUserIds', []).toSet();
+        let added = after.toSet().difference(before.toSet());
+        let removed = before.toSet().difference(after.toSet());
+        return (added.size() == 1 && removed.size() == 0 && after.size() == before.size() + 1 &&
+            registered.hasAll(added)) ||
+          (removed.size() == 1 && added.size() == 0 && after.size() == before.size() - 1 &&
+            registered.hasAll(removed));
+      }
+
+      // Organisateur ou admin : pointe UNE personne inscrite présente / payée
+      // (ou retire ce pointage). Aucun autre champ dans la même écriture.
+      // « Payé » seulement si l'événement est payant (prix > 0).
+      function isAttendanceChange() {
+        let price = resource.data.get('price', null);
+        return (resource.data.organizerId == request.auth.uid || isAdmin()) && (
+          (changedKeys().hasOnly(['checkedInUserIds']) && isSingleRegistrantDelta('checkedInUserIds')) ||
+          (changedKeys().hasOnly(['paidUserIds']) && price != null && price > 0 &&
+            isSingleRegistrantDelta('paidUserIds'))
+        );
+      }
+
+      // Retrait de MON uid d'une liste (présents / payés), et rien d'autre.
+      function isOwnRemovalFrom(field) {
+        let before = resource.data.get(field, []);
+        let after = request.resource.data.get(field, []);
+        return after.toSet() == before.toSet().difference([request.auth.uid].toSet()) &&
+          after.size() < before.size();
+      }
+
+      // N'importe quel utilisateur : sa propre inscription / désinscription.
+      // En se désinscrivant, il peut aussi se retirer des présents et des
+      // payés dans la même écriture (sinon il y resterait sans être inscrit).
+      // Il ne peut jamais s'y AJOUTER.
+      function isOwnRegistrationChange() {
+        let unregistering = request.auth.uid in resource.data.get('registeredUserIds', []);
+        return changedKeys().hasOnly(['registeredUserIds', 'checkedInUserIds', 'paidUserIds']) &&
+          changedKeys().hasAny(['registeredUserIds']) &&
+          isOwnRegistrationDelta() &&
+          (!changedKeys().hasAny(['checkedInUserIds']) || (unregistering && isOwnRemovalFrom('checkedInUserIds'))) &&
+          (!changedKeys().hasAny(['paidUserIds']) || (unregistering && isOwnRemovalFrom('paidUserIds')));
+      }
+
       allow read: if true;
-      allow create: if isSignedIn() && request.resource.data.organizerId == request.auth.uid;
-      allow update: if isSignedIn(); // inscription/désinscription par tout utilisateur connecté
-      allow delete: if isSignedIn() &&
-        (resource.data.organizerId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() &&
+        request.resource.data.organizerId == request.auth.uid &&
+        validEvent(request.resource.data, null) &&
+        request.resource.data.startDate > request.time &&
+        request.resource.data.get('status', 'active') == 'active' &&
+        request.resource.data.get('registeredUserIds', []).size() == 0 &&
+        request.resource.data.get('checkedInUserIds', []).size() == 0 &&
+        request.resource.data.get('paidUserIds', []).size() == 0;
+      allow update: if isSignedIn() && (isOrganizerEdit() || isAttendanceChange() || isOwnRegistrationChange());
+      // Organisateur : seulement sans inscrits (sinon il annule). Admin : toujours.
+      allow delete: if isSignedIn() && (
+        (resource.data.organizerId == request.auth.uid &&
+          resource.data.get('registeredUserIds', []).size() == 0) ||
+        isAdmin());
     }
 
     // --- Gestion Stage & Emploi ---
