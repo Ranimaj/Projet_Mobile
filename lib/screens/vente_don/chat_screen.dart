@@ -1,19 +1,32 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/theme/app_tokens.dart';
+import '../../models/article_model.dart';
 import '../../models/conversation_model.dart';
+import '../../providers/article_provider.dart';
 import '../../providers/auth_provider.dart';
+import '../../services/ai/chat_assistant.dart';
+import '../../services/ai/chat_replier.dart';
+import '../../services/ai/gemini_api_writer.dart';
 import '../../services/chat_service.dart';
 import '../../widgets/round_icon_button.dart';
 
 /// Conversation acheteur ↔ vendeur à propos d'un article (temps réel).
+/// Quand l'acheteur écrit, l'assistant IA du vendeur répond tout de suite :
+/// LLM Gemini par internet, ou modèle embarqué sans internet. Le vendeur peut
+/// répondre ensuite.
 class ChatScreen extends StatefulWidget {
   final ConversationModel conversation;
   final ChatService? chatService;
 
-  const ChatScreen({super.key, required this.conversation, this.chatService});
+  /// Assistant qui répond à l'acheteur (par défaut : Gemini, sinon embarqué).
+  final ChatReplier? replier;
+
+  const ChatScreen({super.key, required this.conversation, this.chatService, this.replier});
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -22,7 +35,9 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   late final ChatService _chat = widget.chatService ?? ChatService();
   late final Stream<List<ChatMessage>> _messages = _chat.watchMessages(widget.conversation.id);
+  late final ChatReplier _replier = widget.replier ?? GeminiChatReplier(apiKey: kGeminiApiKey);
   final _input = TextEditingController();
+  List<ChatMessage> _history = const [];
   bool _sending = false;
 
   String? get _me => context.read<AuthProvider>().currentUser?.id;
@@ -53,14 +68,43 @@ class _ChatScreenState extends State<ChatScreen> {
     try {
       await _chat.send(widget.conversation, me, body);
       _input.clear();
+      if (me == widget.conversation.buyerId && mounted) unawaited(_assistantReply(body));
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Message non envoyé. Vérifie ta connexion.')),
+          const SnackBar(content: Text('Message non envoyé. Réessaie.')),
         );
       }
     } finally {
       if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  /// Réponse de l'assistant IA à la question de l'acheteur.
+  Future<void> _assistantReply(String question) async {
+    final article = _article();
+    if (article == null) return;
+    final c = widget.conversation;
+    final seller = (c.names[c.sellerId] ?? article.ownerName).trim().split(RegExp(r'\s+')).first;
+    try {
+      final answer = await _replier.reply(ChatReplyRequest(
+        question: question,
+        article: article,
+        sellerName: seller.isEmpty ? 'Le vendeur' : seller,
+        buyerId: c.buyerId,
+        history: _history,
+      ));
+      await _chat.send(c, kAssistantId, answer);
+    } catch (_) {
+      // Sans assistant, la conversation continue normalement.
+    }
+  }
+
+  ArticleModel? _article() {
+    try {
+      return context.read<ArticleProvider>().byId(widget.conversation.articleId);
+    } catch (_) {
+      return null;
     }
   }
 
@@ -96,6 +140,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 }
                 if (!snap.hasData) return const Center(child: CircularProgressIndicator());
                 final messages = snap.data!;
+                _history = messages;
                 if (messages.isEmpty) {
                   return Center(
                     child: Padding(
@@ -116,7 +161,11 @@ class _ChatScreenState extends State<ChatScreen> {
                   itemCount: messages.length,
                   itemBuilder: (context, i) {
                     final m = messages[messages.length - 1 - i];
-                    return _Bubble(message: m, mine: m.senderId == me);
+                    return _Bubble(
+                      message: m,
+                      mine: m.senderId == me,
+                      assistant: m.senderId == kAssistantId,
+                    );
                   },
                 );
               },
@@ -170,13 +219,14 @@ class _ChatScreenState extends State<ChatScreen> {
 class _Bubble extends StatelessWidget {
   final ChatMessage message;
   final bool mine;
-  const _Bubble({required this.message, required this.mine});
+  final bool assistant;
+  const _Bubble({required this.message, required this.mine, this.assistant = false});
 
   @override
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
     final text = Theme.of(context).textTheme;
-    final fg = mine ? t.onPrimary : t.textPrimary;
+    final fg = mine ? t.onPrimary : (assistant ? t.onPrimarySoft : t.textPrimary);
     return Align(
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
       child: ConstrainedBox(
@@ -185,7 +235,7 @@ class _Bubble extends StatelessWidget {
           margin: const EdgeInsets.symmetric(vertical: 3),
           padding: const EdgeInsets.fromLTRB(14, 10, 14, 8),
           decoration: BoxDecoration(
-            color: mine ? t.primary : t.surfaceMuted,
+            color: mine ? t.primary : (assistant ? t.primarySoft : t.surfaceMuted),
             borderRadius: BorderRadius.only(
               topLeft: const Radius.circular(18),
               topRight: const Radius.circular(18),
@@ -196,6 +246,19 @@ class _Bubble extends StatelessWidget {
           child: Column(
             crossAxisAlignment: mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
             children: [
+              if (assistant)
+                Padding(
+                  key: const Key('assistant-badge'),
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.smart_toy_outlined, size: 16, color: fg),
+                      const SizedBox(width: 4),
+                      Text('Assistant IA', style: text.labelMedium?.copyWith(color: fg)),
+                    ],
+                  ),
+                ),
               Text(message.text, style: text.bodyLarge?.copyWith(color: fg)),
               const SizedBox(height: 2),
               Text(

@@ -2,9 +2,10 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:campusconnect/models/article_model.dart';
+import 'package:campusconnect/services/ai/article_ai.dart';
+import 'package:campusconnect/services/ai/category_mapper.dart';
 import 'package:campusconnect/services/local_photo_store.dart';
-import 'package:campusconnect/services/firestore_repository.dart';
-import 'package:flutter_test/flutter_test.dart';
+import 'package:campusconnect/services/sqlite/article_store.dart';
 
 /// Article de test : seuls les champs utiles au test sont à préciser.
 ArticleModel article(
@@ -22,6 +23,7 @@ ArticleModel article(
   DateTime? createdAt,
   int viewCount = 0,
   List<String> favoritedBy = const [],
+  List<String> labels = const [],
 }) {
   return ArticleModel(
     id: id,
@@ -38,12 +40,13 @@ ArticleModel article(
     createdAt: createdAt ?? DateTime(2026, 11, 1),
     viewCount: viewCount,
     favoritedBy: favoritedBy,
+    labels: labels,
   );
 }
 
-/// Dépôt en mémoire : remplace Firestore + le stockage local dans les tests du provider
+/// Dépôt en mémoire : remplace la base SQLite dans les tests du provider
 /// et des écrans Vente & Don. Les appels sont enregistrés pour vérification.
-class FakeArticleRepo extends Fake implements FirestoreRepository<ArticleModel> {
+class FakeArticleRepo implements ArticleStore {
   final Map<String, Map<String, dynamic>> docs = {};
   final List<(String id, Map<String, dynamic> patch, bool online)> updates = [];
   final List<(String id, bool online)> deletes = [];
@@ -67,7 +70,7 @@ class FakeArticleRepo extends Fake implements FirestoreRepository<ArticleModel> 
   }
 
   @override
-  Future<List<ArticleModel>> fetchAll({customQuery, required bool isOnline}) async {
+  Future<List<ArticleModel>> fetchAll({required bool isOnline}) async {
     if (failReads) throw StateError('offline');
     return [for (final e in docs.entries) ArticleModel.fromMap(e.key, e.value)];
   }
@@ -119,5 +122,32 @@ class FakePhotoStore implements LocalPhotoStore {
   Future<void> discard(String path) async {
     files.remove(path);
     discarded.add(path);
+  }
+}
+
+/// IA factice : étiquettes et description fixées par le test.
+class FakeTagger implements ImageTagger {
+  FakeTagger(this.tags, {this.fail = false});
+  List<ImageTag> tags;
+  bool fail;
+  int calls = 0;
+
+  @override
+  Future<List<ImageTag>> tag(File image) async {
+    calls++;
+    if (fail) throw StateError('ML Kit indisponible');
+    return tags;
+  }
+}
+
+class FakeWriter implements DescriptionWriter {
+  FakeWriter([this.text = 'Description rédigée par l\'IA.']);
+  String text;
+  DescriptionRequest? last;
+
+  @override
+  Future<String> write(DescriptionRequest request) async {
+    last = request;
+    return text;
   }
 }

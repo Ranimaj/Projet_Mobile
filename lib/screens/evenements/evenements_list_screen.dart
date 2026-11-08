@@ -190,6 +190,7 @@ class _EvenementsListScreenState extends State<EvenementsListScreen> with Ticker
       floatingActionButton: isGuest
           ? null
           : FloatingActionButton(
+              heroTag: 'evenements_fab',
               tooltip: 'Créer un événement',
               onPressed: () => Navigator.of(context)
                   .push(MaterialPageRoute(builder: (_) => const AddEventScreen())),

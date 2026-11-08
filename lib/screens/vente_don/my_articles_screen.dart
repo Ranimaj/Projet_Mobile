@@ -43,6 +43,7 @@ class _MyArticlesScreenState extends State<MyArticlesScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Mes articles')),
       floatingActionButton: FloatingActionButton(
+        heroTag: 'my_articles_add_fab',
         tooltip: 'Publier un article',
         onPressed: () => Navigator.of(context)
             .push(MaterialPageRoute(builder: (_) => const ArticleFormScreen())),

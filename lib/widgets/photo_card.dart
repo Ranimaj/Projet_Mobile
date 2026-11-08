@@ -54,6 +54,14 @@ class PhotoCard extends StatelessWidget {
     final url = imageUrl;
     final image = url == null
         ? _placeholder(t)
+        : isAssetImage(url)
+            ? Image.asset(
+                assetPathOf(url),
+                width: double.infinity,
+                height: imageHeight,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => _placeholder(t),
+              )
         : isLocalImage(url)
             ? Image.file(
                 File(url),

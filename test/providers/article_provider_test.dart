@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io';
 
 import 'package:campusconnect/core/utils/article_search.dart';
@@ -7,38 +6,26 @@ import 'package:campusconnect/models/article_model.dart';
 import 'package:campusconnect/providers/article_provider.dart';
 import 'package:campusconnect/services/location_service.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mocktail/mocktail.dart';
 
 import '../helpers/articles.dart';
-import '../helpers/mocks.dart';
 
 const _campus = GeoPoint2(36.8992, 10.1897);
 
 void main() {
   late FakeArticleRepo repo;
-  late MockStorageService storage;
   late FakePhotoStore photos;
-  late List<(String, Map<String, dynamic>)> queuePatches;
   LocationResult location = const LocationResult.found(_campus);
 
   ArticleProvider make({bool online = true}) => ArticleProvider(
         repository: repo,
-        storage: storage,
         locate: () async => location,
         clock: () => DateTime(2026, 11, 6, 15),
         photos: photos,
-        patchQueued: (id, patch) async => queuePatches.add((id, patch)),
-        networkTimeout: const Duration(milliseconds: 50),
-        uploadTimeout: const Duration(milliseconds: 50),
       )..updateConnectivity(online);
-
-  setUpAll(() => registerFallbackValue(<File>[]));
 
   setUp(() {
     location = const LocationResult.found(_campus);
-    storage = MockStorageService();
     photos = FakePhotoStore();
-    queuePatches = [];
     repo = FakeArticleRepo([
       article('book', title: 'Livre de Java', category: 'Livres', price: 15, createdAt: DateTime(2026, 11, 1)),
       article('gift', title: 'Manteau', price: null, createdAt: DateTime(2026, 11, 3), favoritedBy: const ['u1']),
@@ -108,108 +95,31 @@ void main() {
     expect(p.distanceKmTo(near), 0);
   });
 
-  test('createArticle uploads photos online then saves their URLs', () async {
-    when(() => storage.uploadImages(any(), folder: any(named: 'folder')))
-        .thenAnswer((_) async => ['https://cdn/1.jpg', 'https://cdn/2.jpg']);
+  test('createArticle copies the photos into the app and saves their paths', () async {
     final p = make();
     final id = await p.createArticle(
       draft: article('', title: 'Table', ownerId: 'u1'),
       imageFiles: [File('a.jpg'), File('b.jpg')],
     );
-    verify(() => storage.uploadImages(any(that: hasLength(2)), folder: 'articles')).called(1);
-    expect(repo.creates.single.$1.imageUrls, ['https://cdn/1.jpg', 'https://cdn/2.jpg']);
-    expect(repo.creates.single.$2, isTrue);
+    expect(repo.creates.single.$1.imageUrls, ['/local/photo-0.jpg', '/local/photo-1.jpg']);
+    expect(photos.files, hasLength(2));
     expect(p.byId(id)?.title, 'Table');
   });
 
-  test('createArticle offline keeps the photos on the phone and queues the article', () async {
+  test('without network the article is saved the same way', () async {
     final p = make(online: false);
-    final id = await p.createArticle(draft: article('', title: 'Chaise'), imageFiles: [File('a.jpg'), File('b.jpg')]);
-    verifyNever(() => storage.uploadImages(any(), folder: any(named: 'folder')));
-    final (item, online) = repo.creates.single;
-    expect(online, isFalse);
-    expect(item.imageUrls, ['/local/photo-0.jpg', '/local/photo-1.jpg']);
-    expect(p.byId(id)!.hasLocalPhotos, isTrue);
-    expect(p.pendingPhotoArticles, 1);
-  });
-
-  test('a failing upload while "online" falls back to local photos', () async {
-    when(() => storage.uploadImages(any(), folder: any(named: 'folder')))
-        .thenThrow(Exception('Unable to resolve host'));
-    final p = make();
-    await p.createArticle(draft: article('', title: 'Lampe'), imageFiles: [File('a.jpg')]);
+    final id = await p.createArticle(draft: article('', title: 'Chaise'), imageFiles: [File('a.jpg')]);
     expect(repo.creates.single.$1.imageUrls, ['/local/photo-0.jpg']);
-  });
-
-  test('a write that never reaches Firebase is queued after the timeout', () async {
-    repo.hangOnline = true;
-    when(() => storage.uploadImages(any(), folder: any(named: 'folder')))
-        .thenAnswer((_) => Completer<List<String>>().future);
-    final p = make();
-    final id = await p.createArticle(draft: article('', title: 'Veste'), imageFiles: [File('v.jpg')]);
-    final (item, online) = repo.creates.single;
-    expect(online, isFalse);
-    expect(item.imageUrls, ['/local/photo-0.jpg']);
     expect(p.byId(id), isNotNull);
   });
 
-  test('syncPendingPhotos uploads, replaces the paths everywhere and cleans up', () async {
-    final p = make(online: false);
-    final id = await p.createArticle(
-      draft: article('', title: 'Livre'),
-      imageFiles: [File('a.jpg'), File('b.jpg')],
-    );
-    expect(await p.syncPendingPhotos(), 0); // toujours hors ligne
-
-    when(() => storage.uploadImages(any(), folder: any(named: 'folder')))
-        .thenAnswer((_) async => ['https://cdn/a.jpg', 'https://cdn/b.jpg']);
-    p.updateConnectivity(true); // déclenche la synchro
-    await pumpEventQueue();
-
-    expect(p.byId(id)!.imageUrls, ['https://cdn/a.jpg', 'https://cdn/b.jpg']);
-    expect(p.byId(id)!.hasLocalPhotos, isFalse);
-    expect(repo.updates.last.$2, {'imageUrls': ['https://cdn/a.jpg', 'https://cdn/b.jpg']});
-    expect(queuePatches.single.$1, id);
-    expect(photos.files, isEmpty);
-    expect(photos.discarded, hasLength(2));
-    expect(p.pendingPhotoArticles, 0);
-  });
-
-  test('syncPendingPhotos keeps the photos when the upload still fails', () async {
-    final p = make(online: false);
-    final id = await p.createArticle(draft: article('', title: 'Livre'), imageFiles: [File('a.jpg')]);
-    when(() => storage.uploadImages(any(), folder: any(named: 'folder')))
-        .thenThrow(Exception('offline'));
-    p.updateConnectivity(true);
-    expect(await p.syncPendingPhotos(), 0);
-    expect(p.byId(id)!.imageUrls, ['/local/photo-0.jpg']);
-    expect(photos.files, hasLength(1));
-  });
-
-  test('photo paths from another phone are dropped, not uploaded', () async {
-    repo = FakeArticleRepo([
-      article('x', imageUrls: const ['https://cdn/ok.jpg', '/autre/telephone.jpg']),
-    ]);
-    final p = make();
-    await p.load();
-    expect(p.pendingPhotoArticles, 0);
-    expect(await p.syncPendingPhotos(), 0);
-    verifyNever(() => storage.uploadImages(any(), folder: any(named: 'folder')));
-  });
-
   test('createArticle keeps at most 6 photos', () async {
-    when(() => storage.uploadImages(any(), folder: any(named: 'folder'))).thenAnswer((_) async => []);
     final p = make();
-    await p.createArticle(
-      draft: article(''),
-      imageFiles: List.generate(9, (i) => File('$i.jpg')),
-    );
-    verify(() => storage.uploadImages(any(that: hasLength(6)), folder: 'articles')).called(1);
+    await p.createArticle(draft: article(''), imageFiles: List.generate(9, (i) => File('$i.jpg')));
+    expect(repo.creates.single.$1.imageUrls, hasLength(6));
   });
 
-  test('editArticle sends a patch with kept + new photos and the location', () async {
-    when(() => storage.uploadImages(any(), folder: any(named: 'folder')))
-        .thenAnswer((_) async => ['https://cdn/new.jpg']);
+  test('editArticle saves a patch with kept + new photos and the location', () async {
     final p = make();
     await p.load();
     final original = p.byId('book')!;
@@ -219,16 +129,15 @@ void main() {
       description: 'Annoté',
       category: 'Livres',
       price: 12,
-      keptUrls: const ['https://cdn/old.jpg'],
+      keptUrls: const ['/local/old.jpg'],
       newImages: [File('n.jpg')],
       location: _campus,
     );
-    final (id, patch, online) = repo.updates.single;
+    final (id, patch, _) = repo.updates.single;
     expect(id, 'book');
-    expect(online, isTrue);
     expect(patch['title'], 'Livre de Java (2e éd.)');
     expect(patch['price'], 12);
-    expect(patch['imageUrls'], ['https://cdn/old.jpg', 'https://cdn/new.jpg']);
+    expect(patch['imageUrls'], ['/local/old.jpg', '/local/photo-0.jpg']);
     expect(patch['latitude'], _campus.latitude);
     expect(patch['updatedAt'], DateTime(2026, 11, 6, 15));
     expect(p.byId('book')!.title, 'Livre de Java (2e éd.)');
@@ -246,17 +155,6 @@ void main() {
     expect(patch.containsKey('latitude'), isTrue);
     expect(patch['latitude'], isNull);
     expect(p.byId('book')!.isFree, isTrue);
-  });
-
-  test('editArticle offline keeps the new photos locally', () async {
-    final p = make(online: false);
-    await p.load();
-    await p.editArticle(p.byId('book')!,
-        title: 'Livre', description: 'Avec photo', category: 'Livres', price: 1,
-        keptUrls: const ['https://cdn/old.jpg'], newImages: [File('x.jpg')]);
-    final patch = repo.updates.single.$2;
-    expect(patch['imageUrls'], ['https://cdn/old.jpg', '/local/photo-0.jpg']);
-    expect(repo.updates.single.$3, isFalse);
   });
 
   test('status changes and delete', () async {
@@ -293,5 +191,42 @@ void main() {
     await p.recordView('book', null); // visiteur
     expect(p.byId('book')!.viewCount, 1);
     expect(repo.updates.where((u) => u.$1 == 'book').single.$2, {'viewCount': 1});
+  });
+
+  test('photo search ranks lookalikes and can be cleared', () async {
+    repo = FakeArticleRepo([
+      article('b1', title: 'Livre', labels: const ['book', 'paper']),
+      article('b2', title: 'Cahier', labels: const ['paper']),
+      article('l', title: 'Lampe', labels: const ['lamp']),
+    ]);
+    final p = make();
+    await p.load();
+    p.setPhotoSearch(['Book', 'Paper']);
+    expect(p.isPhotoSearch, isTrue);
+    expect([for (final a in p.items) a.id], ['b1', 'b2']);
+    p.clearPhotoSearch();
+    expect(p.items.length, 3);
+  });
+
+  test('recommendations and price advice come from the loaded articles', () async {
+    repo = FakeArticleRepo([
+      article('fav', title: 'Livre Java', category: 'Livres', price: 20, favoritedBy: const ['u9']),
+      article('py', title: 'Livre Python', category: 'Livres', price: 30),
+    ]);
+    final p = make();
+    await p.load();
+    expect([for (final a in p.recommendationsFor('u9')) a.id], ['py']);
+    final advice = p.priceAdviceFor(title: 'Livre C++', category: 'Livres');
+    expect(advice.basedOn, 2);
+    expect(advice.suggested, 25);
+  });
+
+  test('editArticle saves new photo labels', () async {
+    final p = make();
+    await p.load();
+    await p.editArticle(p.byId('book')!,
+        title: 'Livre', description: 'd', category: 'Livres', price: 1, keptUrls: const [], labels: const ['book']);
+    expect(repo.updates.single.$2['labels'], ['book']);
+    expect(p.byId('book')!.labels, ['book']);
   });
 }

@@ -1,82 +1,53 @@
-import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
-import '../core/constants/app_constants.dart';
 import '../core/utils/article_search.dart';
 import '../core/utils/geo.dart';
 import '../models/article_model.dart';
-import '../services/firestore_repository.dart';
+import '../services/ai/price_advisor.dart';
+import '../services/ai/recommender.dart';
 import '../services/local_photo_store.dart';
 import '../services/location_service.dart';
-import '../services/storage_service.dart';
+import '../services/sqlite/article_store.dart';
+import '../services/sqlite/local_article_repository.dart';
 
 /// Gestion Vente & Don — CRUD complet, recherche intelligente avec filtres
-/// combinés (texte, catégorie, gratuit, prix, distance, tri), upload
-/// multi-images compressées, favoris et compteur de vues. Fonctionne
-/// hors-ligne (BNF3) grâce au [FirestoreRepository], photos comprises : sans
-/// réseau elles restent sur le téléphone puis partent au retour de la
-/// connexion ([syncPendingPhotos]).
+/// combinés (texte, catégorie, gratuit, prix, distance, tri), photos
+/// compressées, favoris et compteur de vues.
+///
+/// **Tout est dans la base SQLite du téléphone** ([LocalArticleRepository]) :
+/// pas de Firebase, donc la gestion marche avec ou sans réseau. Les photos
+/// sont copiées dans le dossier de l'app ([LocalPhotoStore]).
 class ArticleProvider extends ChangeNotifier {
   ArticleProvider({
-    FirestoreRepository<ArticleModel>? repository,
-    StorageService? storage,
+    ArticleStore? repository,
     LocationLookup? locate,
     DateTime Function()? clock,
     LocalPhotoStore? photos,
-    Future<void> Function(String docId, Map<String, dynamic> patch)? patchQueued,
-    Duration networkTimeout = const Duration(seconds: 12),
-    Duration uploadTimeout = const Duration(seconds: 45),
   })  : _repoOverride = repository,
-        _storageOverride = storage,
         _locate = locate ?? currentLocation,
         _clock = clock ?? DateTime.now,
-        _photosOverride = photos,
-        _patchQueuedOverride = patchQueued,
-        _networkTimeout = networkTimeout,
-        _uploadTimeout = uploadTimeout;
+        _photosOverride = photos;
 
-  final FirestoreRepository<ArticleModel>? _repoOverride;
-  final StorageService? _storageOverride;
+  final ArticleStore? _repoOverride;
   final LocationLookup _locate;
   final DateTime Function() _clock;
   final LocalPhotoStore? _photosOverride;
-  final Future<void> Function(String docId, Map<String, dynamic> patch)? _patchQueuedOverride;
-  final Duration _networkTimeout;
-  final Duration _uploadTimeout;
   static const _uuid = Uuid();
 
-  // Créés à la première utilisation : les tests qui injectent des doublures
-  // ne touchent jamais Firebase.
-  late final FirestoreRepository<ArticleModel> _repo = _repoOverride ??
-      FirestoreRepository<ArticleModel>(
-        collectionName: AppConstants.articlesCollection,
-        cacheBoxName: AppConstants.hiveArticlesBox,
-        fromMap: ArticleModel.fromMap,
-        toMap: (a) => a.toMap(),
-      );
-  late final StorageService _storage = _storageOverride ?? StorageService();
+  // Créés à la première utilisation : les tests injectent des doublures.
+  late final ArticleStore _repo = _repoOverride ?? LocalArticleRepository();
   late final LocalPhotoStore _photos = _photosOverride ?? LocalPhotoStore();
 
-  /// Met à jour les actions encore en file d'attente pour un article.
-  Future<void> _patchQueued(String docId, Map<String, dynamic> patch) {
-    final override = _patchQueuedOverride;
-    if (override != null) return override(docId, patch);
-    return _repo.queue.patchPending(AppConstants.articlesCollection, docId, patch);
-  }
-
   bool _isOnline = true;
+
+  /// État du réseau (affichage seulement : la gestion n'en dépend pas).
   bool get isOnline => _isOnline;
 
-  /// Appelé par main.dart à chaque changement de réseau. Au retour de la
-  /// connexion, les photos publiées hors-ligne partent vers Storage.
-  void updateConnectivity(bool online) {
-    final cameBack = online && !_isOnline;
-    _isOnline = online;
-    if (cameBack) unawaited(syncPendingPhotos());
-  }
+  /// Appelé par main.dart à chaque changement de réseau.
+  void updateConnectivity(bool online) => _isOnline = online;
 
   List<ArticleModel> _all = [];
   bool isLoading = false;
@@ -93,12 +64,45 @@ class ArticleProvider extends ChangeNotifier {
   String? get categoryFilter => _filters.category;
   bool get showOnlyFree => _filters.freeOnly;
 
-  /// Articles visibles dans la liste : non terminés, filtrés et triés.
-  List<ArticleModel> get items => filterArticles(
-        _all.where((a) => a.status != ArticleStatus.done),
-        _filters,
-        from: _position,
-      );
+  /// Articles visibles dans la liste : non terminés, filtrés et triés — ou,
+  /// pendant une recherche par photo, classés par ressemblance avec la photo.
+  List<ArticleModel> get items {
+    final filtered = filterArticles(
+      _all.where((a) => a.status != ArticleStatus.done),
+      _filters,
+      from: _position,
+    );
+    final labels = _photoLabels;
+    return labels == null ? filtered : rankByPhoto(filtered, labels);
+  }
+
+  // --- IA : recherche par photo, recommandations, prix conseillé ------------
+
+  List<String>? _photoLabels;
+
+  /// Une recherche par photo est en cours.
+  bool get isPhotoSearch => _photoLabels != null;
+
+  /// Classe la liste par ressemblance avec une photo ([labels] = étiquettes
+  /// reconnues sur cette photo).
+  void setPhotoSearch(List<String> labels) {
+    _photoLabels = [for (final l in labels) l.toLowerCase()];
+    notifyListeners();
+  }
+
+  void clearPhotoSearch() {
+    if (_photoLabels == null) return;
+    _photoLabels = null;
+    notifyListeners();
+  }
+
+  /// « Pour toi » : articles proches des favoris et des articles consultés.
+  List<ArticleModel> recommendationsFor(String userId, {int limit = 6}) =>
+      recommendArticles(_all, userId, viewedIds: _viewed, limit: limit, now: _clock());
+
+  /// Fourchette de prix conseillée d'après les articles comparables.
+  PriceAdvice priceAdviceFor({required String title, required String category, String? excludeId}) =>
+      advisePrice(title: title, category: category, market: _all, excludeId: excludeId);
 
   void setFilters(ArticleFilters filters) {
     if (filters == _filters) return;
@@ -179,52 +183,24 @@ class ArticleProvider extends ChangeNotifier {
       isLoading = false;
       notifyListeners();
     }
-    if (_isOnline && _all.any(_hasPhotosToSend)) unawaited(syncPendingPhotos());
   }
 
   // --- Écriture --------------------------------------------------------------
-  //
-  // Un téléphone peut se croire « en ligne » (Wi-Fi connecté) sans joindre
-  // Firebase. Chaque écriture en ligne a donc un délai maximal : passé ce
-  // délai, elle bascule dans la file d'attente hors-ligne (même identifiant de
-  // document, donc pas de doublon quand Firestore rattrape son retard).
 
-  Future<T> _onlineOrQueue<T>(Future<T> Function(bool online) write) async {
-    if (!_isOnline) return write(false);
-    try {
-      return await write(true).timeout(_networkTimeout);
-    } on TimeoutException {
-      return write(false);
-    }
-  }
+  /// Copie [files] dans le dossier de l'app et renvoie leurs chemins.
+  Future<List<String>> _keepPhotos(List<File> files) async =>
+      [for (final f in files) await _photos.keep(f)];
 
-  /// Envoie [files] dans Storage, ou les garde sur le téléphone si le réseau
-  /// est absent ou trop lent. Renvoie URL distantes ou chemins locaux, dans
-  /// l'ordre de [files].
-  Future<List<String>> _uploadOrKeep(List<File> files) async {
-    if (files.isEmpty) return const [];
-    if (_isOnline) {
-      try {
-        return await _storage.uploadImages(files, folder: 'articles').timeout(_uploadTimeout);
-      } catch (_) {
-        // Réseau injoignable : on garde les photos en local.
-      }
-    }
-    return [for (final f in files) await _photos.keep(f)];
-  }
-
-  /// Publie [draft] avec ses photos (compressées avant envoi). Sans réseau,
-  /// l'article et ses photos sont gardés sur le téléphone, affichés tout de
-  /// suite, puis envoyés automatiquement au retour de la connexion.
+  /// Publie [draft] avec ses photos, enregistrés dans SQLite.
   Future<String> createArticle({
     required ArticleModel draft,
     required List<dynamic> imageFiles, // List<File>
   }) async {
     final files = List<File>.from(imageFiles).take(ArticleModel.maxPhotos).toList();
-    final urls = await _uploadOrKeep(files);
+    final urls = await _keepPhotos(files);
     final toSave = draft.copyWith(imageUrls: urls);
     final id = _uuid.v4();
-    await _onlineOrQueue((online) => _repo.create(toSave, isOnline: online, explicitId: id));
+    await _repo.create(toSave, isOnline: _isOnline, explicitId: id);
     await load();
     return id;
   }
@@ -241,9 +217,10 @@ class ArticleProvider extends ChangeNotifier {
     List<File> newImages = const [],
     GeoPoint2? location,
     bool removeLocation = false,
+    List<String>? labels,
   }) async {
     final room = ArticleModel.maxPhotos - keptUrls.length;
-    final added = await _uploadOrKeep(newImages.take(room < 0 ? 0 : room).toList());
+    final added = await _keepPhotos(newImages.take(room < 0 ? 0 : room).toList());
     final patch = <String, dynamic>{
       'title': title,
       'description': description,
@@ -251,6 +228,7 @@ class ArticleProvider extends ChangeNotifier {
       'price': price,
       'imageUrls': [...keptUrls, ...added],
       'updatedAt': _clock(),
+      if (labels != null) 'labels': labels,
     };
     if (removeLocation) {
       patch['latitude'] = null;
@@ -263,59 +241,8 @@ class ArticleProvider extends ChangeNotifier {
   }
 
   Future<void> updateArticle(String id, Map<String, dynamic> patch) async {
-    await _onlineOrQueue((online) => _repo.update(id, patch, isOnline: online));
+    await _repo.update(id, patch, isOnline: _isOnline);
     await load();
-  }
-
-  // --- Photos en attente -----------------------------------------------------
-
-  /// Article de ce téléphone dont des photos attendent l'envoi.
-  bool _hasPhotosToSend(ArticleModel a) =>
-      a.imageUrls.any((u) => isLocalImage(u) && _photos.exists(u));
-
-  /// Nombre d'articles dont les photos attendent le réseau.
-  int get pendingPhotoArticles => _all.where(_hasPhotosToSend).length;
-
-  bool _syncingPhotos = false;
-
-  /// Envoie les photos gardées hors-ligne puis remplace leurs chemins locaux
-  /// par les URL Storage (dans Firestore, le cache et la file d'attente).
-  /// Renvoie le nombre d'articles mis à jour. Sans danger si rien n'attend.
-  Future<int> syncPendingPhotos() async {
-    if (!_isOnline || _syncingPhotos) return 0;
-    _syncingPhotos = true;
-    var done = 0;
-    try {
-      for (final a in List.of(_all)) {
-        if (!_hasPhotosToSend(a)) continue;
-        final locals = [for (final u in a.imageUrls) if (isLocalImage(u) && _photos.exists(u)) u];
-        final List<String> remote;
-        try {
-          remote = await _storage
-              .uploadImages([for (final p in locals) _photos.fileOf(p)], folder: 'articles')
-              .timeout(_uploadTimeout);
-        } catch (_) {
-          break; // toujours pas de réseau : on réessaiera plus tard
-        }
-        final byLocal = {for (var i = 0; i < locals.length; i++) locals[i]: remote[i]};
-        // Les chemins locaux introuvables (autre appareil) sont retirés.
-        final urls = [
-          for (final u in a.imageUrls)
-            if (!isLocalImage(u)) u else if (byLocal[u] != null) byLocal[u]!,
-        ];
-        final patch = {'imageUrls': urls};
-        await _patchQueued(a.id, patch);
-        await _onlineOrQueue((online) => _repo.update(a.id, patch, isOnline: online));
-        _replace(a.copyWith(imageUrls: urls));
-        for (final p in locals) {
-          await _photos.discard(p);
-        }
-        done++;
-      }
-    } finally {
-      _syncingPhotos = false;
-    }
-    return done;
   }
 
   Future<void> markAsAvailable(String id) =>
@@ -328,7 +255,7 @@ class ArticleProvider extends ChangeNotifier {
       updateArticle(id, {'status': ArticleStatus.done.name});
 
   Future<void> deleteArticle(String id) async {
-    await _onlineOrQueue((online) => _repo.delete(id, isOnline: online));
+    await _repo.delete(id, isOnline: _isOnline);
     await load();
   }
 
@@ -337,9 +264,9 @@ class ArticleProvider extends ChangeNotifier {
     if (article == null) return;
     final favs = List<String>.from(article.favoritedBy);
     favs.contains(userId) ? favs.remove(userId) : favs.add(userId);
-    // Mise à jour immédiate de l'écran, puis écriture (ou file d'attente).
+    // Mise à jour immédiate de l'écran, puis écriture dans SQLite.
     _replace(article.copyWith(favoritedBy: favs));
-    await _onlineOrQueue((online) => _repo.update(articleId, {'favoritedBy': favs}, isOnline: online));
+    await _repo.update(articleId, {'favoritedBy': favs}, isOnline: _isOnline);
   }
 
   final Set<String> _viewed = {};
@@ -353,7 +280,7 @@ class ArticleProvider extends ChangeNotifier {
     final count = article.viewCount + 1;
     _replace(article.copyWith(viewCount: count));
     try {
-      await _onlineOrQueue((online) => _repo.update(articleId, {'viewCount': count}, isOnline: online));
+      await _repo.update(articleId, {'viewCount': count}, isOnline: _isOnline);
     } catch (_) {
       // Une vue perdue n'est pas grave.
     }

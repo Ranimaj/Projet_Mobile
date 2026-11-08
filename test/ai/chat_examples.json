@@ -1,0 +1,202 @@
+[
+ {
+  "message": "bonjour l'examen est quand",
+  "intent": "autre",
+  "confidence": 0.986931
+ },
+ {
+  "message": "svp a5er soum merci",
+  "intent": "negociation",
+  "confidence": 0.950384
+ },
+ {
+  "message": "tu le vends à combien meci",
+  "intent": "prix",
+  "confidence": 0.98948
+ },
+ {
+  "message": "salut tu es en quelle année 3afak",
+  "intent": "autre",
+  "confidence": 0.98355
+ },
+ {
+  "message": "Salut ça va s'il te plaît",
+  "intent": "salutation",
+  "confidence": 0.980039
+ },
+ {
+  "message": "montre moi ton annonce",
+  "intent": "photo",
+  "confidence": 0.994131
+ },
+ {
+  "message": "tu es dispo quand !",
+  "intent": "lieu",
+  "confidence": 0.923414
+ },
+ {
+  "message": "svp c'est pour quel niveau 3afak",
+  "intent": "details",
+  "confidence": 0.933392
+ },
+ {
+  "message": "Parfait ?",
+  "intent": "merci",
+  "confidence": 0.835946
+ },
+ {
+  "message": "excuse moi jepeux encore l'avoir ?",
+  "intent": "disponible",
+  "confidence": 0.971026
+ },
+ {
+  "message": "svp plus de phtos",
+  "intent": "details",
+  "confidence": 0.566012
+ },
+ {
+  "message": "Salam quel prix pour to annonce",
+  "intent": "prix",
+  "confidence": 0.926868
+ },
+ {
+  "message": "Bnsoir il y a une garantie stp",
+  "intent": "etat",
+  "confidence": 0.982362
+ },
+ {
+  "message": "je peux voir une photo s'il te plaît",
+  "intent": "photo",
+  "confidence": 0.998782
+ },
+ {
+  "message": "aslema l'état de il ??",
+  "intent": "etat",
+  "confidence": 0.991218
+ },
+ {
+  "message": "Chnoua a5barek 'il te plaît",
+  "intent": "autre",
+  "confidence": 0.935906
+ },
+ {
+  "message": "Bonjour des pages manquantes",
+  "intent": "etat",
+  "confidence": 0.96516
+ },
+ {
+  "message": "salam alikom s'il te plaît",
+  "intent": "salutation",
+  "confidence": 0.519123
+ },
+ {
+  "message": "Bonjour à quelle heure svp",
+  "intent": "lieu",
+  "confidence": 0.851037
+ },
+ {
+  "message": "bonsoir taswira s'il te plaît",
+  "intent": "photo",
+  "confidence": 0.884043
+ },
+ {
+  "message": "Aslema win enti",
+  "intent": "lieu",
+  "confidence": 0.887364
+ },
+ {
+  "message": "slt na9es chwaya",
+  "intent": "negociation",
+  "confidence": 0.942519
+ },
+ {
+  "message": "Aslema chnoua a5barek 3afak",
+  "intent": "autre",
+  "confidence": 0.937037
+ },
+ {
+  "message": "aslema yekhdem",
+  "intent": "etat",
+  "confidence": 0.701241
+ },
+ {
+  "message": "aslema mets le de côté ?",
+  "intent": "reserver",
+  "confidence": 0.91183
+ },
+ {
+  "message": "tu le vends à combien",
+  "intent": "prix",
+  "confidence": 0.9897
+ },
+ {
+  "message": "Salut la lampe est toujours disponible 3afak",
+  "intent": "disponible",
+  "confidence": 0.999157
+ },
+ {
+  "message": "aslema tu livres s'il te plaît",
+  "intent": "livraison",
+  "confidence": 0.94058
+ },
+ {
+  "message": "Bonsoir photo de l'arrière stp",
+  "intent": "photo",
+  "confidence": 0.987006
+ },
+ {
+  "message": "salut ça va stp",
+  "intent": "salutation",
+  "confidence": 0.981231
+ },
+ {
+  "message": "tu étudies quoi merci",
+  "intent": "autre",
+  "confidence": 0.952772
+ },
+ {
+  "message": "aslema je le veux 3afak",
+  "intent": "reserver",
+  "confidence": 0.992124
+ },
+ {
+  "message": "Ecuse moi je le prends !",
+  "intent": "reserver",
+  "confidence": 0.998838
+ },
+ {
+  "message": "svp tu peux me décrire la lampe svp",
+  "intent": "details",
+  "confidence": 0.970774
+ },
+ {
+  "message": "Slt chhal 3afak",
+  "intent": "prix",
+  "confidence": 0.683843
+ },
+ {
+  "message": "Merci beaucoup",
+  "intent": "merci",
+  "confidence": 0.956449
+ },
+ {
+  "message": "Merci bien ?",
+  "intent": "merci",
+  "confidence": 0.949429
+ },
+ {
+  "message": "Remise possible s'il te plaît",
+  "intent": "negociation",
+  "confidence": 0.950041
+ },
+ {
+  "message": "svp tu peux me l'envoyer par la pste 3afak",
+  "intent": "livraison",
+  "confidence": 0.996881
+ },
+ {
+  "message": "ahla 3afak",
+  "intent": "salutation",
+  "confidence": 0.71862
+ }
+]

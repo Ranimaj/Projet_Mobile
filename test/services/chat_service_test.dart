@@ -1,95 +1,102 @@
-import 'package:campusconnect/models/conversation_model.dart';
+import 'dart:io';
+
 import 'package:campusconnect/services/chat_service.dart';
-import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
+import 'package:campusconnect/services/sqlite/article_database.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../helpers/articles.dart';
 
 void main() {
-  late FakeFirebaseFirestore db;
+  late Directory dir;
+  late ArticleDatabase db;
   late ChatService chat;
+  var now = DateTime(2026, 11, 8, 10);
   final item = article('a1', ownerId: 'alice', ownerName: 'Amel Ben Salah', title: 'TI-83',
-      imageUrls: const ['https://cdn/ti83.jpg']);
+      imageUrls: const ['asset:assets/images/demo/calculatrice.jpg']);
 
-  setUp(() {
-    db = FakeFirebaseFirestore();
-    chat = ChatService(firestore: db);
+  setUpAll(sqfliteFfiInit);
+
+  setUp(() async {
+    dir = Directory.systemTemp.createTempSync('vente_don_chat');
+    db = await ArticleDatabase.open(factory: databaseFactoryFfi, path: '${dir.path}/chat.db');
+    now = DateTime(2026, 11, 8, 10);
+    chat = ChatService(openDatabase: () async => db, clock: () => now);
   });
 
-  test('openConversation creates the header once, then reuses it', () async {
+  tearDown(() async {
+    await db.close();
+    dir.deleteSync(recursive: true);
+  });
+
+  test('openConversation creates the row once, then reuses it', () async {
     final c = await chat.openConversation(article: item, buyerId: 'bob', buyerName: 'Bob');
     expect(c.id, 'a1_bob');
     expect(c.sellerId, 'alice');
     expect(c.participants, containsAll(['alice', 'bob']));
     expect(c.otherName('bob'), 'Amel Ben Salah');
     expect(c.otherName('alice'), 'Bob');
+    expect(c.articleImageUrl, 'asset:assets/images/demo/calculatrice.jpg');
 
-    final stored = await db.collection('conversations').doc('a1_bob').get();
-    expect(stored.data()!['articleTitle'], 'TI-83');
-    expect(stored.data()!['articleImageUrl'], 'https://cdn/ti83.jpg');
-
-    await db.collection('conversations').doc('a1_bob').update({'lastMessage': 'Salut'});
-    final again = await chat.openConversation(article: item, buyerId: 'bob', buyerName: 'Bob');
-    expect(again.lastMessage, 'Salut');
-    expect((await db.collection('conversations').get()).docs.length, 1);
+    await chat.openConversation(article: item, buyerId: 'bob', buyerName: 'Bob');
+    expect(await db.db.query(ArticleDatabase.conversationsTable), hasLength(1));
   });
 
-  test('the seller cannot open a conversation with themselves', () async {
+  test('the seller cannot open a conversation with themselves', () {
     expect(
       () => chat.openConversation(article: item, buyerId: 'alice', buyerName: 'Amel'),
       throwsArgumentError,
     );
   });
 
-  test('send stores the message and marks it unread for the other side', () async {
+  test('send stores the message, updates the header and marks it unread for the other', () async {
     final c = await chat.openConversation(article: item, buyerId: 'bob', buyerName: 'Bob');
-    await chat.send(c, 'bob', '  Toujours disponible ?  ');
-    await chat.send(c, 'bob', '   ');
+    await chat.send(c, 'bob', '  Toujours dispo ?  ');
+    now = now.add(const Duration(minutes: 1));
+    await chat.send(c, 'alice', 'Oui !');
 
     final messages = await chat.watchMessages(c.id).first;
-    expect(messages.map((m) => m.text), ['Toujours disponible ?']);
-    expect(messages.single.senderId, 'bob');
+    expect([for (final m in messages) m.text], ['Toujours dispo ?', 'Oui !']);
+    expect(messages.first.senderId, 'bob');
 
-    final header = ConversationModel.fromMap(
-        c.id, (await db.collection('conversations').doc(c.id).get()).data()!);
-    expect(header.lastMessage, 'Toujours disponible ?');
-    expect(header.lastSenderId, 'bob');
-    expect(header.isUnreadFor('alice'), isTrue);
-    expect(header.isUnreadFor('bob'), isFalse);
+    final forBob = await chat.watchConversations('bob').first;
+    expect(forBob.single.lastMessage, 'Oui !');
+    expect(forBob.single.isUnreadFor('bob'), isTrue);
+    expect(forBob.single.isUnreadFor('alice'), isFalse);
 
-    await chat.markRead(c.id, 'alice');
-    final read = (await db.collection('conversations').doc(c.id).get()).data()!;
-    expect(read['unreadBy'], isEmpty);
+    await chat.markRead(c.id, 'bob');
+    expect((await chat.watchConversations('bob').first).single.isUnreadFor('bob'), isFalse);
   });
 
-  test('messages come back oldest first', () async {
+  test('empty messages are ignored and long ones are clipped', () async {
     final c = await chat.openConversation(article: item, buyerId: 'bob', buyerName: 'Bob');
-    final msgs = db.collection('conversations').doc(c.id).collection('messages');
-    await msgs.add({'senderId': 'bob', 'text': 'Un', 'sentAt': DateTime(2026, 11, 5, 10)});
-    await msgs.add({'senderId': 'alice', 'text': 'Deux', 'sentAt': DateTime(2026, 11, 5, 11)});
-    await msgs.add({'senderId': 'bob', 'text': 'Trois', 'sentAt': DateTime(2026, 11, 5, 12)});
-    final list = await chat.watchMessages(c.id).first;
-    expect(list.map((m) => m.text), ['Un', 'Deux', 'Trois']);
-  });
-
-  test('long messages are cut to the maximum length', () async {
-    final c = await chat.openConversation(article: item, buyerId: 'bob', buyerName: 'Bob');
+    await chat.send(c, 'bob', '   ');
     await chat.send(c, 'bob', 'x' * 1500);
-    final list = await chat.watchMessages(c.id).first;
-    expect(list.single.text.length, ChatMessage.maxLength);
+    final messages = await chat.watchMessages(c.id).first;
+    expect(messages.single.text.length, 1000);
   });
 
-  test('watchConversations lists only mine, most recent first', () async {
-    final other = article('a2', ownerId: 'carol', ownerName: 'Carol', title: 'Lampe');
-    final c1 = await chat.openConversation(article: item, buyerId: 'bob', buyerName: 'Bob');
-    await chat.openConversation(article: other, buyerId: 'dan', buyerName: 'Dan');
-    final c3 = await chat.openConversation(article: other, buyerId: 'bob', buyerName: 'Bob');
-    await db.collection('conversations').doc(c1.id).update({'updatedAt': DateTime(2026, 11, 1)});
-    await db.collection('conversations').doc(c3.id).update({'updatedAt': DateTime(2026, 11, 4)});
+  test('the streams emit again after a new message', () async {
+    final c = await chat.openConversation(article: item, buyerId: 'bob', buyerName: 'Bob');
+    final seen = <int>[];
+    final sub = chat.watchMessages(c.id).listen((m) => seen.add(m.length));
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    await chat.send(c, 'bob', 'Bonjour');
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    await sub.cancel();
+    expect(seen, [0, 1]);
+  });
 
-    final bobs = await chat.watchConversations('bob').first;
-    expect(bobs.map((c) => c.id), ['a2_bob', 'a1_bob']);
-    final alices = await chat.watchConversations('alice').first;
-    expect(alices.map((c) => c.id), ['a1_bob']);
+  test('conversations are listed for both participants, most recent first', () async {
+    final other = article('a2', ownerId: 'alice', ownerName: 'Amel', title: 'Lampe');
+    final c1 = await chat.openConversation(article: item, buyerId: 'bob', buyerName: 'Bob');
+    now = now.add(const Duration(minutes: 5));
+    await chat.openConversation(article: other, buyerId: 'bob', buyerName: 'Bob');
+    now = now.add(const Duration(minutes: 5));
+    await chat.send(c1, 'bob', 'Je passe ce soir');
+
+    final forAlice = await chat.watchConversations('alice').first;
+    expect([for (final c in forAlice) c.articleTitle], ['TI-83', 'Lampe']);
+    expect(await chat.watchConversations('carl').first, isEmpty);
   });
 }

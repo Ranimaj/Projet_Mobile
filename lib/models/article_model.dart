@@ -26,6 +26,10 @@ class ArticleModel {
   final int viewCount;
   final List<String> favoritedBy;
 
+  /// Étiquettes reconnues sur la première photo (IA, en anglais minuscule) :
+  /// servent à la recherche par photo et aux recommandations.
+  final List<String> labels;
+
   /// true si l'élément existe seulement en local et attend une synchro réseau.
   final bool pendingSync;
 
@@ -45,6 +49,7 @@ class ArticleModel {
     this.updatedAt,
     this.viewCount = 0,
     this.favoritedBy = const [],
+    this.labels = const [],
     this.pendingSync = false,
   });
 
@@ -106,6 +111,7 @@ class ArticleModel {
       updatedAt: _date(map['updatedAt']),
       viewCount: (map['viewCount'] as num?)?.toInt() ?? 0,
       favoritedBy: List<String>.from(map['favoritedBy'] ?? []),
+      labels: List<String>.from(map['labels'] ?? []),
     );
   }
 
@@ -125,11 +131,13 @@ class ArticleModel {
       if (updatedAt != null) 'updatedAt': Timestamp.fromDate(updatedAt!),
       'viewCount': viewCount,
       'favoritedBy': favoritedBy,
+      'labels': labels,
     };
   }
 
   /// [clearPrice] passe l'article en don ; [clearLocation] retire la position.
   ArticleModel copyWith({
+    String? id,
     String? title,
     String? description,
     double? price,
@@ -143,10 +151,11 @@ class ArticleModel {
     DateTime? updatedAt,
     int? viewCount,
     List<String>? favoritedBy,
+    List<String>? labels,
     bool? pendingSync,
   }) {
     return ArticleModel(
-      id: id,
+      id: id ?? this.id,
       ownerId: ownerId,
       ownerName: ownerName,
       title: title ?? this.title,
@@ -161,6 +170,7 @@ class ArticleModel {
       updatedAt: updatedAt ?? this.updatedAt,
       viewCount: viewCount ?? this.viewCount,
       favoritedBy: favoritedBy ?? this.favoritedBy,
+      labels: labels ?? this.labels,
       pendingSync: pendingSync ?? this.pendingSync,
     );
   }
