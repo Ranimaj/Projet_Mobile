@@ -1,6 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- Événements (itinéraire) : position de l'utilisateur, seulement quand
          l'app est ouverte. Pas de localisation en arrière-plan. -->
+    <!-- Vente & Don : position facultative pour la recherche par distance. -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
     <application

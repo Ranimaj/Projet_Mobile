@@ -1,5 +1,6 @@
 import 'package:campusconnect/core/constants/layout.dart';
 import 'package:campusconnect/core/theme/app_theme.dart';
+import 'package:campusconnect/core/utils/article_search.dart';
 import 'package:campusconnect/providers/annonce_provider.dart';
 import 'package:campusconnect/providers/article_provider.dart';
 import 'package:campusconnect/providers/auth_provider.dart';
@@ -45,6 +46,8 @@ void main() {
     when(() => articles.isLoading).thenReturn(false);
     when(() => articles.categoryFilter).thenReturn(null);
     when(() => articles.showOnlyFree).thenReturn(false);
+    when(() => articles.searchQuery).thenReturn('');
+    when(() => articles.filters).thenReturn(ArticleFilters.none);
     when(() => articles.load()).thenAnswer((_) async {});
     when(() => annonces.items).thenReturn(const []);
     when(() => annonces.isLoading).thenReturn(false);

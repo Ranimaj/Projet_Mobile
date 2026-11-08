@@ -7,7 +7,6 @@ import 'package:path_provider/path_provider.dart';
 
 import '../../models/user_model.dart';
 import '../constants/app_constants.dart';
-import 'local_cache_service.dart';
 
 enum QueueActionType {
   create,
@@ -98,14 +97,46 @@ class OfflineQueueService {
       type: type,
       collection: collection,
       docId: docId ?? id,
-      payload: Map<String, dynamic>.from(toHiveSafe(payload)),
+      payload: Map<String, dynamic>.from(_hiveSafe(payload) as Map),
       queuedAt: DateTime.now(),
     );
     _box.put(id, action.toJson());
     return action.docId;
   }
 
+  /// Hive ne sait pas écrire un `Timestamp` Firestore : on le remplace par
+  /// un `DateTime` (que Hive stocke nativement et que Firestore réécrit en
+  /// `Timestamp` lors de la synchro), récursivement.
+  static dynamic _hiveSafe(dynamic value) {
+    if (value is Timestamp) return value.toDate();
+    if (value is Map) {
+      return <String, dynamic>{for (final e in value.entries) e.key.toString(): _hiveSafe(e.value)};
+    }
+    if (value is Iterable) return value.map(_hiveSafe).toList();
+    return value;
+  }
+
   Future<void> remove(String actionId) async => _box.delete(actionId);
+
+  /// Fusionne [patch] dans les créations / mises à jour encore en file pour
+  /// le document [collection]/[docId] (ex. remplacer des chemins de photos
+  /// locales par leurs URL une fois envoyées), pour qu'un rejeu ultérieur
+  /// n'écrase pas une valeur plus récente.
+  Future<void> patchPending(String collection, String docId, Map<String, dynamic> patch) async {
+    for (final a in pendingActions) {
+      if (a.collection != collection || a.docId != docId) continue;
+      if (a.type != QueueActionType.create && a.type != QueueActionType.update) continue;
+      final updated = QueuedAction(
+        id: a.id,
+        type: a.type,
+        collection: a.collection,
+        docId: a.docId,
+        payload: {...a.payload, ...Map<String, dynamic>.from(_hiveSafe(patch) as Map)},
+        queuedAt: a.queuedAt,
+      );
+      await _box.put(a.id, updated.toJson());
+    }
+  }
 
   /// Chemin absolu de la copie locale d'une action `uploadStudentCard`.
   Future<String> localPathOf(QueuedAction action) async =>
