@@ -13,7 +13,7 @@ entre les 5 membres de l'équipe :
 | Gestion Stage & Emploi | Membre 5 | Offres + candidatures (créer/lire/modifier/supprimer) | Matching intelligent par compétences + suivi de statut en temps réel | Firestore (candidatures en temps réel) |
 
 Toute l'application fonctionne **hors-ligne** : consultation depuis le cache
-local (Hive), actions mises en file d'attente puis synchronisées
+local (SQLite, `sqflite`), actions mises en file d'attente puis synchronisées
 automatiquement au retour du réseau (voir [Architecture offline](#architecture-offline-first)).
 
 ---
@@ -166,7 +166,7 @@ et `lib/core/utils/article_search.dart`.
 
 ## 5. Architecture offline-first
 
-- **Hive** (`lib/core/utils/local_cache_service.dart`) met en cache chaque
+- **SQLite (`sqflite`)** (`lib/core/utils/local_cache_service.dart`) met en cache chaque
   collection lue depuis Firestore, pour un affichage instantané hors-ligne.
 - **File d'attente** (`lib/core/utils/offline_queue_service.dart`) : toute
   création/modification/suppression faite hors-ligne est enregistrée
@@ -228,7 +228,7 @@ Palette orange de marque (voir [décisions](docs/decisions.md)).
 | `shared_preferences` | mode de thème, drapeau d'onboarding, préférence biométrique |
 | `fl_chart` | accueil (activité de la semaine), anneau du profil, statistiques admin |
 | `LayoutBuilder` | mise en page adaptative (accueil visiteur et connecté, héros d'authentification) |
-| Hive (file d'attente) | `uploadStudentCard` : soumission de carte hors-ligne rejouée au retour du réseau |
+| SQLite (`sqflite`, file d'attente) | `uploadStudentCard` : soumission de carte hors-ligne rejouée au retour du réseau |
 | `path_provider` | copies locales des photos de carte en attente d'envoi |
 
 ## Captures d'écran
@@ -298,7 +298,7 @@ typé (succès / erreur) et n'empêche jamais l'écran de s'afficher.
 
 ### Règles hors-ligne
 
-- **Consultation** : la liste vient du cache Hive ; bandeau orange.
+- **Consultation** : la liste vient du cache SQLite (`sqflite`) ; bandeau orange.
 - **Création / modification / annulation** : envoyées tout de suite si
   possible, sinon **mises en file d'attente** (seulement pour une absence de
   réseau ou `unavailable`, jamais pour un refus `permission-denied`). Un
@@ -358,7 +358,7 @@ responsable (`firebase deploy --only firestore:rules`).
 | `cancelReason`, `cancelledAt` | string?, timestamp? | si annulé |
 | `registeredUserIds` | string[] | inscrits |
 | `checkedInUserIds`, `paidUserIds` | string[] | présents, payés (sous-ensembles des inscrits) |
-| `createdAt`, `updatedAt` | timestamp | heure du téléphone (une `serverTimestamp` ne peut pas être stockée dans la file Hive) |
+| `createdAt`, `updatedAt` | timestamp | heure du téléphone (une `serverTimestamp` ne peut pas être stockée dans la file SQLite) |
 | `pendingSync` | bool | **local seulement** (en attente d'envoi), jamais écrit dans Firestore |
 
 ### Structure
@@ -380,8 +380,8 @@ docs/EVENEMENT_TESTS.md, docs/EVENEMENT_DEFENSE.md, docs/NOTE_USERS_RULES.md
 | `android/build.gradle.kts` | compileSdk 36 imposé aux plugins (correction du build) |
 | `ios/Runner/Info.plist` | textes d'autorisation : calendrier, contacts, localisation, caméra, photos |
 | `lib/main.dart` | `initializeDateFormatting('fr_FR')` (dates en français) |
-| `lib/core/utils/local_cache_service.dart` | `toHiveSafe` : convertit les `Timestamp` avant Hive |
-| `lib/core/utils/offline_queue_service.dart` | `toHiveSafe` sur les actions en attente |
+| `lib/core/utils/local_cache_service.dart` | `sanitize` : convertit les `Timestamp` avant SQLite (`sqflite`) |
+| `lib/core/utils/offline_queue_service.dart` | `_storable` sur les actions en attente (SQLite) |
 | `lib/core/constants/app_constants.dart` | liste des catégories déplacée dans le module |
 | `lib/services/firestore_repository.dart` | `debugPrint` dans les `catch` (pas de changement de logique) |
 | `firestore.rules` | bloc `events` uniquement |
@@ -399,7 +399,7 @@ docs/EVENEMENT_TESTS.md, docs/EVENEMENT_DEFENSE.md, docs/NOTE_USERS_RULES.md
 | `mobile_scanner` | scanner les billets |
 
 Déjà présents et réutilisés : `image_picker`, `flutter_image_compress`,
-`cached_network_image`, `geolocator`, `hive`, `connectivity_plus`.
+`cached_network_image`, `geolocator`, `sqflite`, `connectivity_plus`.
 
 ### Limites connues
 
