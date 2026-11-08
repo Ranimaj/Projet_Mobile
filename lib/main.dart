@@ -10,6 +10,7 @@ import 'package:provider/provider.dart';
 
 import 'core/constants/app_constants.dart';
 import 'core/theme/app_theme.dart';
+import 'core/utils/local_database.dart';
 import 'providers/auth_provider.dart';
 import 'providers/connectivity_provider.dart';
 import 'providers/article_provider.dart';
@@ -43,6 +44,10 @@ Future<void> main() async {
     FirebaseFirestore.instance.useFirestoreEmulator(host, 8085);
     await FirebaseStorage.instance.useStorageEmulator(host, 9199);
   }
+
+  // Stockage local SQLite (cache, file d'attente hors-ligne, préférences de
+  // connexion) : chargé en mémoire une fois, avant le premier écran (BNF3).
+  await LocalDatabase.open();
 
   // Initialise Hive et ouvre toutes les boîtes utilisées pour le cache
   // local et la file d'attente hors-ligne (BNF3).

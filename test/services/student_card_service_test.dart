@@ -1,16 +1,16 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:campusconnect/core/constants/app_constants.dart';
 import 'package:campusconnect/core/utils/offline_queue_service.dart';
 import 'package:campusconnect/models/user_model.dart';
 import 'package:campusconnect/services/student_card_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:hive/hive.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:path/path.dart' as p;
 
+import '../helpers/local_db.dart';
 import '../helpers/mocks.dart';
 
 void main() {
@@ -26,8 +26,7 @@ void main() {
 
   setUp(() async {
     dir = await Directory.systemTemp.createTemp('card_test');
-    Hive.init(dir.path);
-    await Hive.openBox(AppConstants.hiveOfflineQueueBox);
+    await openTestDatabase();
     queue = OfflineQueueService(appDir: () async => dir);
     firestore = FakeFirebaseFirestore();
     storage = MockStorageService();
@@ -47,7 +46,7 @@ void main() {
   });
 
   tearDown(() async {
-    await Hive.deleteFromDisk();
+    await closeTestDatabase();
     await dir.delete(recursive: true);
   });
 
@@ -186,10 +185,10 @@ void main() {
     expect(newest.readAsBytesSync(), [7]);
     final copies = dir
         .listSync()
-        .map((e) => e.path.split('/').last)
+        .map((e) => p.basename(e.path)) // séparateur \ sous Windows, / ailleurs
         .where((n) => n.startsWith('student_card_'))
         .toList();
-    expect(copies, [newest.path.split('/').last]);
+    expect(copies, [p.basename(newest.path)]);
   });
 
   test('two offline submits keep distinct files until the first is superseded', () async {
