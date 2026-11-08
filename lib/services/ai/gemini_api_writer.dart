@@ -5,11 +5,13 @@ import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:http/http.dart' as http;
 
 import 'article_ai.dart';
+import 'gemini_key.dart';
 
 /// Clé de l'API Gemini (Google AI Studio), donnée au lancement :
 /// `flutter run --dart-define=GEMINI_API_KEY=ta_cle`. Jamais écrite dans le
 /// code ni dans Git.
-const String kGeminiApiKey = String.fromEnvironment('GEMINI_API_KEY');
+/// Sinon, c'est la clé enregistrée dans `gemini_key.dart` qui est utilisée.
+const String kGeminiApiKey = String.fromEnvironment('GEMINI_API_KEY', defaultValue: kGeminiApiKeyLocal);
 
 /// Modèle Gemini utilisé (modifiable avec `--dart-define=GEMINI_MODEL=...`).
 /// `gemini-3.5-flash` répond en quelques secondes (testé le 08/11/2026 ;
