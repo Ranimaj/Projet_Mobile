@@ -2,18 +2,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'local_database.dart';
 
-/// Hive ne sait pas stocker le type Firestore [Timestamp] : on le convertit
-/// en [DateTime] (type natif Hive), y compris dans les maps et listes imbriquées.
-/// Utilisé pour les payloads de la file hors-ligne : rejoués vers Firestore,
-/// les DateTime redeviennent des Timestamp (une chaîne ISO resterait une chaîne).
-/// Le cache de lecture, lui, passe par [LocalCacheService.sanitize].
-dynamic toHiveSafe(dynamic value) {
-  if (value is Timestamp) return value.toDate();
-  if (value is Map) return value.map((k, v) => MapEntry(k, toHiveSafe(v)));
-  if (value is List) return value.map(toHiveSafe).toList();
-  return value;
-}
-
 /// Cache local générique : conserve la dernière copie connue de chaque
 /// collection (articles, annonces, événements, offres) pour que
 /// l'utilisateur puisse consulter l'app hors-ligne (BNF3).

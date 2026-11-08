@@ -41,7 +41,7 @@ ArticleModel article(
   );
 }
 
-/// Dépôt en mémoire : remplace Firestore + Hive dans les tests du provider
+/// Dépôt en mémoire : remplace Firestore + le stockage local dans les tests du provider
 /// et des écrans Vente & Don. Les appels sont enregistrés pour vérification.
 class FakeArticleRepo extends Fake implements FirestoreRepository<ArticleModel> {
   final Map<String, Map<String, dynamic>> docs = {};

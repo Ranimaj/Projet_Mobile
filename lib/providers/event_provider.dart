@@ -187,11 +187,11 @@ class EventProvider extends ChangeNotifier {
   }
 
   /// Message d'erreur du dernier chargement (null = OK). En cas d'échec, la
-  /// liste affichée est celle du cache Hive.
+  /// liste affichée est celle du cache local.
   String? loadError;
 
   List<EventModel> _readCache() => _cache
-      .readCollection(AppConstants.hiveEventsBox)
+      .readCollection(AppConstants.cacheEventsKey)
       .entries
       .map((e) => EventModel.fromMap(e.key, e.value))
       .toList();
@@ -207,7 +207,7 @@ class EventProvider extends ChangeNotifier {
       try {
         final snapshot = await _firestore.collection(AppConstants.eventsCollection).get().timeout(_timeout);
         final byId = {for (final doc in snapshot.docs) doc.id: doc.data()};
-        await _cache.cacheCollection(AppConstants.hiveEventsBox, byId);
+        await _cache.cacheCollection(AppConstants.cacheEventsKey, byId);
         _all = byId.entries.map((e) => EventModel.fromMap(e.key, e.value)).toList();
       } catch (e) {
         debugPrint('Chargement des événements échoué : $e');
@@ -234,7 +234,7 @@ class EventProvider extends ChangeNotifier {
         // Supprimé (ou jamais synchronisé) : on le retire de la liste locale.
         if (!snap.metadata.isFromCache && findById(id) != null) {
           _all = _all.where((e) => e.id != id).toList();
-          await _cache.removeFromCache(AppConstants.hiveEventsBox, id);
+          await _cache.removeFromCache(AppConstants.cacheEventsKey, id);
           notifyListeners();
         }
         return (event: null, fromCache: snap.metadata.isFromCache);
@@ -245,11 +245,11 @@ class EventProvider extends ChangeNotifier {
     });
   }
 
-  /// Remplace un événement dans la liste locale et dans le cache Hive
+  /// Remplace un événement dans la liste locale et dans le cache local
   /// (valeurs simples uniquement, jamais de FieldValue).
   Future<void> _replaceLocal(EventModel updated) async {
     _all = [for (final e in _all) e.id == updated.id ? updated : e];
-    await _cache.upsert(AppConstants.hiveEventsBox, updated.id, updated.toMap());
+    await _cache.upsert(AppConstants.cacheEventsKey, updated.id, updated.toMap());
     notifyListeners();
   }
 
@@ -264,8 +264,8 @@ class EventProvider extends ChangeNotifier {
   /// jamais de doublon, même si le premier essai a réussi sans réponse.
   /// Renvoie true si envoyé au serveur, false si mis en file d'attente.
   Future<bool> createEvent(EventModel draft) async {
-    // Horloge du téléphone (pas de serverTimestamp : la file Hive ne peut
-    // pas stocker un FieldValue).
+    // Horloge du téléphone (pas de serverTimestamp : la file hors-ligne ne
+    // peut pas stocker un FieldValue).
     final createdAt = _createdAtById.putIfAbsent(draft.id, DateTime.now);
     final data = draft.copyWith(createdAt: createdAt, updatedAt: createdAt).toMap();
 
@@ -290,7 +290,7 @@ class EventProvider extends ChangeNotifier {
       );
     }
     _createdAtById.remove(draft.id);
-    await _cache.upsert(AppConstants.hiveEventsBox, draft.id, data);
+    await _cache.upsert(AppConstants.cacheEventsKey, draft.id, data);
     await load();
     return sentOnline;
   }
@@ -390,7 +390,7 @@ class EventProvider extends ChangeNotifier {
       throw const EventActionException('Le serveur ne répond pas. Vérifiez votre connexion et réessayez.');
     }
     _all = _all.where((e) => e.id != event.id).toList();
-    await _cache.removeFromCache(AppConstants.hiveEventsBox, event.id);
+    await _cache.removeFromCache(AppConstants.cacheEventsKey, event.id);
     notifyListeners();
   }
 
@@ -489,7 +489,7 @@ class EventProvider extends ChangeNotifier {
   /// - Avec capacité : transaction (lire, vérifier, écrire). Si deux
   ///   personnes visent la dernière place, Firestore rejoue la transaction de
   ///   la seconde, qui voit alors l'événement complet.
-  /// Pas de file d'attente : Hive ne sait pas stocker un FieldValue, et une
+  /// Pas de file d'attente : la file hors-ligne ne sait pas stocker un FieldValue, et une
   /// place limitée ne peut pas être promise sans le serveur.
   /// Renvoie true si l'utilisateur est maintenant inscrit, false s'il est
   /// désinscrit, null si le tap est ignoré (requête déjà en cours).

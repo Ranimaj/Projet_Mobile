@@ -1,10 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart' hide AuthProvider;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:hive_flutter/hive_flutter.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:provider/provider.dart';
 
@@ -48,20 +49,9 @@ Future<void> main() async {
   // Stockage local SQLite (cache, file d'attente hors-ligne, préférences de
   // connexion) : chargé en mémoire une fois, avant le premier écran (BNF3).
   await LocalDatabase.open();
-
-  // Initialise Hive et ouvre toutes les boîtes utilisées pour le cache
-  // local et la file d'attente hors-ligne (BNF3).
-  await Hive.initFlutter();
-  await Future.wait([
-    Hive.openBox(AppConstants.hiveArticlesBox),
-    Hive.openBox(AppConstants.hiveAnnoncesBox),
-    Hive.openBox(AppConstants.hiveEventsBox),
-    Hive.openBox(AppConstants.hiveJobsBox),
-    Hive.openBox('applications_box'),
-    Hive.openBox(AppConstants.hiveUserBox),
-    Hive.openBox(AppConstants.hiveOfflineQueueBox),
-    Hive.openBox(AppConstants.hivePrefsBox),
-  ]);
+  // Anciens fichiers Hive (versions précédentes de l'app) : leurs données ne
+  // sont pas reprises, on libère simplement la place, sans bloquer le démarrage.
+  unawaited(LocalDatabase.deleteLegacyHiveFiles());
 
   await NotificationService().initialize();
 

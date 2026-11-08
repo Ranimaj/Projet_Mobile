@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 
 /// Une action de la file hors-ligne telle que stockée (forme brute).
@@ -60,7 +62,7 @@ class LocalDatabase {
   static bool get isOpen => _instance != null;
 
   /// Le stockage partagé. Lève une [StateError] si [open] n'a pas été appelé
-  /// (comme Hive levait une erreur pour une boîte non ouverte).
+  /// (les appelants qui le tolèrent attrapent cette erreur).
   static LocalDatabase get instance {
     final store = _instance;
     if (store == null) throw StateError('LocalDatabase.open() n\'a pas été appelé');
@@ -81,6 +83,35 @@ class LocalDatabase {
     final store = LocalDatabase._(db);
     await store._loadAll();
     return _instance = store;
+  }
+
+  /// Boîtes des anciennes versions de l'app (stockage Hive, abandonné).
+  static const List<String> legacyHiveBoxes = [
+    'articles_box',
+    'annonces_box',
+    'events_box',
+    'jobs_box',
+    'applications_box',
+    'user_box',
+    'offline_queue_box',
+    'prefs_box',
+  ];
+
+  /// Supprime les fichiers `.hive` / `.lock` laissés par les anciennes
+  /// versions dans le dossier documents ([dir], remplaçable dans les tests).
+  /// Leurs données ne sont pas reprises (décision du projet). Ne lève jamais.
+  static Future<void> deleteLegacyHiveFiles({Directory? dir}) async {
+    try {
+      final base = dir ?? await getApplicationDocumentsDirectory();
+      for (final box in legacyHiveBoxes) {
+        for (final ext in const ['hive', 'lock']) {
+          final file = File(p.join(base.path, '$box.$ext'));
+          if (await file.exists()) await file.delete();
+        }
+      }
+    } catch (e) {
+      debugPrint('LocalDatabase : nettoyage des anciens fichiers Hive ignoré : $e');
+    }
   }
 
   static Future<void> _createSchema(Database db, int version) async {

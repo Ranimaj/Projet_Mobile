@@ -243,6 +243,23 @@ void main() {
     });
   });
 
+  test('deleteLegacyHiveFiles : supprime seulement les anciennes boîtes Hive', () async {
+    for (final name in ['events_box.hive', 'events_box.lock', 'offline_queue_box.hive', 'prefs_box.lock']) {
+      File(p.join(dir.path, name)).writeAsStringSync('x');
+    }
+    final kept = [
+      File(p.join(dir.path, 'student_card_u1_1.jpg'))..writeAsStringSync('x'),
+      File(p.join(dir.path, 'other.hive'))..writeAsStringSync('x'),
+    ];
+
+    await LocalDatabase.deleteLegacyHiveFiles(dir: dir);
+    await LocalDatabase.deleteLegacyHiveFiles(dir: Directory(p.join(dir.path, 'absent'))); // ne lève pas
+
+    final left = dir.listSync().map((e) => p.basename(e.path)).toSet();
+    expect(left, containsAll(kept.map((f) => p.basename(f.path))));
+    expect(left.where((n) => n.contains('_box.')), isEmpty);
+  });
+
   group('préférences (kv)', () {
     test('écrire, relire, effacer', () async {
       final store = await openTestDatabase(path: path);

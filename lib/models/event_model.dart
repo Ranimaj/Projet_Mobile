@@ -117,7 +117,7 @@ class EventModel {
   }
 
   /// Une date peut arriver sous 4 formes : Timestamp (Firestore), DateTime
-  /// (cache Hive), int (millisecondes) ou String (ISO 8601). Toujours rendue
+  /// (cache local), int (millisecondes) ou String (ISO 8601). Toujours rendue
   /// en heure locale ; null si absente ou illisible.
   static DateTime? _parseDate(dynamic value) {
     if (value is Timestamp) return value.toDate().toLocal();
