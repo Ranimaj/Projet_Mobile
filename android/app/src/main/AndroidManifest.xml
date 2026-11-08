@@ -1,4 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Événements (itinéraire) : position de l'utilisateur, seulement quand
+         l'app est ouverte. Pas de localisation en arrière-plan. -->
     <!-- Vente & Don : position facultative pour la recherche par distance. -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
@@ -43,6 +45,13 @@
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- Événements (add_2_calendar) : Android 11+ doit « voir » l'app
+             Calendrier pour lui envoyer un événement pré-rempli. Aucune
+             permission n'est nécessaire : l'utilisateur valide dans le calendrier. -->
+        <intent>
+            <action android:name="android.intent.action.INSERT"/>
+            <data android:mimeType="vnd.android.cursor.item/event"/>
         </intent>
     </queries>
 </manifest>

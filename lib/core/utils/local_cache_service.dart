@@ -1,19 +1,21 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:hive_flutter/hive_flutter.dart';
 
-/// Cache local générique (Hive) : conserve la dernière copie connue de
-/// chaque collection (articles, annonces, événements, offres) pour que
+import 'local_database.dart';
+
+/// Cache local générique : conserve la dernière copie connue de chaque
+/// collection (articles, annonces, événements, offres) pour que
 /// l'utilisateur puisse consulter l'app hors-ligne (BNF3).
 ///
-/// Chaque document est stocké sous forme de Map<String,dynamic> indexé
-/// par son id, dans la box dont le nom est passé en paramètre.
+/// Chaque document est stocké sous forme de Map<String,dynamic> indexé par
+/// son id, sous la clé de collection passée en paramètre ([boxName], ex.
+/// `events_box`), dans le stockage SQLite partagé [LocalDatabase] : lecture
+/// synchrone depuis la mémoire, écriture enregistrée en arrière-plan.
 ///
-/// Hive ne sait écrire que des types primitifs : les valeurs Firestore
-/// (`Timestamp`, `GeoPoint`, `DocumentReference`) sont converties avant
-/// stockage. Les modèles relisent indifféremment un `Timestamp` ou une date
-/// ISO 8601, donc le cache reste lisible tel quel.
+/// Les valeurs Firestore (`Timestamp`, `GeoPoint`, `DocumentReference`) sont
+/// converties avant stockage. Les modèles relisent indifféremment un
+/// `Timestamp` ou une date ISO 8601, donc le cache reste lisible tel quel.
 class LocalCacheService {
-  Box _box(String boxName) => Hive.box(boxName);
+  LocalDatabase get _store => LocalDatabase.instance;
 
   /// Remplace le cache d'une collection par la liste fraîchement lue
   /// depuis Firestore (appelé après chaque lecture réseau réussie).
@@ -21,34 +23,26 @@ class LocalCacheService {
     String boxName,
     Map<String, Map<String, dynamic>> documentsById,
   ) async {
-    final box = _box(boxName);
-    await box.clear();
-    await box.putAll({
-      for (final e in documentsById.entries) e.key: sanitize(e.value),
+    await _store.replaceCollection(boxName, {
+      for (final e in documentsById.entries) e.key: sanitize(e.value) as Map<String, dynamic>,
     });
   }
 
   /// Met à jour / insère un seul document dans le cache (après une
   /// création ou modification locale, en attendant la synchro).
   Future<void> upsert(String boxName, String id, Map<String, dynamic> data) async {
-    await _box(boxName).put(id, sanitize(data));
+    await _store.putDocument(boxName, id, sanitize(data) as Map<String, dynamic>);
   }
 
   Future<void> removeFromCache(String boxName, String id) async {
-    await _box(boxName).delete(id);
+    await _store.removeDocument(boxName, id);
   }
 
   /// Lit tout le cache d'une collection (utilisé quand l'app est hors-ligne
   /// ou le temps que la première réponse réseau arrive).
-  Map<String, Map<String, dynamic>> readCollection(String boxName) {
-    final box = _box(boxName);
-    return {
-      for (final key in box.keys)
-        key.toString(): Map<String, dynamic>.from(box.get(key) as Map),
-    };
-  }
+  Map<String, Map<String, dynamic>> readCollection(String boxName) => _store.readCollection(boxName);
 
-  /// Rend une valeur Firestore stockable par Hive, récursivement.
+  /// Rend une valeur Firestore stockable en JSON, récursivement.
   static dynamic sanitize(dynamic value) {
     if (value is Timestamp) return value.toDate().toUtc().toIso8601String();
     if (value is DateTime) return value.toUtc().toIso8601String();

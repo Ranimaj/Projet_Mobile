@@ -12,16 +12,18 @@ class AppConstants {
   static const String jobOffersCollection = 'job_offers'; // Stage & Emploi
   static const String applicationsCollection = 'applications';
 
-  // --- Boîtes Hive (cache / file d'attente offline) ---
-  static const String hiveArticlesBox = 'articles_box';
-  static const String hiveAnnoncesBox = 'annonces_box';
-  static const String hiveEventsBox = 'events_box';
-  static const String hiveJobsBox = 'jobs_box';
-  static const String hiveUserBox = 'user_box';
-  static const String hiveOfflineQueueBox = 'offline_queue_box';
+  // --- Cache local SQLite : clé de collection de chaque module ---
+  // (valeurs inchangées : ce sont les clés de la table cache_documents)
+  static const String cacheArticlesKey = 'articles_box';
+  static const String cacheAnnoncesKey = 'annonces_box';
+  static const String cacheEventsKey = 'events_box';
+  static const String cacheJobsKey = 'jobs_box';
 
-  /// Petites préférences locales (email mémorisé sur l'écran de connexion…).
-  static const String hivePrefsBox = 'prefs_box';
+  // Anciens noms, gardés comme alias pour que les providers des autres
+  // modules (Vente & Don, Annonces, Stage & Emploi) n'aient pas à changer.
+  static const String hiveArticlesBox = cacheArticlesKey;
+  static const String hiveAnnoncesBox = cacheAnnoncesKey;
+  static const String hiveJobsBox = cacheJobsKey;
 
   /// Domaine des emails académiques, proposé en complétion à la connexion.
   static const String academicEmailDomain = 'esprit.tn';
@@ -43,14 +45,7 @@ class AppConstants {
     'Générale',
   ];
 
-  // --- Catégories Événements ---
-  static const List<String> eventCategories = [
-    'Conférence',
-    'Job Fair',
-    'Sport',
-    'Culture',
-    'Associatif',
-  ];
+  // --- Catégories Événements : voir lib/screens/evenements/event_categories.dart ---
 
   // --- Profil étudiant ---
   static const List<String> studyYears = [
