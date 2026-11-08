@@ -1,27 +1,29 @@
 import 'dart:io';
 
 import 'package:campusconnect/core/utils/local_cache_service.dart';
+import 'package:campusconnect/core/utils/local_database.dart';
 import 'package:campusconnect/models/article_model.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:hive/hive.dart';
+import 'package:path/path.dart' as p;
+
+import '../helpers/local_db.dart';
 
 void main() {
   late Directory dir;
   final service = LocalCacheService();
 
-  setUpAll(() async {
+  setUp(() async {
     dir = await Directory.systemTemp.createTemp('cache_test');
-    Hive.init(dir.path);
-    await Hive.openBox('test_box');
+    await openTestDatabase(path: p.join(dir.path, 'cache.db'));
   });
 
-  tearDownAll(() async {
-    await Hive.deleteFromDisk();
+  tearDown(() async {
+    await closeTestDatabase();
     await dir.delete(recursive: true);
   });
 
-  test('sanitize converts Firestore types into Hive-storable primitives, recursively', () {
+  test('sanitize converts Firestore types into JSON-storable primitives, recursively', () {
     final out = LocalCacheService.sanitize({
       'createdAt': Timestamp.fromDate(DateTime.utc(2026, 10, 15, 9)),
       'where': const GeoPoint(36.8, 10.2),
@@ -36,8 +38,8 @@ void main() {
   });
 
   test('a collection with Timestamps is cached and read back as model-parsable maps', () async {
-    // Avant le correctif, Hive levait "Cannot write, unknown type: Timestamp"
-    // et le repository renvoyait silencieusement une liste vide.
+    // Régression : un Timestamp non converti faisait échouer l'écriture du
+    // cache et le repository renvoyait silencieusement une liste vide.
     await service.cacheCollection('test_box', {
       'a1': {
         'ownerId': 'u',
@@ -67,5 +69,19 @@ void main() {
     expect(service.readCollection('test_box')['b1']!['at'], '2026-01-01T00:00:00.000Z');
     await service.removeFromCache('test_box', 'b1');
     expect(service.readCollection('test_box').containsKey('b1'), isFalse);
+  });
+
+  test('the cache survives a restart and is shared by every instance', () async {
+    await service.cacheCollection('test_box', {
+      'e1': {'title': 'Forum', 'startDate': Timestamp.fromDate(DateTime.utc(2026, 12, 1, 14))},
+    });
+    expect(LocalCacheService().readCollection('test_box').keys, ['e1']);
+
+    await LocalDatabase.instance.close();
+    await openTestDatabase(path: p.join(dir.path, 'cache.db'));
+
+    expect(LocalCacheService().readCollection('test_box'), {
+      'e1': {'title': 'Forum', 'startDate': '2026-12-01T14:00:00.000Z'},
+    });
   });
 }

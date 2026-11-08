@@ -44,7 +44,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _emailCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
   final _passwordFocus = FocusNode();
-  late final LoginPrefs _prefs = widget.prefs ?? HiveLoginPrefs();
+  late final LoginPrefs _prefs = widget.prefs ?? SqliteLoginPrefs();
 
   String? _error;
   String? _errorCode;

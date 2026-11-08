@@ -1,29 +1,53 @@
+import 'dart:async';
 import 'dart:io';
 
-import 'package:campusconnect/core/constants/app_constants.dart';
+import 'package:campusconnect/core/utils/local_database.dart';
 import 'package:campusconnect/core/utils/offline_queue_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:hive/hive.dart';
+import 'package:mocktail/mocktail.dart';
+import 'package:path/path.dart' as p;
+
+import '../helpers/local_db.dart';
+
+class _MockFirestore extends Mock implements FirebaseFirestore {}
+
+// Doublures de test uniquement : il faut pouvoir retarder et observer un
+// `set` (le faux Firestore ne le permet pas), donc implémenter ces classes
+// marquées @sealed.
+// ignore: subtype_of_sealed_class
+class _MockCollection extends Mock implements CollectionReference<Map<String, dynamic>> {}
+
+// ignore: subtype_of_sealed_class
+class _MockDoc extends Mock implements DocumentReference<Map<String, dynamic>> {}
 
 void main() {
   late Directory dir;
+  late String dbPath;
   late OfflineQueueService queue;
   late FakeFirebaseFirestore firestore;
 
+  setUpAll(() => registerFallbackValue(SetOptions(merge: true)));
+
   setUp(() async {
     dir = await Directory.systemTemp.createTemp('queue_test');
-    Hive.init(dir.path);
-    await Hive.openBox(AppConstants.hiveOfflineQueueBox);
+    dbPath = p.join(dir.path, 'queue.db');
+    await openTestDatabase(path: dbPath);
     queue = OfflineQueueService(appDir: () async => dir);
     firestore = FakeFirebaseFirestore();
   });
 
   tearDown(() async {
-    await Hive.deleteFromDisk();
+    await closeTestDatabase();
     await dir.delete(recursive: true);
   });
+
+  /// Redémarrage de l'app : seul ce qui a été écrit dans SQLite revient.
+  Future<void> restart() async {
+    await LocalDatabase.instance.close();
+    await openTestDatabase(path: dbPath);
+  }
 
   void enqueueCard(String uid, String file) => queue.enqueue(
         type: QueueActionType.uploadStudentCard,
@@ -169,5 +193,209 @@ void main() {
     expect(queue.pendingActions.single.docId, 'u2');
     expect(File('${dir.path}/a.jpg').existsSync(), isFalse);
     expect(File('${dir.path}/b.jpg').existsSync(), isTrue);
+  });
+
+  group('stockage SQLite', () {
+    test('dates : DateTime après enqueue puis redémarrage (listes et maps imbriquées)', () async {
+      final start = DateTime.utc(2026, 12, 1, 14);
+      final end = DateTime.utc(2026, 12, 1, 16);
+      queue.enqueue(
+        type: QueueActionType.create,
+        collection: 'events',
+        docId: 'e1',
+        payload: {
+          'title': 'Forum',
+          'startDate': Timestamp.fromDate(start), // converti en DateTime
+          'endDate': end,
+          'slots': [
+            {'at': Timestamp.fromDate(start)},
+            end,
+          ],
+          'meta': {
+            'nested': {'createdAt': start}
+          },
+        },
+      );
+
+      await restart();
+
+      final payload = OfflineQueueService().pendingActions.single.payload;
+      expect(payload['title'], 'Forum');
+      expect(payload['startDate'], isA<DateTime>());
+      expect((payload['startDate'] as DateTime).isAtSameMomentAs(start), isTrue);
+      expect(payload['endDate'], end);
+      final slots = payload['slots'] as List;
+      expect((slots[0] as Map)['at'], start);
+      expect(slots[1], end);
+      expect(((payload['meta'] as Map)['nested'] as Map)['createdAt'], start);
+    });
+
+    test('le rejeu envoie des DateTime (pas des String) et Firestore stocke des timestamps', () async {
+      final start = DateTime.utc(2026, 12, 1, 14);
+      queue.enqueue(
+        type: QueueActionType.create,
+        collection: 'events',
+        docId: 'e1',
+        payload: {
+          'startDate': Timestamp.fromDate(start),
+          'history': [
+            {'at': start}
+          ],
+        },
+      );
+      await restart();
+
+      final fs = _MockFirestore();
+      final col = _MockCollection();
+      final doc = _MockDoc();
+      when(() => fs.collection('events')).thenReturn(col);
+      when(() => col.doc('e1')).thenReturn(doc);
+      when(() => doc.set(any(), any())).thenAnswer((_) async {});
+
+      final result = await OfflineQueueService().syncAll(fs);
+
+      expect(result.success, 1);
+      final sent = verify(() => doc.set(captureAny(), any())).captured.single as Map<String, dynamic>;
+      expect(sent['startDate'], isA<DateTime>());
+      expect(sent['startDate'], isNot(isA<String>()));
+      expect(((sent['history'] as List).single as Map)['at'], isA<DateTime>());
+
+      // Même chose de bout en bout avec le faux Firestore : un vrai timestamp.
+      queue.enqueue(
+        type: QueueActionType.create,
+        collection: 'events',
+        docId: 'e2',
+        payload: {'startDate': Timestamp.fromDate(start)},
+      );
+      await restart();
+      await OfflineQueueService().syncAll(firestore);
+      final stored = (await firestore.collection('events').doc('e2').get()).data()!;
+      expect(stored['startDate'], isA<Timestamp>());
+      expect((stored['startDate'] as Timestamp).toDate().isAtSameMomentAs(start), isTrue);
+    });
+
+    test('ordre : rejoué dans l\'ordre chronologique, gardé après redémarrage', () async {
+      queue.enqueue(type: QueueActionType.create, collection: 'events', docId: 'e1', payload: {'v': 1});
+      queue.enqueue(type: QueueActionType.update, collection: 'events', docId: 'e1', payload: {'v': 2});
+      queue.enqueue(type: QueueActionType.update, collection: 'events', docId: 'e1', payload: {'v': 3});
+      queue.enqueue(type: QueueActionType.delete, collection: 'events', docId: 'e1', payload: const {});
+      await restart();
+      expect(OfflineQueueService().pendingActions.map((a) => a.type.name),
+          ['create', 'update', 'update', 'delete']);
+
+      final fs = _MockFirestore();
+      final col = _MockCollection();
+      final doc = _MockDoc();
+      final calls = <String>[];
+      when(() => fs.collection('events')).thenReturn(col);
+      when(() => col.doc('e1')).thenReturn(doc);
+      when(() => doc.set(any(), any())).thenAnswer((i) async {
+        calls.add('set ${(i.positionalArguments.first as Map)['v']}');
+      });
+      when(() => doc.delete()).thenAnswer((_) async => calls.add('delete'));
+
+      await OfflineQueueService().syncAll(fs);
+
+      expect(calls, ['set 1', 'set 2', 'set 3', 'delete']);
+      expect(queue.pendingCount, 0);
+    });
+
+    test('patchPending pendant l\'envoi réseau : la version patchée est renvoyée avant le retrait', () async {
+      queue.enqueue(
+        type: QueueActionType.create,
+        collection: 'articles',
+        docId: 'a1',
+        payload: {
+          'title': 'Vélo',
+          'imageUrls': ['/data/photo.jpg'],
+        },
+      );
+      final fs = _MockFirestore();
+      final col = _MockCollection();
+      final doc = _MockDoc();
+      final firstSend = Completer<void>();
+      final sent = <Map<String, dynamic>>[];
+      when(() => fs.collection('articles')).thenReturn(col);
+      when(() => col.doc('a1')).thenReturn(doc);
+      when(() => doc.set(any(), any())).thenAnswer((i) {
+        sent.add(Map<String, dynamic>.from(i.positionalArguments.first as Map));
+        return sent.length == 1 ? firstSend.future : Future<void>.value();
+      });
+
+      final sync = queue.syncAll(fs);
+      await Future<void>.delayed(Duration.zero);
+      expect(sent, hasLength(1), reason: 'premier envoi en cours');
+
+      await queue.patchPending('articles', 'a1', {
+        'imageUrls': ['https://cdn/photo.jpg']
+      });
+      firstSend.complete();
+      final result = await sync;
+
+      expect(result.success, 1);
+      expect(sent.map((m) => m['imageUrls']), [
+        ['/data/photo.jpg'],
+        ['https://cdn/photo.jpg'],
+      ]);
+      expect(queue.pendingCount, 0);
+      await restart();
+      expect(OfflineQueueService().pendingCount, 0);
+    });
+
+    test('patchPending sur une écriture SQLite encore en attente : persisté après redémarrage', () async {
+      queue.enqueue(
+        type: QueueActionType.create,
+        collection: 'articles',
+        docId: 'a1',
+        payload: {
+          'title': 'Vélo',
+          'imageUrls': ['/data/photo.jpg'],
+        },
+      );
+      // Aucun await entre les deux : l'insertion n'est pas encore dans SQLite.
+      final patched = queue.patchPending('articles', 'a1', {
+        'imageUrls': ['https://cdn/photo.jpg']
+      });
+      expect(queue.pendingActions.single.payload['imageUrls'], ['https://cdn/photo.jpg']);
+      await patched;
+
+      await restart();
+      final payload = OfflineQueueService().pendingActions.single.payload;
+      expect(payload['imageUrls'], ['https://cdn/photo.jpg']);
+      expect(payload['title'], 'Vélo');
+    });
+
+    test('patchPending ne touche que les create / update du document visé', () async {
+      queue.enqueue(type: QueueActionType.create, collection: 'articles', docId: 'a1', payload: {'n': 1});
+      queue.enqueue(type: QueueActionType.delete, collection: 'articles', docId: 'a1', payload: const {});
+      queue.enqueue(type: QueueActionType.update, collection: 'articles', docId: 'a2', payload: {'n': 2});
+      queue.enqueue(type: QueueActionType.update, collection: 'annonces', docId: 'a1', payload: {'n': 3});
+
+      await queue.patchPending('articles', 'a1', {'x': true});
+
+      final payloads = queue.pendingActions.map((a) => a.payload).toList();
+      expect(payloads, [
+        {'n': 1, 'x': true},
+        <String, dynamic>{},
+        {'n': 2},
+        {'n': 3},
+      ]);
+    });
+
+    test('toutes les instances partagent la même file', () {
+      final other = OfflineQueueService();
+      queue.enqueue(type: QueueActionType.update, collection: 'events', docId: 'e1', payload: {'v': 1});
+      expect(other.pendingCount, 1);
+      expect(other.pendingActions.single.docId, 'e1');
+    });
+
+    test('carte : le remplacement est aussi persisté', () async {
+      enqueueCard('u1', 'a.jpg');
+      enqueueCard('u1', 'b.jpg');
+      await restart();
+      final cards = OfflineQueueService().pendingActions;
+      expect(cards, hasLength(1));
+      expect(cards.single.payload['file'], 'b.jpg');
+    });
   });
 }

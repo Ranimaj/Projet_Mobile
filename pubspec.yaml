@@ -22,8 +22,6 @@ dependencies:
   provider: ^6.1.2
 
   # --- Offline / local persistence ---
-  hive: ^2.2.3
-  hive_flutter: ^1.1.0
   connectivity_plus: ^6.0.5
 
   # --- UI / UX ---
@@ -38,9 +36,6 @@ dependencies:
   flutter_image_compress: ^2.3.0
   file_picker: ^8.1.2
   path_provider: ^2.1.4
-  sqflite: ^2.4.0
-  http: ^1.2.0 # API Gemini (rédaction de description par internet)
-  path: ^1.9.0
   google_maps_flutter: ^2.9.0
   geolocator: ^13.0.1
   geocoding: ^3.0.0
@@ -53,6 +48,16 @@ dependencies:
   go_router: ^14.3.0
   fl_chart: ^1.3.0
   shared_preferences: ^2.5.6
+  add_2_calendar: ^3.1.1
+  http: ^1.6.0 # API Gemini, météo, itinéraires
+  flutter_map: ^8.3.2
+  latlong2: ^0.10.1
+  url_launcher: ^6.3.3
+  qr_flutter: ^4.1.0
+  share_plus: ^12.0.2
+  mobile_scanner: ^7.4.2
+  sqflite: ^2.4.5
+  path: ^1.9.1
 
   # --- IA (Vente & Don) ---
   google_mlkit_image_labeling: '>=0.14.0 <2.0.0' # reconnaissance d'objets sur le téléphone
@@ -61,13 +66,12 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^4.0.0
-  hive_generator: ^2.0.1
   build_runner: ^2.4.13
   mocktail: ^1.0.5
   fake_cloud_firestore: ^3.1.0
   firebase_auth_mocks: ^0.14.2
   mock_exceptions: ^0.8.2
-  sqflite_common_ffi: '>=2.3.0 <3.0.0' # SQLite sur PC pour les tests
+  sqflite_common_ffi: ^2.4.5 # SQLite sur PC pour les tests
 
 flutter:
   uses-material-design: true
@@ -76,3 +80,4 @@ flutter:
     - assets/images/onboarding/
     - assets/images/demo/
     - assets/models/
+    - assets/ml/category_model.json
