@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 import '../core/utils/local_cache_service.dart';
 import '../core/utils/offline_queue_service.dart';
@@ -49,7 +50,8 @@ class FirestoreRepository<T> {
           await cache.cacheCollection(cacheBoxName, byId);
         } catch (_) {}
         return byId.entries.map((e) => fromMap(e.key, e.value)).toList();
-      } catch (_) {
+      } catch (e) {
+        debugPrint('[$collectionName] fetchAll a échoué : $e');
         // réseau indisponible : tombe au cache ci-dessous
       }
     }
@@ -80,7 +82,8 @@ class FirestoreRepository<T> {
         await _col.doc(id).set(data);
         await cache.upsert(cacheBoxName, id, data);
         return id;
-      } catch (_) {
+      } catch (e) {
+        debugPrint('[$collectionName] create($id) a échoué : $e');
         // tombe à la file d'attente
       }
     }
@@ -101,7 +104,8 @@ class FirestoreRepository<T> {
         final existing = cache.readCollection(cacheBoxName)[id] ?? {};
         await cache.upsert(cacheBoxName, id, {...existing, ...patch});
         return;
-      } catch (_) {
+      } catch (e) {
+        debugPrint('[$collectionName] update($id) a échoué : $e');
         // tombe à la file d'attente
       }
     }
@@ -121,7 +125,8 @@ class FirestoreRepository<T> {
         await _col.doc(id).delete();
         await cache.removeFromCache(cacheBoxName, id);
         return;
-      } catch (_) {
+      } catch (e) {
+        debugPrint('[$collectionName] delete($id) a échoué : $e');
         // tombe à la file d'attente
       }
     }

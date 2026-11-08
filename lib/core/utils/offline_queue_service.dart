@@ -1,12 +1,12 @@
+import 'dart:async';
 import 'dart:io';
 
-import 'package:hive_flutter/hive_flutter.dart';
 import 'package:uuid/uuid.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../models/user_model.dart';
-import '../constants/app_constants.dart';
+import 'local_database.dart';
 
 enum QueueActionType {
   create,
@@ -62,22 +62,37 @@ class QueuedAction {
 /// (publier une annonce, postuler à une offre, s'inscrire à un événement…)
 /// est stockée ici plutôt que perdue, puis rejouée vers Firestore dès que
 /// [ConnectivityProvider] détecte un retour de connexion.
+///
+/// Les actions vivent dans le stockage SQLite partagé [LocalDatabase] : toutes
+/// les instances de ce service voient la même file. Lectures synchrones
+/// (mémoire), écritures enregistrées en arrière-plan, une par une.
 class OfflineQueueService {
   /// Dossier documents de l'app, où vivent les copies locales des cartes.
   final Future<Directory> Function() _appDir;
-  Future<SyncResult>? _running;
+
+  /// Synchro en cours, partagée par toutes les instances (la file l'est aussi) :
+  /// une action n'est jamais rejouée deux fois en parallèle.
+  static Future<SyncResult>? _running;
 
   OfflineQueueService({Future<Directory> Function()? appDir})
       : _appDir = appDir ?? getApplicationDocumentsDirectory;
 
-  Box get _box => Hive.box(AppConstants.hiveOfflineQueueBox);
+  LocalDatabase get _store => LocalDatabase.instance;
   static const _uuid = Uuid();
 
   /// Nombre d'actions en attente — affiché dans le bandeau "mode hors-ligne".
-  int get pendingCount => _box.length;
+  int get pendingCount => _store.queueLength;
 
-  List<QueuedAction> get pendingActions =>
-      _box.values.map((v) => QueuedAction.fromJson(v as Map)).toList();
+  List<QueuedAction> get pendingActions => [for (final r in _store.queuedActions) _toAction(r)];
+
+  static QueuedAction _toAction(QueueRecord r) => QueuedAction(
+        id: r.id,
+        type: QueueActionType.values.byName(r.type),
+        collection: r.collection,
+        docId: r.docId,
+        payload: r.payload,
+        queuedAt: r.queuedAt,
+      );
 
   String enqueue({
     required QueueActionType type,
@@ -86,56 +101,67 @@ class OfflineQueueService {
     String? docId,
   }) {
     final id = _uuid.v4();
-    if (type == QueueActionType.uploadStudentCard && docId != null) {
-      // Un seul envoi de carte en attente par compte : le dernier remplace.
-      for (final old in pendingActions) {
-        if (old.type == type && old.docId == docId) _box.delete(old.id);
-      }
-    }
+    // Un seul envoi de carte en attente par compte : le dernier remplace.
+    final replacing = type == QueueActionType.uploadStudentCard && docId != null
+        ? [
+            for (final old in _store.queuedActions)
+              if (old.type == type.name && old.docId == docId) old.id,
+          ]
+        : const <String>[];
     final action = QueuedAction(
       id: id,
       type: type,
       collection: collection,
       docId: docId ?? id,
-      payload: Map<String, dynamic>.from(_hiveSafe(payload) as Map),
+      payload: Map<String, dynamic>.from(_storable(payload) as Map),
       queuedAt: DateTime.now(),
     );
-    _box.put(id, action.toJson());
+    // Mémoire à jour tout de suite ; SQLite suit en arrière-plan.
+    unawaited(_store.addQueued(
+      id: action.id,
+      type: action.type.name,
+      collection: action.collection,
+      docId: action.docId,
+      payload: action.payload,
+      queuedAt: action.queuedAt,
+      replacing: replacing,
+    ));
     return action.docId;
   }
 
-  /// Hive ne sait pas écrire un `Timestamp` Firestore : on le remplace par
-  /// un `DateTime` (que Hive stocke nativement et que Firestore réécrit en
-  /// `Timestamp` lors de la synchro), récursivement.
-  static dynamic _hiveSafe(dynamic value) {
+  /// Un `Timestamp` Firestore est remplacé par un `DateTime` (stocké avec un
+  /// marqueur de date, et que Firestore réécrit en `Timestamp` lors de la
+  /// synchro), récursivement.
+  static dynamic _storable(dynamic value) {
     if (value is Timestamp) return value.toDate();
     if (value is Map) {
-      return <String, dynamic>{for (final e in value.entries) e.key.toString(): _hiveSafe(e.value)};
+      return <String, dynamic>{for (final e in value.entries) e.key.toString(): _storable(e.value)};
     }
-    if (value is Iterable) return value.map(_hiveSafe).toList();
+    if (value is Iterable) return value.map(_storable).toList();
     return value;
   }
 
-  Future<void> remove(String actionId) async => _box.delete(actionId);
+  Future<void> remove(String actionId) async => _store.removeQueued([actionId]);
 
   /// Fusionne [patch] dans les créations / mises à jour encore en file pour
   /// le document [collection]/[docId] (ex. remplacer des chemins de photos
   /// locales par leurs URL une fois envoyées), pour qu'un rejeu ultérieur
   /// n'écrase pas une valeur plus récente.
+  ///
+  /// Atomique vis-à-vis de [syncAll] : la mémoire est modifiée d'un bloc,
+  /// sans attente, et une action modifiée pendant son envoi est renvoyée
+  /// avant d'être retirée de la file.
   Future<void> patchPending(String collection, String docId, Map<String, dynamic> patch) async {
-    for (final a in pendingActions) {
-      if (a.collection != collection || a.docId != docId) continue;
-      if (a.type != QueueActionType.create && a.type != QueueActionType.update) continue;
-      final updated = QueuedAction(
-        id: a.id,
-        type: a.type,
-        collection: a.collection,
-        docId: a.docId,
-        payload: {...a.payload, ...Map<String, dynamic>.from(_hiveSafe(patch) as Map)},
-        queuedAt: a.queuedAt,
-      );
-      await _box.put(a.id, updated.toJson());
-    }
+    // Tout ce qui suit jusqu'au `return` s'exécute sans attente.
+    final extra = Map<String, dynamic>.from(_storable(patch) as Map);
+    final updates = <String, Map<String, dynamic>>{
+      for (final a in _store.queuedActions)
+        if (a.collection == collection &&
+            a.docId == docId &&
+            (a.type == QueueActionType.create.name || a.type == QueueActionType.update.name))
+          a.id: {...a.payload, ...extra},
+    };
+    return _store.updateQueuedPayloads(updates);
   }
 
   /// Chemin absolu de la copie locale d'une action `uploadStudentCard`.
@@ -176,25 +202,38 @@ class OfflineQueueService {
     return _running = _syncAll(firestore, upload, currentUid).whenComplete(() => _running = null);
   }
 
+  /// Ordre chronologique stable : à instant égal, l'ordre d'ajout est gardé.
+  static List<QueuedAction> _chronological(List<QueuedAction> actions) {
+    final indexed = actions.asMap().entries.toList()
+      ..sort((a, b) {
+        final byTime = a.value.queuedAt.compareTo(b.value.queuedAt);
+        return byTime != 0 ? byTime : a.key.compareTo(b.key);
+      });
+    return [for (final e in indexed) e.value];
+  }
+
   Future<SyncResult> _syncAll(
     FirebaseFirestore firestore,
     Future<String> Function(String localPath, String remotePath)? upload,
     String? currentUid,
   ) async {
-    final actions = pendingActions..sort((a, b) => a.queuedAt.compareTo(b.queuedAt));
+    final actions = _chronological(pendingActions);
     int success = 0;
     int failed = 0;
 
     for (final action in actions) {
+      // Retirée entre-temps (déconnexion…) : plus rien à rejouer.
+      if (_store.queued(action.id) == null) continue;
       try {
         final ref = firestore.collection(action.collection).doc(action.docId);
         switch (action.type) {
           case QueueActionType.create:
           case QueueActionType.update:
-            await ref.set(action.payload, SetOptions(merge: true));
+            await _sendLatestThenRemove(action.id, ref);
             break;
           case QueueActionType.delete:
             await ref.delete();
+            await remove(action.id);
             break;
           case QueueActionType.uploadStudentCard:
             final owner = action.payload['uid'] ?? action.docId;
@@ -217,9 +256,9 @@ class OfflineQueueService {
                   StudentCard.pending(imagePath: remotePath, submittedAt: submitted).toMap(),
             });
             await deleteStudentCardFile(action);
+            await remove(action.id);
             break;
         }
-        await remove(action.id);
         success++;
       } catch (_) {
         // On laisse l'action en file : elle sera retentée au prochain sync.
@@ -227,6 +266,25 @@ class OfflineQueueService {
       }
     }
     return SyncResult(success: success, failed: failed);
+  }
+
+  /// Envoie la version la plus récente de l'action [id] (merge), puis la
+  /// retire. Si [patchPending] l'a modifiée pendant l'envoi, la nouvelle
+  /// version est renvoyée d'abord (un merge rejoué est sans risque). Le
+  /// contrôle de version et le retrait se font sans attente entre les deux :
+  /// un patch ne peut jamais être perdu.
+  Future<void> _sendLatestThenRemove(String id, DocumentReference<Map<String, dynamic>> ref) async {
+    var current = _store.queued(id);
+    while (current != null) {
+      await ref.set(current.payload, SetOptions(merge: true));
+      final after = _store.queued(id);
+      if (after == null) return; // retirée pendant l'envoi
+      if (after.revision == current.revision) {
+        await _store.removeQueued([id]);
+        return;
+      }
+      current = after;
+    }
   }
 }
 

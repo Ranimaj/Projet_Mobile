@@ -1,7 +1,20 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../screens/evenements/event_categories.dart';
+
+/// Statut STOCKÉ dans Firestore : seule l'annulation est une décision humaine.
+enum EventStatus { active, cancelled }
+
+/// Statut AFFICHÉ, toujours calculé (jamais stocké) par [EventModel.statusAt].
+enum EventDisplayStatus { cancelled, finished, ongoing, full, upcoming }
 
 /// Modèle "Gestion des Événements".
+///
+/// Les dates sont stockées en Timestamp (instant UTC) et manipulées en heure
+/// locale dans l'app.
 class EventModel {
+  /// Durée appliquée aux anciens documents qui n'ont pas de date de fin.
+  static const Duration defaultDuration = Duration(hours: 2);
+
   final String id;
   final String organizerId;
   final String organizerName;
@@ -9,14 +22,26 @@ class EventModel {
   final String description;
   final String category;
   final DateTime startDate;
+  final DateTime endDate;
   final String location;
   final double? latitude;
   final double? longitude;
   final List<String> registeredUserIds;
   final String? posterUrl;
+  final int? capacity; // null = places illimitées
+  final double? price; // TND, informatif ; null ou 0 = gratuit
+  final EventStatus status;
+  final String? cancelReason;
+  final DateTime? cancelledAt;
+  final List<String> checkedInUserIds; // présents (pointés par l'organisateur)
+  final List<String> paidUserIds; // ont payé sur place (prix informatif)
+  final DateTime createdAt;
+  final DateTime updatedAt;
   final bool pendingSync;
 
-  const EventModel({
+  /// [endDate], [createdAt] et [updatedAt] sont optionnels : par défaut
+  /// fin = début + 2 h, création = modification = début (anciens documents).
+  EventModel({
     required this.id,
     required this.organizerId,
     required this.organizerName,
@@ -24,33 +49,82 @@ class EventModel {
     required this.description,
     required this.category,
     required this.startDate,
+    DateTime? endDate,
     required this.location,
     this.latitude,
     this.longitude,
     this.registeredUserIds = const [],
     this.posterUrl,
+    this.capacity,
+    this.price,
+    this.status = EventStatus.active,
+    this.cancelReason,
+    this.cancelledAt,
+    this.checkedInUserIds = const [],
+    this.paidUserIds = const [],
+    DateTime? createdAt,
+    DateTime? updatedAt,
     this.pendingSync = false,
-  });
+  })  : endDate = endDate ?? startDate.add(defaultDuration),
+        createdAt = createdAt ?? startDate,
+        updatedAt = updatedAt ?? startDate;
 
   bool isUserRegistered(String userId) => registeredUserIds.contains(userId);
 
+  /// Complet : une capacité est définie et elle est atteinte.
+  bool get isFull => capacity != null && registeredUserIds.length >= capacity!;
+
+  /// Statut affiché à l'instant [now] (fonction pure : même entrée, même
+  /// résultat, pas d'horloge cachée — donc testable).
+  /// Ordre de priorité : annulé > terminé > en cours > complet > à venir.
+  EventDisplayStatus statusAt(DateTime now) {
+    if (status == EventStatus.cancelled) return EventDisplayStatus.cancelled;
+    if (!now.isBefore(endDate)) return EventDisplayStatus.finished; // now >= fin
+    if (!now.isBefore(startDate)) return EventDisplayStatus.ongoing; // début <= now < fin
+    if (isFull) return EventDisplayStatus.full;
+    return EventDisplayStatus.upcoming;
+  }
+
   factory EventModel.fromMap(String id, Map<String, dynamic> map) {
+    // Lectures « null-aware » : un ancien document sans les nouveaux champs
+    // se charge quand même avec les valeurs par défaut.
+    final start = _parseDate(map['startDate']) ?? DateTime.now();
     return EventModel(
       id: id,
       organizerId: map['organizerId'] ?? '',
       organizerName: map['organizerName'] ?? '',
       title: map['title'] ?? '',
       description: map['description'] ?? '',
-      category: map['category'] ?? 'Générale',
-      startDate: (map['startDate'] is Timestamp)
-          ? (map['startDate'] as Timestamp).toDate()
-          : DateTime.tryParse(map['startDate']?.toString() ?? '') ?? DateTime.now(),
+      // Anciennes valeurs (Job Fair, Associatif...) traduites : pas de migration.
+      category: EventCategories.normalize(map['category']?.toString()),
+      startDate: start,
+      endDate: _parseDate(map['endDate']),
       location: map['location'] ?? '',
       latitude: (map['latitude'] as num?)?.toDouble(),
       longitude: (map['longitude'] as num?)?.toDouble(),
       registeredUserIds: List<String>.from(map['registeredUserIds'] ?? []),
-      posterUrl: map['posterUrl'],
+      posterUrl: map['posterUrl']?.toString(),
+      capacity: (map['capacity'] as num?)?.toInt(),
+      price: (map['price'] as num?)?.toDouble(),
+      status: map['status'] == EventStatus.cancelled.name ? EventStatus.cancelled : EventStatus.active,
+      cancelReason: map['cancelReason'],
+      cancelledAt: _parseDate(map['cancelledAt']),
+      checkedInUserIds: List<String>.from(map['checkedInUserIds'] ?? []),
+      paidUserIds: List<String>.from(map['paidUserIds'] ?? []),
+      createdAt: _parseDate(map['createdAt']),
+      updatedAt: _parseDate(map['updatedAt']),
     );
+  }
+
+  /// Une date peut arriver sous 4 formes : Timestamp (Firestore), DateTime
+  /// (cache local), int (millisecondes) ou String (ISO 8601). Toujours rendue
+  /// en heure locale ; null si absente ou illisible.
+  static DateTime? _parseDate(dynamic value) {
+    if (value is Timestamp) return value.toDate().toLocal();
+    if (value is DateTime) return value.toLocal();
+    if (value is int) return DateTime.fromMillisecondsSinceEpoch(value);
+    if (value is String) return DateTime.tryParse(value)?.toLocal();
+    return null;
   }
 
   Map<String, dynamic> toMap() {
@@ -61,34 +135,118 @@ class EventModel {
       'description': description,
       'category': category,
       'startDate': Timestamp.fromDate(startDate),
+      'endDate': Timestamp.fromDate(endDate),
       'location': location,
       'latitude': latitude,
       'longitude': longitude,
       'registeredUserIds': registeredUserIds,
       'posterUrl': posterUrl,
+      'capacity': capacity,
+      'price': price,
+      'status': status.name,
+      'cancelReason': cancelReason,
+      'cancelledAt': cancelledAt == null ? null : Timestamp.fromDate(cancelledAt!),
+      'checkedInUserIds': checkedInUserIds,
+      'paidUserIds': paidUserIds,
+      'createdAt': Timestamp.fromDate(createdAt),
+      'updatedAt': Timestamp.fromDate(updatedAt),
     };
   }
 
+  /// Champs que le formulaire de modification a le droit de changer.
+  /// organizerId, registeredUserIds, status... n'y sont volontairement pas.
+  static const List<String> editableFields = [
+    'title', 'description', 'category', 'startDate', 'endDate', 'location', 'capacity',
+    'latitude', 'longitude', // recalculées quand le lieu change (géocodage)
+    'price',
+    'posterUrl', // affiche Cloudinary (changée ou retirée dans le formulaire)
+  ];
+
+  /// Seulement les champs modifiables qui diffèrent de [original] : c'est ce
+  /// qu'on envoie à Firestore, pour ne jamais écraser les inscriptions.
+  Map<String, dynamic> changedFieldsSince(EventModel original) {
+    final after = toMap();
+    final before = original.toMap();
+    return {
+      for (final key in editableFields)
+        if (after[key] != before[key]) key: after[key],
+    };
+  }
+
+  /// Copie avec certains champs changés. Pour remettre la capacité à
+  /// « illimitée » (null), passer [clearCapacity] à true ; pour effacer la
+  /// position (lieu changé mais introuvable), passer [clearCoordinates] ;
+  /// pour repasser en gratuit (prix null), passer [clearPrice] ; pour retirer
+  /// l'affiche, passer [clearPoster].
+  EventModel copyWith({
+    String? id,
+    String? organizerName,
+    String? title,
+    String? description,
+    String? category,
+    DateTime? startDate,
+    DateTime? endDate,
+    String? location,
+    double? latitude,
+    double? longitude,
+    bool clearCoordinates = false,
+    List<String>? registeredUserIds,
+    String? posterUrl,
+    bool clearPoster = false,
+    int? capacity,
+    bool clearCapacity = false,
+    double? price,
+    bool clearPrice = false,
+    EventStatus? status,
+    String? cancelReason,
+    DateTime? cancelledAt,
+    List<String>? checkedInUserIds,
+    List<String>? paidUserIds,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+    bool? pendingSync,
+  }) {
+    return EventModel(
+      id: id ?? this.id,
+      organizerId: organizerId, // ne change jamais
+      organizerName: organizerName ?? this.organizerName,
+      title: title ?? this.title,
+      description: description ?? this.description,
+      category: category ?? this.category,
+      startDate: startDate ?? this.startDate,
+      endDate: endDate ?? this.endDate,
+      location: location ?? this.location,
+      latitude: clearCoordinates ? null : (latitude ?? this.latitude),
+      longitude: clearCoordinates ? null : (longitude ?? this.longitude),
+      registeredUserIds: registeredUserIds ?? this.registeredUserIds,
+      posterUrl: clearPoster ? null : (posterUrl ?? this.posterUrl),
+      capacity: clearCapacity ? null : (capacity ?? this.capacity),
+      price: clearPrice ? null : (price ?? this.price),
+      status: status ?? this.status,
+      cancelReason: cancelReason ?? this.cancelReason,
+      cancelledAt: cancelledAt ?? this.cancelledAt,
+      checkedInUserIds: checkedInUserIds ?? this.checkedInUserIds,
+      paidUserIds: paidUserIds ?? this.paidUserIds,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      pendingSync: pendingSync ?? this.pendingSync,
+    );
+  }
+
+  /// Copie avec l'utilisateur ajouté ou retiré des inscrits ; tous les
+  /// autres champs sont conservés.
   EventModel copyWithRegistration(String userId, bool register) {
     final updated = List<String>.from(registeredUserIds);
     if (register) {
       if (!updated.contains(userId)) updated.add(userId);
-    } else {
-      updated.remove(userId);
+      return copyWith(registeredUserIds: updated);
     }
-    return EventModel(
-      id: id,
-      organizerId: organizerId,
-      organizerName: organizerName,
-      title: title,
-      description: description,
-      category: category,
-      startDate: startDate,
-      location: location,
-      latitude: latitude,
-      longitude: longitude,
+    updated.remove(userId);
+    // Désinscrit : il n'est plus ni « présent » ni « payé ».
+    return copyWith(
       registeredUserIds: updated,
-      posterUrl: posterUrl,
+      checkedInUserIds: checkedInUserIds.where((id) => id != userId).toList(),
+      paidUserIds: paidUserIds.where((id) => id != userId).toList(),
     );
   }
 }

@@ -1,0 +1,62 @@
+[
+ {
+  "text": "Tournoi de football inter-classes. Équipes de sept joueurs au stade du campus.",
+  "probs": [
+   0.00889,
+   0.00873,
+   0.96157,
+   0.01261,
+   0.0082
+  ]
+ },
+ {
+  "text": "Forum de l'emploi. Rencontrez des recruteurs et déposez votre CV.",
+  "probs": [
+   0.01526,
+   0.93925,
+   0.01396,
+   0.01222,
+   0.01931
+  ]
+ },
+ {
+  "text": "Conférence sur l'intelligence artificielle et ses applications.",
+  "probs": [
+   0.97472,
+   0.00685,
+   0.0063,
+   0.0069,
+   0.00522
+  ]
+ },
+ {
+  "text": "Concert de musique andalouse dans la cour de l'école.",
+  "probs": [
+   0.02306,
+   0.02651,
+   0.03797,
+   0.87207,
+   0.04039
+  ]
+ },
+ {
+  "text": "Assemblée générale du club de robotique et élection du bureau.",
+  "probs": [
+   0.01818,
+   0.01454,
+   0.01582,
+   0.01362,
+   0.93784
+  ]
+ },
+ {
+  "text": "Zzzz qqqq",
+  "probs": [
+   0.20326,
+   0.20224,
+   0.22855,
+   0.21644,
+   0.1495
+  ]
+ }
+]
