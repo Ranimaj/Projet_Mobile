@@ -137,6 +137,7 @@ class ArticleModel {
 
   /// [clearPrice] passe l'article en don ; [clearLocation] retire la position.
   ArticleModel copyWith({
+    String? id,
     String? title,
     String? description,
     double? price,
@@ -154,7 +155,7 @@ class ArticleModel {
     bool? pendingSync,
   }) {
     return ArticleModel(
-      id: id,
+      id: id ?? this.id,
       ownerId: ownerId,
       ownerName: ownerName,
       title: title ?? this.title,

@@ -56,7 +56,6 @@ class ArticleCard extends StatelessWidget {
     final footer = [
       article.category,
       if (d != null) formatDistance(d),
-      if (article.pendingSync || article.hasLocalPhotos) 'En attente de réseau',
     ].join(' · ');
 
     return Semantics(

@@ -2,14 +2,14 @@ import 'package:campusconnect/models/article_model.dart';
 import 'package:campusconnect/screens/vente_don/article_detail_screen.dart';
 import 'package:campusconnect/screens/vente_don/article_form_screen.dart';
 import 'package:campusconnect/screens/vente_don/chat_screen.dart';
-import 'package:campusconnect/services/chat_service.dart';
-import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
+import 'package:campusconnect/widgets/pill_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
 import '../helpers/articles.dart';
 import '../helpers/authenticated.dart';
+import '../helpers/chat.dart';
 import '../helpers/market.dart';
 
 void main() {
@@ -60,8 +60,7 @@ void main() {
 
   testWidgets('contacting the seller opens a real conversation', (tester) async {
     await h.signIn(tester);
-    final db = FakeFirebaseFirestore();
-    final chat = ChatService(firestore: db);
+    final chat = FakeChatService();
     await pumpMarket(tester, h, marketProvider(repo), ArticleDetailScreen(article: bike, chatService: chat));
     await tester.tap(find.byKey(const Key('contact-seller')));
     await tester.pump();
@@ -76,9 +75,9 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Il est toujours dispo ?'), findsOneWidget);
 
-    final header = await db.collection('conversations').doc('bike_uid-1').get();
-    expect(header.data()!['participants'], containsAll(['uid-1', 'seller-1']));
-    expect(header.data()!['unreadBy'], ['seller-1']);
+    final header = chat.conversations['bike_uid-1']!;
+    expect(header.participants, containsAll(['uid-1', 'seller-1']));
+    expect(header.unreadBy, ['seller-1']);
   });
 
   testWidgets('the owner manages the article from the menu', (tester) async {
@@ -129,9 +128,11 @@ void main() {
     expect(repo.updates, isEmpty);
   });
 
-  testWidgets('offline, the contact button is disabled', (tester) async {
+  testWidgets('without network the seller can still be contacted (local messaging)', (tester) async {
     await h.signIn(tester);
     await pumpMarket(tester, h, marketProvider(repo, online: false), ArticleDetailScreen(article: bike));
-    expect(find.textContaining('Hors ligne'), findsOneWidget);
+    expect(find.textContaining('Hors ligne'), findsNothing);
+    final button = tester.widget<PillButton>(find.byKey(const Key('contact-seller')));
+    expect(button.onPressed, isNotNull);
   });
 }

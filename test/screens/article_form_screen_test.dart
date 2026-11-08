@@ -96,6 +96,30 @@ void main() {
     expect(find.byType(ArticleFormScreen), findsNothing);
   });
 
+  testWidgets('when the GPS gives nothing, "Campus" sets the campus position', (tester) async {
+    await h.signIn(tester);
+    final provider = marketProvider(repo,
+        locate: () async => const LocationResult.failed(LocationFailure.unavailable));
+    await pumpForm(tester, h, provider, const ArticleFormScreen());
+    await tester.enterText(find.byKey(const Key('field-title')), 'Lampe de bureau');
+    await tester.enterText(find.byKey(const Key('field-description')), 'Lampe LED, fonctionne bien.');
+    await tester.tap(find.byKey(const ValueKey('category-Mobilier')));
+    await tester.enterText(find.byKey(const Key('field-price')), '20');
+    await tester.scrollUntilVisible(find.byKey(const Key('add-location')), 200,
+        scrollable: find.byType(Scrollable).first);
+    await tester.drag(find.byType(Scrollable).first, const Offset(0, -300));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('add-location')));
+    await tester.pumpAndSettle();
+    expect(find.text('Position introuvable pour le moment.'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('use-campus-position')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('location-set')), findsOneWidget);
+    await submit(tester);
+    expect(repo.creates.single.$1.latitude, kCampusPosition.latitude);
+    expect(repo.creates.single.$1.longitude, kCampusPosition.longitude);
+  });
+
   testWidgets('a gift hides the price and is saved without one', (tester) async {
     await h.signIn(tester);
     await pumpForm(tester, h, marketProvider(repo), const ArticleFormScreen());
@@ -131,7 +155,7 @@ void main() {
     expect(find.text('Article modifié !'), findsOneWidget);
   });
 
-  testWidgets('offline, a new article and its photo stay on the phone', (tester) async {
+  testWidgets('without network, a new article and its photo are saved on the phone', (tester) async {
     await h.signIn(tester);
     final photos = FakePhotoStore();
     final provider = marketProvider(repo, online: false, photos: photos);
@@ -144,21 +168,19 @@ void main() {
     await tester.enterText(find.byKey(const Key('field-description')), 'Livre de cours complet.');
     await tester.enterText(find.byKey(const Key('field-price')), '20');
     await submit(tester);
-    final (item, online) = repo.creates.single;
-    expect(online, isFalse);
-    expect(item.imageUrls, ['/local/photo-0.jpg']);
-    expect(find.text('Article publié ! Il sera envoyé au retour du réseau.'), findsOneWidget);
+    expect(repo.creates.single.$1.imageUrls, ['/local/photo-0.jpg']);
+    expect(find.text('Article publié !'), findsOneWidget);
   });
 
-  testWidgets('offline, a new article is queued (no photo)', (tester) async {
+  testWidgets('without network, a new article without photo is saved too', (tester) async {
     await h.signIn(tester);
     await pumpForm(tester, h, marketProvider(repo, online: false), const ArticleFormScreen());
-    expect(find.textContaining('Hors ligne'), findsOneWidget);
+    expect(find.textContaining('Hors ligne'), findsNothing);
     await tester.enterText(find.byKey(const Key('field-title')), 'Chaise');
     await tester.enterText(find.byKey(const Key('field-description')), 'Chaise pliante noire.');
     await tester.enterText(find.byKey(const Key('field-price')), '5');
     await submit(tester);
-    expect(repo.creates.single.$2, isFalse);
+    expect(repo.creates.single.$1.title, 'Chaise');
   });
 
   group('Assistant IA', () {

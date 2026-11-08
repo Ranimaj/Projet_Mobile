@@ -41,6 +41,7 @@ class _EvenementsListScreenState extends State<EvenementsListScreen> {
       floatingActionButton: isGuest
           ? null
           : FloatingActionButton(
+              heroTag: 'evenements_fab',
               onPressed: () => Navigator.of(context)
                   .push(MaterialPageRoute(builder: (_) => const AddEventScreen())),
               child: const Icon(Icons.add_rounded),

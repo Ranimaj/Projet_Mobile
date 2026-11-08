@@ -178,12 +178,18 @@ void main() {
     });
   });
 
-  test('the Gemini prompt carries the article details and forbids contact info', () {
-    const r = DescriptionRequest(title: 'Calculatrice', category: 'Électronique', price: 35, keywords: ['calculatrice']);
-    expect(r.prompt, contains('Titre : Calculatrice'));
-    expect(r.prompt, contains('Prix : 35 DT'));
-    expect(r.prompt, contains('calculatrice'));
-    expect(r.prompt, contains('ni numéro de téléphone'));
-    expect(const DescriptionRequest(title: 'Veste', category: 'Vêtements').prompt, contains('don gratuit'));
+  test('the local writer composes a description without price or contact', () async {
+    const w = LocalDescriptionWriter();
+    final sale = await w.write(const DescriptionRequest(
+        title: 'Calculatrice scientifique', category: 'Électronique', price: 35, keywords: ['calculatrice', 'écran']));
+    expect(sale, startsWith('Je vends calculatrice scientifique'));
+    expect(sale, contains('Sur la photo : écran.'));
+    expect(sale, contains('testé'));
+    expect(sale, isNot(contains('35')));
+    expect(moderateArticle(title: 'Calculatrice scientifique', description: sale, category: 'Électronique', price: 35).blocked, isFalse);
+
+    final gift = await w.write(const DescriptionRequest(title: 'Veste', category: 'Vêtements'));
+    expect(gift, startsWith('Je donne veste'));
+    expect(gift, contains('Gratuit'));
   });
 }

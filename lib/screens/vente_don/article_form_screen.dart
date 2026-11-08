@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
@@ -12,11 +11,13 @@ import '../../core/utils/geo.dart';
 import '../../models/article_model.dart';
 import '../../providers/article_provider.dart';
 import '../../providers/auth_provider.dart';
-import '../../widgets/bottom_action_bar.dart';
-import '../../widgets/filter_chip_pill.dart';
 import '../../services/ai/article_ai.dart';
 import '../../services/ai/category_mapper.dart';
 import '../../services/ai/moderation.dart';
+import '../../services/demo_articles.dart';
+import '../../services/location_service.dart';
+import '../../widgets/bottom_action_bar.dart';
+import '../../widgets/filter_chip_pill.dart';
 import '../../widgets/pill_button.dart';
 import 'widgets/ai_assistant_card.dart';
 import 'widgets/article_photo.dart';
@@ -27,6 +28,11 @@ typedef PickImages = Future<List<File>> Function();
 Future<List<File>> _pickFromGallery() async {
   final picked = await ImagePicker().pickMultiImage(imageQuality: 85);
   return [for (final x in picked) File(x.path)];
+}
+
+Future<List<File>> _pickFromCamera() async {
+  final x = await ImagePicker().pickImage(source: ImageSource.camera, imageQuality: 85);
+  return x == null ? [] : [File(x.path)];
 }
 
 /// Validation des champs du formulaire (exposée pour les tests).
@@ -162,8 +168,7 @@ class _ArticleFormScreenState extends State<ArticleFormScreen> {
   }
 
   Future<void> _writeDescription() async {
-    final online = context.read<ArticleProvider>().isOnline;
-    if (!online || _writing) return;
+    if (_writing) return;
     setState(() => _writing = true);
     try {
       final text = await _ai.writer.write(DescriptionRequest(
@@ -176,13 +181,8 @@ class _ArticleFormScreenState extends State<ArticleFormScreen> {
       if (!mounted) return;
       _descCtrl.text = text;
       _snack('Description proposée par l\'IA : relis-la et modifie-la si besoin.');
-    } catch (e) {
-      debugPrint('[IA] Gemini a échoué : $e');
-      if (mounted) {
-        _snack(kDebugMode
-            ? 'IA indisponible : $e'
-            : 'L\'IA n\'a pas pu rédiger la description. Réessaie plus tard.');
-      }
+    } catch (_) {
+      if (mounted) _snack('L\'IA n\'a pas pu rédiger la description. Réessaie.');
     } finally {
       if (mounted) setState(() => _writing = false);
     }
@@ -244,7 +244,58 @@ class _ArticleFormScreenState extends State<ArticleFormScreen> {
   Future<void> _addPhotos() async {
     final room = ArticleModel.maxPhotos - _photoCount;
     if (room <= 0) return;
-    final picked = await (widget.pickImages ?? _pickFromGallery)();
+
+    // Si un picker personnalisé est injecté (tests), on l'utilise directement.
+    if (widget.pickImages != null) {
+      final picked = await widget.pickImages!();
+      if (!mounted || picked.isEmpty) return;
+      final coverBefore = _kept.isEmpty && _newImages.isEmpty;
+      setState(() => _newImages.addAll(picked.take(room)));
+      if (picked.length > room) _snack('${ArticleModel.maxPhotos} photos maximum.');
+      if (coverBefore || _suggestion == null) await _analyze(_newImages.first);
+      return;
+    }
+
+    // Choix de la source : démo, galerie ou caméra.
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.auto_awesome_outlined, color: Colors.deepOrange),
+              title: const Text('Photos de démo CampusConnect'),
+              subtitle: const Text('Livre, lampe, calculatrice, veste'),
+              onTap: () => Navigator.pop(ctx, 'demo'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Galerie photos'),
+              onTap: () => Navigator.pop(ctx, 'gallery'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.camera_alt_outlined),
+              title: const Text('Prendre une photo'),
+              onTap: () => Navigator.pop(ctx, 'camera'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (choice == null || !mounted) return;
+
+    final List<File> picked;
+    if (choice == 'demo') {
+      final demoFile = await showDemoPhotoPickerSheet(context);
+      picked = demoFile == null ? [] : [demoFile];
+    } else if (choice == 'camera') {
+      picked = await _pickFromCamera();
+    } else {
+      picked = await _pickFromGallery();
+    }
+
     if (!mounted || picked.isEmpty) return;
     final coverBefore = _kept.isEmpty && _newImages.isEmpty;
     setState(() => _newImages.addAll(picked.take(room)));
@@ -263,7 +314,19 @@ class _ArticleFormScreenState extends State<ArticleFormScreen> {
       if (ok) _location = provider.userPosition;
     });
     final error = provider.locationError;
-    if (!ok && error != null) _snack(error);
+    if (ok || error == null) return;
+    // GPS muet : on propose la position du campus (remise en main propre).
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(error),
+      duration: const Duration(seconds: 6),
+      action: SnackBarAction(
+        key: const Key('use-campus-position'),
+        label: 'Campus',
+        onPressed: () {
+          if (mounted) setState(() => _location = kCampusPosition);
+        },
+      ),
+    ));
   }
 
   Future<void> _submit() async {
@@ -309,12 +372,7 @@ class _ArticleFormScreenState extends State<ArticleFormScreen> {
         );
       }
       if (!mounted) return;
-      final waiting = !provider.isOnline || provider.pendingPhotoArticles > 0;
-      _snack(widget.isEditing
-          ? 'Article modifié !'
-          : waiting
-              ? 'Article publié ! Il sera envoyé au retour du réseau.'
-              : 'Article publié !');
+      _snack(widget.isEditing ? 'Article modifié !' : 'Article publié !');
       Navigator.of(context).pop();
     } catch (_) {
       if (!mounted) return;
@@ -369,7 +427,6 @@ class _ArticleFormScreenState extends State<ArticleFormScreen> {
     final t = AppTokens.of(context);
     final text = Theme.of(context).textTheme;
     final provider = context.watch<ArticleProvider>();
-    final online = provider.isOnline;
     final advice = _isFree
         ? null
         : provider.priceAdviceFor(
@@ -438,11 +495,6 @@ class _ArticleFormScreenState extends State<ArticleFormScreen> {
                   ),
               ],
             ),
-            if (!online) ...[
-              const SizedBox(height: 8),
-              Text('Hors ligne : l\'article et ses photos sont gardés sur le téléphone et partiront au retour du réseau.',
-                  style: text.bodySmall?.copyWith(color: t.warning)),
-            ],
             const SizedBox(height: 16),
             AiAssistantCard(
               analyzing: _analyzing,
@@ -462,7 +514,6 @@ class _ArticleFormScreenState extends State<ArticleFormScreen> {
                   ? null
                   : () => setState(() => _priceCtrl.text = advice.suggested.round().toString()),
               writing: _writing,
-              online: online,
               onWrite: _writeDescription,
             ),
             const SizedBox(height: 20),

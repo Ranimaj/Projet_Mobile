@@ -56,7 +56,7 @@ class _ChatScreenState extends State<ChatScreen> {
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Message non envoyé. Vérifie ta connexion.')),
+          const SnackBar(content: Text('Message non envoyé. Réessaie.')),
         );
       }
     } finally {

@@ -9,17 +9,14 @@ import 'package:provider/provider.dart';
 
 import 'articles.dart';
 import 'authenticated.dart';
-import 'mocks.dart';
 
 /// Provider Vente & Don réel branché sur un dépôt en mémoire.
 ArticleProvider marketProvider(FakeArticleRepo repo,
         {LocationLookup? locate, bool online = true, FakePhotoStore? photos}) =>
     ArticleProvider(
       repository: repo,
-      storage: MockStorageService(),
       locate: locate ?? () async => const LocationResult.failed(LocationFailure.denied),
       photos: photos ?? FakePhotoStore(),
-      patchQueued: (_, __) async {},
     )..updateConnectivity(online);
 
 /// Monte [screen] (poussé au-dessus d'une page « open ») avec l'auth, le

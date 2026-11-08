@@ -5,48 +5,52 @@ import 'package:sqflite/sqflite.dart';
 
 import '../../models/article_model.dart';
 
-/// État de synchronisation d'une ligne avec Firebase.
-enum SyncState {
-  /// Identique à Firestore (dernière lecture ou écriture réussie).
-  synced,
-
-  /// Créée ou modifiée sur le téléphone, pas encore envoyée.
-  pending,
-
-  /// Supprimée sur le téléphone, suppression pas encore envoyée : la ligne
-  /// est gardée (cachée) pour qu'une lecture Firestore ne la fasse pas
-  /// réapparaître.
-  deleted,
-}
-
-/// Base SQLite de Vente & Don : la base **principale** des articles sur le
-/// téléphone. L'app lit toujours ici ; Firebase sert à partager les articles
-/// avec les autres étudiants (voir [SqliteArticleRepository]).
+/// Base SQLite de Vente & Don, sur le téléphone : **la seule base** de la
+/// gestion (pas de Firebase). Trois tables :
 ///
-/// Une table `articles` avec une colonne par champ ; les listes (photos,
-/// favoris, étiquettes IA) sont stockées en JSON.
+///  - `articles` : une colonne par champ ; les listes (photos, favoris,
+///    étiquettes IA) sont stockées en JSON ;
+///  - `conversations` : une par couple article + acheteur ;
+///  - `messages` : les messages de chaque conversation.
+///
+/// Les requêtes sur les articles sont ici ; celles de la messagerie sont dans
+/// `ChatService`, qui partage la même base ([db]).
 class ArticleDatabase {
-  ArticleDatabase._(this._db);
+  ArticleDatabase._(this.db);
 
-  final Database _db;
+  /// Connexion SQLite (partagée avec la messagerie).
+  final Database db;
 
   static const fileName = 'campusconnect_vente_don.db';
   static const table = 'articles';
-  static const version = 1;
+  static const conversationsTable = 'conversations';
+  static const messagesTable = 'messages';
 
-  /// Ouvre (ou crée) la base. [factory] et [path] sont remplaçables dans les
-  /// tests (`databaseFactoryFfi`, `inMemoryDatabasePath`).
+  /// 1 : articles. 2 : + messagerie (conversations, messages).
+  static const version = 2;
+
+  /// Ouvre (ou crée / met à jour) la base. [factory] et [path] sont
+  /// remplaçables dans les tests (`databaseFactoryFfi`, fichier temporaire).
   static Future<ArticleDatabase> open({DatabaseFactory? factory, String? path}) async {
     final f = factory ?? databaseFactory;
     final dbPath = path ?? p.join(await f.getDatabasesPath(), fileName);
     final db = await f.openDatabase(
       dbPath,
-      options: OpenDatabaseOptions(version: version, onCreate: _create),
+      options: OpenDatabaseOptions(
+        version: version,
+        onCreate: (db, _) async {
+          await _createArticles(db);
+          await _createChat(db);
+        },
+        onUpgrade: (db, from, _) async {
+          if (from < 2) await _createChat(db);
+        },
+      ),
     );
     return ArticleDatabase._(db);
   }
 
-  static Future<void> _create(Database db, int version) async {
+  static Future<void> _createArticles(Database db) async {
     await db.execute('''
       CREATE TABLE $table (
         id            TEXT PRIMARY KEY,
@@ -71,93 +75,67 @@ class ArticleDatabase {
     await db.execute('CREATE INDEX idx_articles_created ON $table(created_at DESC)');
   }
 
-  Future<void> close() => _db.close();
+  static Future<void> _createChat(Database db) async {
+    await db.execute('''
+      CREATE TABLE $conversationsTable (
+        id                 TEXT PRIMARY KEY,
+        article_id         TEXT NOT NULL,
+        article_title      TEXT NOT NULL,
+        article_image_url  TEXT,
+        seller_id          TEXT NOT NULL,
+        seller_name        TEXT NOT NULL,
+        buyer_id           TEXT NOT NULL,
+        buyer_name         TEXT NOT NULL,
+        last_message       TEXT NOT NULL DEFAULT '',
+        last_sender_id     TEXT,
+        updated_at         INTEGER NOT NULL,
+        unread_by          TEXT NOT NULL DEFAULT '[]'
+      )''');
+    await db.execute('''
+      CREATE TABLE $messagesTable (
+        id               INTEGER PRIMARY KEY AUTOINCREMENT,
+        conversation_id  TEXT NOT NULL REFERENCES $conversationsTable(id) ON DELETE CASCADE,
+        sender_id        TEXT NOT NULL,
+        text             TEXT NOT NULL,
+        sent_at          INTEGER NOT NULL
+      )''');
+    await db.execute('CREATE INDEX idx_messages_conv ON $messagesTable(conversation_id, sent_at)');
+  }
+
+  Future<void> close() => db.close();
 
   // ---------------------------------------------------------------- lecture
 
-  /// Articles visibles (sans les suppressions en attente), plus récents
-  /// d'abord.
+  /// Tous les articles, plus récents d'abord.
   Future<List<ArticleModel>> all() async {
-    final rows = await _db.query(table,
-        where: 'sync_state != ?', whereArgs: [SyncState.deleted.name], orderBy: 'created_at DESC');
+    final rows = await db.query(table, orderBy: 'created_at DESC');
     return [for (final r in rows) fromRow(r)];
   }
 
   Future<ArticleModel?> byId(String id) async {
-    final rows = await _db.query(table,
-        where: 'id = ? AND sync_state != ?', whereArgs: [id, SyncState.deleted.name], limit: 1);
+    final rows = await db.query(table, where: 'id = ?', whereArgs: [id], limit: 1);
     return rows.isEmpty ? null : fromRow(rows.first);
-  }
-
-  /// État de synchronisation d'une ligne (null si absente).
-  Future<SyncState?> syncStateOf(String id) async {
-    final rows = await _db.query(table, columns: ['sync_state'], where: 'id = ?', whereArgs: [id], limit: 1);
-    if (rows.isEmpty) return null;
-    return SyncState.values.byName(rows.first['sync_state'] as String);
-  }
-
-  /// Ids des lignes pas encore envoyées à Firebase (créations, modifications
-  /// ou suppressions).
-  Future<Set<String>> unsyncedIds() async {
-    final rows = await _db.query(table,
-        columns: ['id'], where: 'sync_state != ?', whereArgs: [SyncState.synced.name]);
-    return {for (final r in rows) r['id'] as String};
   }
 
   // -------------------------------------------------------------- écriture
 
   /// Insère ou remplace un article.
-  Future<void> upsert(ArticleModel a, {SyncState state = SyncState.synced}) =>
-      _db.insert(table, toRow(a, state), conflictAlgorithm: ConflictAlgorithm.replace);
+  Future<void> upsert(ArticleModel a) =>
+      db.insert(table, toRow(a), conflictAlgorithm: ConflictAlgorithm.replace);
 
-  /// Applique un patch au format Firestore (`{'status': 'reserved'}`,
-  /// `{'favoritedBy': [...]}`…) à un article existant.
-  Future<void> patch(String id, Map<String, dynamic> patch, {SyncState state = SyncState.synced}) async {
-    final rows = await _db.query(table, where: 'id = ?', whereArgs: [id], limit: 1);
-    if (rows.isEmpty) return;
-    final current = fromRow(rows.first);
-    final merged = ArticleModel.fromMap(id, {...current.toMap(), ...patch});
-    await upsert(merged, state: state);
+  /// Applique un patch (`{'status': 'reserved'}`, `{'favoritedBy': [...]}`…)
+  /// à un article existant.
+  Future<void> patch(String id, Map<String, dynamic> patch) async {
+    final current = await byId(id);
+    if (current == null) return;
+    await upsert(ArticleModel.fromMap(id, {...current.toMap(), ...patch}));
   }
 
-  /// Marque la ligne comme envoyée à Firebase (sans toucher une suppression
-  /// en attente).
-  Future<void> markSynced(String id) => _db.update(table, {'sync_state': SyncState.synced.name},
-      where: 'id = ? AND sync_state = ?', whereArgs: [id, SyncState.pending.name]);
-
-  /// Marque l'article supprimé (en attente) ou l'efface tout de suite.
-  Future<void> remove(String id, {bool pending = false}) async {
-    if (pending) {
-      await _db.update(table, {'sync_state': SyncState.deleted.name}, where: 'id = ?', whereArgs: [id]);
-    } else {
-      await _db.delete(table, where: 'id = ?', whereArgs: [id]);
-    }
-  }
-
-  /// Remplace le contenu par les articles lus sur Firebase, sauf les lignes
-  /// dont l'id est dans [keepLocal] (modifications pas encore envoyées) :
-  /// le téléphone garde sa version tant que la synchro n'est pas faite.
-  /// Les autres lignes non synchronisées sont considérées comme envoyées.
-  Future<void> replaceWithRemote(List<ArticleModel> remote, {Set<String> keepLocal = const {}}) {
-    return _db.transaction((txn) async {
-      if (keepLocal.isEmpty) {
-        await txn.delete(table);
-      } else {
-        final marks = List.filled(keepLocal.length, '?').join(',');
-        await txn.delete(table, where: 'id NOT IN ($marks)', whereArgs: keepLocal.toList());
-      }
-      final batch = txn.batch();
-      for (final a in remote) {
-        if (keepLocal.contains(a.id)) continue;
-        batch.insert(table, toRow(a, SyncState.synced), conflictAlgorithm: ConflictAlgorithm.replace);
-      }
-      await batch.commit(noResult: true);
-    });
-  }
+  Future<void> remove(String id) => db.delete(table, where: 'id = ?', whereArgs: [id]);
 
   // ------------------------------------------------------------- conversion
 
-  static Map<String, Object?> toRow(ArticleModel a, SyncState state) => {
+  static Map<String, Object?> toRow(ArticleModel a) => {
         'id': a.id,
         'owner_id': a.ownerId,
         'owner_name': a.ownerName,
@@ -174,7 +152,6 @@ class ArticleDatabase {
         'view_count': a.viewCount,
         'favorited_by': jsonEncode(a.favoritedBy),
         'labels': jsonEncode(a.labels),
-        'sync_state': state.name,
       };
 
   static ArticleModel fromRow(Map<String, Object?> r) {
