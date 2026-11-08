@@ -1,0 +1,322 @@
+[
+ {
+  "title": "Livre d'algorithmique",
+  "description": "Utilisé un semestre, facture disponible. Remise en main propre sur le campus, à la cafétéria ou devant la bibliothèque.",
+  "category": "Livres",
+  "price": 9.0,
+  "hasPhoto": true,
+  "probability": 0.033003
+ },
+ {
+  "title": "Table pliante",
+  "description": "Bon état, facture disponible. Remise en main propre sur le campus, à la cafétéria ou devant la bibliothèque.",
+  "category": "Mobilier",
+  "price": 47.0,
+  "hasPhoto": true,
+  "probability": 0.034587
+ },
+ {
+  "title": "Manette PS5",
+  "description": "Comme neuf, acheté l'année dernière. Remise en main propre sur le campus, à la cafétéria ou devant la bibliothèque.",
+  "category": "Électronique",
+  "price": 161.0,
+  "hasPhoto": true,
+  "probability": 0.034587
+ },
+ {
+  "title": "AirPods Pro",
+  "description": "Comme neuf, prix à discuter.",
+  "category": "Électronique",
+  "price": 364.0,
+  "hasPhoto": true,
+  "probability": 0.077522
+ },
+ {
+  "title": "MACBOOK AIR M2",
+  "description": "Il faut payer une avance de 36 DT par D17 pour réserver. Neuf sous blister, jamais utilisé. URGENT !!! Premier arrivé premier servi. Contactez-moi sur WhatsApp au 214 749 312.",
+  "category": "Électronique",
+  "price": 111.0,
+  "hasPhoto": true,
+  "probability": 0.998728
+ },
+ {
+  "title": "Lampe de bureau LED",
+  "description": "Quelques traces d'usure. acheté l'année dernière. On peut se voir au bloc A entre deux cours pour que tu le vérifies.",
+  "category": "Mobilier",
+  "price": 39.0,
+  "hasPhoto": false,
+  "probability": 0.058126
+ },
+ {
+  "title": "Nintendo Switch",
+  "description": "Voir www.bonplan-77.com pour commander. Comme neuf. URGENT !!! Premier arrivé premier servi. Il faut payer une avance de 93 DT par D17 pour réserver. Je suis à l'étranger, envoi par la poste.",
+  "category": "Électronique",
+  "price": 23.0,
+  "hasPhoto": true,
+  "probability": 0.9997
+ },
+ {
+  "title": "Baskets taille 42",
+  "description": "Très bon état, acheté l'année dernière. Remise en main propre sur le campus, à la cafétéria ou devant la bibliothèque.",
+  "category": "Vêtements",
+  "price": 69.0,
+  "hasPhoto": true,
+  "probability": 0.034587
+ },
+ {
+  "title": "Livres de médecine (lot)",
+  "description": "Très bon état. Paiement d'abord, recharge téléphonique acceptée.",
+  "category": "Livres",
+  "price": 447.0,
+  "hasPhoto": true,
+  "probability": 0.337167
+ },
+ {
+  "title": "PS5 avec 2 manettes",
+  "description": "Il faut faire vite, beaucoup de demandes. Pas de remise en main propre, envoi uniquement. Écrivez sur Telegram, je ne réponds pas ici.",
+  "category": "Électronique",
+  "price": 320.0,
+  "hasPhoto": true,
+  "probability": 0.912921
+ },
+ {
+  "title": "Disque dur externe 1 To",
+  "description": "livré avec son chargeur. Bon état. Disponible après 16h sur le campus, paiement en espèces à la remise. Je pars en stage, je dois vendre vite. Rendez-vous sur le campus.",
+  "category": "Électronique",
+  "price": 100.0,
+  "hasPhoto": true,
+  "probability": 0.165477
+ },
+ {
+  "title": "Roman Le Petit Prince",
+  "description": "Comme neuf, idéal pour les révisions. Remise en main propre sur le campus, à la cafétéria ou devant la bibliothèque.",
+  "category": "Livres",
+  "price": 15.0,
+  "hasPhoto": true,
+  "probability": 0.034587
+ },
+ {
+  "title": "Baskets taille 42",
+  "description": "Je le vends car je n'en ai plus besoin. Quelques traces d'usure, aucune pièce manquante. Rendez-vous sur le campus.",
+  "category": "Vêtements",
+  "price": 50.0,
+  "hasPhoto": true,
+  "probability": 0.034587
+ },
+ {
+  "title": "Livre de Java",
+  "description": "Comme neuf, aucune pièce manquante. Remise en main propre sur le campus, à la cafétéria ou devant la bibliothèque.",
+  "category": "Livres",
+  "price": 18.0,
+  "hasPhoto": false,
+  "probability": 0.058126
+ },
+ {
+  "title": "IPHONE 14 PRO NEUF",
+  "description": "Neuf sous blister, jamais utilisé. Voir www.bonplan-76.com pour commander. Il faut faire vite, beaucoup de demandes. Il faut payer une avance de 33 DT par D17 pour réserver. Je ne suis pas sur le campus, livraison seulement.",
+  "category": "Électronique",
+  "price": 465.0,
+  "hasPhoto": false,
+  "probability": 0.999255
+ },
+ {
+  "title": "Vélo de ville",
+  "description": "Bon état, facture disponible. Remise en main propre sur le campus, à la cafétéria ou devant la bibliothèque.",
+  "category": "Autre",
+  "price": 128.0,
+  "hasPhoto": true,
+  "probability": 0.034587
+ },
+ {
+  "title": "Chaise de bureau",
+  "description": "livré avec son chargeur. Quelques traces d'usure. Disponible après 16h sur le campus, paiement en espèces à la remise. Jamais utilisé, reçu en cadeau. On se voit au campus.",
+  "category": "Mobilier",
+  "price": 66.0,
+  "hasPhoto": false,
+  "probability": 0.099091
+ },
+ {
+  "title": "Livre d'algorithmique",
+  "description": "À récupérer sur le campus.",
+  "category": "Livres",
+  "price": 20.0,
+  "hasPhoto": true,
+  "probability": 0.077522
+ },
+ {
+  "title": "Apple Watch",
+  "description": "Contactez-moi sur WhatsApp au 285 209 442. Livraison seulement, pas de rencontre. Il faut faire vite, beaucoup de demandes. Paiement par virement avant l'envoi.",
+  "category": "Électronique",
+  "price": 101.0,
+  "hasPhoto": false,
+  "probability": 0.999543
+ },
+ {
+  "title": "Sac à dos",
+  "description": "Comme neuf. fonctionne parfaitement. On peut se voir au bloc A entre deux cours pour que tu le vérifies.",
+  "category": "Autre",
+  "price": 44.0,
+  "hasPhoto": true,
+  "probability": 0.034587
+ },
+ {
+  "title": "Sac à dos",
+  "description": "Quelques traces d'usure, prix à discuter.",
+  "category": "Autre",
+  "price": null,
+  "hasPhoto": true,
+  "probability": 0.077522
+ },
+ {
+  "title": "Livre de Java",
+  "description": "Je le vends car je n'en ai plus besoin. Utilisé un semestre, fonctionne parfaitement. Rendez-vous sur le campus. Écris-moi aussi sur WhatsApp si tu préfères, on se voit au campus.",
+  "category": "Livres",
+  "price": 34.0,
+  "hasPhoto": true,
+  "probability": 0.182935
+ },
+ {
+  "title": "iPad Air",
+  "description": "Livraison seulement, pas de rencontre. Neuf sous blister, jamais utilisé.",
+  "category": "Électronique",
+  "price": 298.0,
+  "hasPhoto": false,
+  "probability": 0.482009
+ },
+ {
+  "title": "Table pliante",
+  "description": "Bon état, aucune pièce manquante. Tu peux l'essayer avant de payer, on se retrouve à l'entrée de l'école.",
+  "category": "Mobilier",
+  "price": 51.0,
+  "hasPhoto": true,
+  "probability": 0.034587
+ },
+ {
+  "title": "Petite étagère",
+  "description": "À récupérer sur le campus.",
+  "category": "Mobilier",
+  "price": 46.0,
+  "hasPhoto": true,
+  "probability": 0.077522
+ },
+ {
+  "title": "Chaise de bureau",
+  "description": "Je le vends car je n'en ai plus besoin. Quelques traces d'usure, idéal pour les révisions. Rendez-vous sur le campus.",
+  "category": "Mobilier",
+  "price": 110.0,
+  "hasPhoto": true,
+  "probability": 0.034587
+ },
+ {
+  "title": "Guitare classique",
+  "description": "Je le vends car je n'en ai plus besoin. Très bon état, propre et bien entretenu. Rendez-vous sur le campus.",
+  "category": "Autre",
+  "price": 147.0,
+  "hasPhoto": true,
+  "probability": 0.034587
+ },
+ {
+  "title": "Baskets taille 42",
+  "description": "Comme neuf, prix à discuter.",
+  "category": "Vêtements",
+  "price": 63.0,
+  "hasPhoto": true,
+  "probability": 0.077522
+ },
+ {
+  "title": "Raquette de tennis",
+  "description": "À récupérer sur le campus.",
+  "category": "Autre",
+  "price": 59.0,
+  "hasPhoto": true,
+  "probability": 0.077522
+ },
+ {
+  "title": "Bouilloire",
+  "description": "Je le vends car je n'en ai plus besoin. Comme neuf, idéal pour les révisions. Rendez-vous sur le campus. Écris-moi aussi sur WhatsApp si tu préfères, on se voit au campus.",
+  "category": "Autre",
+  "price": 33.0,
+  "hasPhoto": true,
+  "probability": 0.182935
+ },
+ {
+  "title": "MACBOOK AIR M2",
+  "description": "Envoyez un acompte par Flouci et je vous l'envoie. Je suis à l'étranger, envoi par la poste. Très bon état. Offre limitée, aujourd'hui seulement !",
+  "category": "Électronique",
+  "price": null,
+  "hasPhoto": true,
+  "probability": 0.990636
+ },
+ {
+  "title": "Raquette de tennis",
+  "description": "Je le vends car je n'en ai plus besoin. Utilisé un semestre, jamais tombé. Rendez-vous sur le campus.",
+  "category": "Autre",
+  "price": 52.0,
+  "hasPhoto": false,
+  "probability": 0.058126
+ },
+ {
+  "title": "Écouteurs Bluetooth",
+  "description": "Utilisé un semestre. propre et bien entretenu. On peut se voir au bloc A entre deux cours pour que tu le vérifies.",
+  "category": "Électronique",
+  "price": null,
+  "hasPhoto": true,
+  "probability": 0.034587
+ },
+ {
+  "title": "Écouteurs Bluetooth",
+  "description": "Utilisé un semestre, fonctionne parfaitement. Tu peux l'essayer avant de payer, on se retrouve à l'entrée de l'école.",
+  "category": "Électronique",
+  "price": 62.0,
+  "hasPhoto": true,
+  "probability": 0.034587
+ },
+ {
+  "title": "Canapé cuir",
+  "description": "Très bon état. Mon mail : vente30@gmail.com",
+  "category": "Mobilier",
+  "price": 216.0,
+  "hasPhoto": true,
+  "probability": 0.182935
+ },
+ {
+  "title": "Livre de Java",
+  "description": "propre et bien entretenu. Quelques traces d'usure. Disponible après 16h sur le campus, paiement en espèces à la remise.",
+  "category": "Livres",
+  "price": 24.0,
+  "hasPhoto": true,
+  "probability": 0.034587
+ },
+ {
+  "title": "Livre d'algorithmique",
+  "description": "Bon état. idéal pour les révisions. On peut se voir au bloc A entre deux cours pour que tu le vérifies.",
+  "category": "Livres",
+  "price": 16.0,
+  "hasPhoto": true,
+  "probability": 0.034587
+ },
+ {
+  "title": "Apple Watch",
+  "description": "Envoyez un acompte par Flouci et je vous l'envoie. Neuf sous blister, jamais utilisé.",
+  "category": "Électronique",
+  "price": null,
+  "hasPhoto": false,
+  "probability": 0.702572
+ },
+ {
+  "title": "Pull en laine",
+  "description": "À récupérer sur le campus.",
+  "category": "Vêtements",
+  "price": 31.0,
+  "hasPhoto": true,
+  "probability": 0.077522
+ },
+ {
+  "title": "Guitare classique",
+  "description": "Comme neuf, jamais tombé. Remise en main propre sur le campus, à la cafétéria ou devant la bibliothèque.",
+  "category": "Autre",
+  "price": 128.0,
+  "hasPhoto": true,
+  "probability": 0.034587
+ }
+]

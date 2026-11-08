@@ -101,7 +101,7 @@ class ArticleProvider extends ChangeNotifier {
       recommendArticles(_all, userId, viewedIds: _viewed, limit: limit, now: _clock());
 
   /// Fourchette de prix conseillée d'après les articles comparables.
-  PriceAdvice? priceAdviceFor({required String title, required String category, String? excludeId}) =>
+  PriceAdvice priceAdviceFor({required String title, required String category, String? excludeId}) =>
       advisePrice(title: title, category: category, market: _all, excludeId: excludeId);
 
   void setFilters(ArticleFilters filters) {

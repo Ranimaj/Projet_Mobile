@@ -195,11 +195,42 @@ utilise la rédaction locale.
 | Fonction | Où | Technique |
 |---|---|---|
 | Catégorie et mots-clés reconnus sur la photo | Formulaire « Publier » | Google ML Kit Image Labeling (modèle embarqué) |
-| Prix conseillé (fourchette + bouton « Utiliser ») | Formulaire | Articles comparables : mots du titre puis catégorie, quartiles |
+| Prix conseillé (fourchette + bouton « Utiliser ») | Formulaire | Articles comparables : 1 titre proche, sinon 2 articles de la catégorie (quartiles), sinon prix habituel de la catégorie |
 | Rédaction de la description | Formulaire, bouton « Rédiger avec l'IA » | **Par internet** : API Gemini (Google AI Studio, modèle `gemini-3.5-flash`, sans Firebase). Sans clé ou sans réseau : rédaction locale à partir du titre, de la catégorie, du prix et des mots-clés de la photo |
 | Recommandations « Pour toi » | Liste Vente & Don | Profil favoris (×2) + articles consultés : catégorie, mots, étiquettes photo |
 | Modération avant publication | Formulaire | Règles : objets interdits / insultes (bloquant), coordonnées, majuscules, prix suspect (avertissement) |
 | Recherche par photo | Liste, bouton appareil photo | Étiquettes ML Kit de la photo comparées (Jaccard) à celles des articles |
+| **Détection d'arnaques** (risque faible / moyen / élevé + raisons) | Page d'un article (acheteur) | **Modèle embarqué entraîné** : régression logistique (scikit-learn) sur 11 indices, poids dans `assets/models/fraud_model.json`, calcul dans le téléphone sans internet. Voir ci-dessous |
+| **Assistant IA du chat** (répond à l'acheteur) | Conversation, dès que l'acheteur écrit | **Par internet** : LLM Gemini (même clé, `lib/services/ai/chat_replier.dart`) qui lit l'annonce et les derniers messages, avec des règles (pas de baisse de prix ni de réservation promise, remise sur le campus, jamais de paiement à l'avance). **Sans clé ou sans réseau** : modèle embarqué entraîné (12 intentions, français + darija), voir ci-dessous |
+
+#### Modèle anti-arnaque
+
+- Entraînement : `python tools/fraud_model/train_fraud_model.py` (Python 3, `pip install scikit-learn numpy`).
+  Le script crée le jeu de données `tools/fraud_model/annonces.csv` (1 350 annonces : 900 normales,
+  450 arnaques, avec 3 % d'étiquettes bruitées), entraîne le modèle sur 80 %, l'évalue sur les 20 %
+  restants et écrit `assets/models/fraud_model.json`.
+- Résultats sur les 270 annonces de test : exactitude 89 %, précision 94 %, rappel 73 %, F1 0,82
+  (`metrics` dans le JSON).
+- Indices : paiement à l'avance (virement, D17, Flouci, recharge…), contact hors de l'app
+  (numéro, WhatsApp, lien), urgence, refus de rencontre sur le campus, objet de valeur trop bon
+  marché, prix très bas, promesse « trop belle », don qui demande de payer, description courte,
+  pas de photo, majuscules / « !!! ».
+- Seuils : moyen dès 30 %, élevé dès 60 %. `test/ai/fraud_detector_test.dart` vérifie que l'app
+  calcule exactement comme Python sur 40 annonces de test.
+
+#### Assistant IA du chat (modèle embarqué de secours)
+
+- Entraînement : `python tools/chat_model/train_chat_model.py`. Le script crée
+  `tools/chat_model/questions.csv` (1 787 messages d'acheteurs générés à partir de formulations
+  types, avec salutations, fautes de frappe et darija : « mazel? », « 9adech? », « win nitla9aw? »),
+  entraîne sur 80 % et teste sur 20 % : exactitude 95 %.
+- Intentions : salutation, disponibilité, prix, négociation, état, détails, lieu / heure de
+  rendez-vous, livraison, photos, réservation, remerciement, autre (hors sujet).
+- Réponses : construites avec l'annonce (« Oui, « Lampe » est toujours disponible. », « Le prix
+  est de 25 DT. »…). Deux questions dans le même message → deux réponses. Hors sujet ou confiance
+  < 45 % → « le vendeur te répondra directement ». L'assistant ne décide jamais à la place du
+  vendeur (baisse de prix, réservation) et rappelle de ne jamais payer à l'avance.
+- `test/ai/chat_assistant_test.dart` vérifie que l'app calcule exactement comme Python.
 
 ## 5. Architecture offline-first
 

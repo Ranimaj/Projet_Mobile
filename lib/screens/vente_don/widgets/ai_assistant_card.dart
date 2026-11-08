@@ -127,9 +127,11 @@ class AiAssistantCard extends StatelessWidget {
               Text(
                 advice == null
                     ? 'Prix conseillé : pas encore assez d\'articles comparables.'
-                    : 'Prix conseillé : ${advice.label} '
-                        '(${advice.basedOn} article${advice.basedOn > 1 ? 's' : ''} '
-                        '${advice.similarTitles ? 'similaires' : 'de la catégorie'})',
+                    : advice.source == PriceAdviceSource.reference
+                        ? 'Prix conseillé : ${advice.label} (prix habituel de la catégorie)'
+                        : 'Prix conseillé : ${advice.label} '
+                            '(${advice.basedOn} article${advice.basedOn > 1 ? 's' : ''} '
+                            '${advice.similarTitles ? 'similaire${advice.basedOn > 1 ? 's' : ''}' : 'de la catégorie'})',
                 key: const Key('ai-price'),
                 style: text.bodyMedium,
               ),

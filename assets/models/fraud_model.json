@@ -1,0 +1,41 @@
+{
+ "name": "campusconnect-fraud",
+ "version": 1,
+ "type": "logistic_regression",
+ "bias": -3.3291,
+ "features": {
+  "payment": 2.6531,
+  "off_app": 1.8325,
+  "urgency": 1.7111,
+  "no_meeting": 2.1354,
+  "high_value_cheap": 2.1433,
+  "price_far_below": -0.485,
+  "too_good": 0.5779,
+  "free_but_pay": 0.4138,
+  "short_description": 0.8526,
+  "no_photo": 0.5438,
+  "shouting": 1.0772
+ },
+ "thresholds": {
+  "medium": 0.3,
+  "high": 0.6
+ },
+ "metrics": {
+  "annonces": 1350,
+  "test": 270,
+  "accuracy": 0.893,
+  "precision": 0.944,
+  "recall": 0.731,
+  "f1": 0.824,
+  "confusion": [
+   [
+    173,
+    4
+   ],
+   [
+    25,
+    68
+   ]
+  ]
+ }
+}
