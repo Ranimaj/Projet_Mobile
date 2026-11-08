@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show TargetPlatform, defaultTargetPlatform;
 import 'package:geolocator/geolocator.dart';
 
 import '../core/utils/geo.dart';
@@ -22,6 +23,10 @@ class LocationResult {
       };
 }
 
+/// Campus ESPRIT Ghazela : position proposée quand le GPS ne répond pas
+/// (émulateur sans position, intérieur d'un bâtiment…).
+const GeoPoint2 kCampusPosition = GeoPoint2(36.8992, 10.1897);
+
 /// Fonction qui renvoie la position courante (injectable dans les tests).
 typedef LocationLookup = Future<LocationResult> Function();
 
@@ -41,16 +46,25 @@ Future<LocationResult> currentLocation() async {
     if (permission == LocationPermission.deniedForever) {
       return const LocationResult.failed(LocationFailure.deniedForever);
     }
+    // Sur Android, on lit directement le GPS du téléphone : le service de
+    // Google ignore souvent la position donnée à un émulateur.
     final pos = await Geolocator.getCurrentPosition(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.medium,
-        timeLimit: Duration(seconds: 15),
-      ),
+      locationSettings: defaultTargetPlatform == TargetPlatform.android
+          ? AndroidSettings(
+              accuracy: LocationAccuracy.medium,
+              forceLocationManager: true,
+              timeLimit: const Duration(seconds: 15),
+            )
+          : const LocationSettings(
+              accuracy: LocationAccuracy.medium,
+              timeLimit: Duration(seconds: 15),
+            ),
     );
     return LocationResult.found(GeoPoint2(pos.latitude, pos.longitude));
   } catch (_) {
     try {
-      final last = await Geolocator.getLastKnownPosition();
+      final last = await Geolocator.getLastKnownPosition(
+          forceAndroidLocationManager: defaultTargetPlatform == TargetPlatform.android);
       if (last != null) return LocationResult.found(GeoPoint2(last.latitude, last.longitude));
     } catch (_) {}
     return const LocationResult.failed(LocationFailure.unavailable);

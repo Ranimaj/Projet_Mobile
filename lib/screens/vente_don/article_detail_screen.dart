@@ -74,7 +74,7 @@ class _ArticleDetailScreenState extends State<ArticleDetailScreen> {
         builder: (_) => ChatScreen(conversation: conversation, chatService: chat),
       ));
     } catch (_) {
-      if (mounted) _snack('Impossible d\'ouvrir la conversation. Vérifie ta connexion.');
+      if (mounted) _snack('Impossible d\'ouvrir la conversation. Réessaie.');
     } finally {
       if (mounted) setState(() => _contacting = false);
     }
@@ -246,7 +246,7 @@ class _ArticleDetailScreenState extends State<ArticleDetailScreen> {
         label: 'Contacter ${article.ownerName.split(' ').first}',
         icon: Icons.chat_bubble_outline_rounded,
         isLoading: _contacting,
-        onPressed: provider.isOnline ? () => _contact(article) : null,
+        onPressed: () => _contact(article),
       );
     } else if (user == null) {
       bottomBar = Text(
@@ -287,12 +287,6 @@ class _ArticleDetailScreenState extends State<ArticleDetailScreen> {
           children: [
             articleStatusChip(article),
             StatusChip(label: article.category, style: StatusChipStyle.neutral),
-            if (article.pendingSync || article.hasLocalPhotos)
-              const StatusChip(
-                  key: Key('pending-sync'),
-                  label: 'En attente de réseau',
-                  style: StatusChipStyle.warning,
-                  icon: Icons.cloud_upload_outlined),
           ],
         ),
         const SizedBox(height: 12),
@@ -354,11 +348,6 @@ class _ArticleDetailScreenState extends State<ArticleDetailScreen> {
             ],
           ),
         ),
-        if (!provider.isOnline && !isOwner && user != null) ...[
-          const SizedBox(height: 12),
-          Text('Hors ligne : la messagerie sera disponible au retour du réseau.',
-              style: text.bodySmall?.copyWith(color: t.warning)),
-        ],
       ],
     );
   }

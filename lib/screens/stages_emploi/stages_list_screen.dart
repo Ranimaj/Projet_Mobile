@@ -57,6 +57,7 @@ class _StagesListScreenState extends State<StagesListScreen> {
       ),
       floatingActionButton: isRecruiter
           ? FloatingActionButton(
+              heroTag: 'stages_fab',
               onPressed: () => Navigator.of(context)
                   .push(MaterialPageRoute(builder: (_) => const AddJobScreen())),
               child: const Icon(Icons.add_rounded),

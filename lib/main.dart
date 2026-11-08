@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart' hide AuthProvider;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
-import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:intl/date_symbol_data_local.dart';
@@ -36,20 +35,6 @@ Future<void> main() async {
   await initializeDateFormatting('fr_FR');
 
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-
-  // App Check : exigé par Firebase AI Logic (Gemini, IA de Vente & Don).
-  // En debug, le jeton affiché dans les logs (« debug secret ») doit être
-  // ajouté dans la console : App Check → Apps → Gérer les jetons de débogage.
-  if (!_useEmulator) {
-    try {
-      await FirebaseAppCheck.instance.activate(
-        androidProvider: kDebugMode ? AndroidProvider.debug : AndroidProvider.playIntegrity,
-        appleProvider: kDebugMode ? AppleProvider.debug : AppleProvider.deviceCheck,
-      );
-    } catch (_) {
-      // App Check indisponible : seules les fonctions Gemini seront refusées.
-    }
-  }
 
   if (_useEmulator) {
     // L'émulateur Android voit la machine hôte via 10.0.2.2.

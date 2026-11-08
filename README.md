@@ -136,67 +136,68 @@ utilisateur correspondant dans la console Firestore (`student` → `admin` /
 ## Gestion Vente & Don
 
 Écrans dans `lib/screens/vente_don/`, logique dans `lib/providers/article_provider.dart`
-et `lib/core/utils/article_search.dart`.
+et `lib/core/utils/article_search.dart`. **La gestion n'utilise pas Firebase** : toutes
+ses données sont dans une base **SQLite** sur le téléphone (voir plus bas). La connexion
+et les autres modules de l'app ne changent pas.
 
 - **CRUD** : publier (`ArticleFormScreen`), consulter (grille + détail), **modifier**
   (menu du propriétaire → « Modifier »), réserver / remettre disponible / marquer
   vendu ou donné, supprimer (avec confirmation).
-- **Avancé 1 — photos** : jusqu'à 6 photos par article, compressées (1080 px, qualité 70)
-  avant l'envoi dans Firebase Storage (`articles/`) ; la première sert de couverture
-  dans la grille et le détail affiche un carrousel.
+- **Avancé 1 — photos** : jusqu'à 6 photos par article, copiées dans le dossier de
+  l'app ; la première sert de couverture dans la grille et le détail affiche un
+  carrousel. Les 4 articles de démonstration ont leurs photos dans `assets/images/demo/`.
 - **Avancé 2 — recherche intelligente** : recherche sans accents ni majuscules, par début
   de mot, dans le titre, la catégorie et la description (le titre pèse le plus), combinée
   avec les filtres catégorie, gratuit, **fourchette de prix**, **rayon autour de
   l'utilisateur** (1 à 25 km, position GPS facultative) et un tri (récents, prix ↑/↓,
   plus proches, plus vus).
-- **Contacter le vendeur** : vraie messagerie Firestore (`conversations/{articleId}_{acheteur}`
-  + sous-collection `messages`), liste « Mes messages » avec non-lus.
+- **Contacter le vendeur** : messagerie dans SQLite (tables `conversations` et
+  `messages`), liste « Mes messages » avec non-lus.
 - **Favoris** (écran « Mes favoris »), **compteur de vues** (une vue par session, jamais
   pour le propriétaire), écran **« Mes articles »** (tous les états, vues et favoris).
-- **Hors-ligne** : un article publié sans réseau part en file d'attente (sans photo) et
-  apparaît tout de suite ; favoris et changements d'état aussi.
-- **Sécurité** (`firestore.rules`) : seul le propriétaire modifie son article ; les autres
-  utilisateurs ne peuvent toucher qu'à **leur** favori et ajouter 1 au compteur de vues ;
-  les conversations ne sont lisibles que par l'acheteur et le vendeur. Après une
-  modification des règles : `firebase deploy --only firestore:rules,storage`.
+- **Articles de démo** : bouton « Ajouter 4 articles de démo » (liste vide, ou ✨ dans
+  « Mes articles »).
+- **Sans réseau** : tout fonctionne, puisque rien ne passe par internet.
 - **Tests** : `test/core/article_search_test.dart`, `test/models/article_model_test.dart`,
-  `test/providers/article_provider_test.dart`, `test/services/chat_service_test.dart`,
+  `test/providers/article_provider_test.dart`, `test/services/local_article_repository_test.dart`,
+  `test/services/chat_service_test.dart`, `test/ai/article_ai_logic_test.dart`,
   `test/screens/vente_don_list_screen_test.dart`, `article_detail_screen_test.dart`,
-  `article_form_screen_test.dart` ; règles : `test/rules/` (`npm test`).
+  `article_form_screen_test.dart`.
 
 ### Base de données SQLite (Vente & Don)
 
-Les articles sont stockés dans une **base SQLite sur le téléphone**
-(`campusconnect_vente_don.db`, paquet `sqflite`) : c'est la base principale,
-celle que l'app lit toujours. Firebase sert à partager les articles avec les
-autres étudiants.
+Fichier `campusconnect_vente_don.db` sur le téléphone (paquet `sqflite`), version 2 :
 
-- Table `articles` : une colonne par champ (`title`, `price`, `category`,
-  `status`, `latitude`, `created_at`…), les listes (photos, favoris,
-  étiquettes IA) en JSON, et `sync_state` = `synced` / `pending` / `deleted`.
-- Écriture : d'abord dans SQLite (`pending`), puis envoi à Firestore ; sans
-  réseau, l'envoi attend dans la file hors-ligne et la ligne reste `pending`.
-- Lecture en ligne : les articles de Firestore remplacent ceux de SQLite,
-  sauf les modifications du téléphone pas encore envoyées.
-- Code : `lib/services/sqlite/article_database.dart` (schéma, requêtes) et
-  `lib/services/sqlite/sqlite_article_repository.dart` (synchronisation).
-  Tests : `test/services/sqlite_article_repository_test.dart`.
+| Table | Contenu |
+|---|---|
+| `articles` | une colonne par champ (`title`, `price`, `category`, `status`, `latitude`, `created_at`, `view_count`…) ; photos, favoris et étiquettes IA en JSON |
+| `conversations` | une ligne par article + acheteur : vendeur, acheteur, dernier message, non-lus |
+| `messages` | `conversation_id`, `sender_id`, `text`, `sent_at` |
+
+- Schéma et requêtes des articles : `lib/services/sqlite/article_database.dart`.
+- Dépôt utilisé par le provider : `lib/services/sqlite/local_article_repository.dart`
+  (interface `ArticleStore`).
+- Messagerie : `lib/services/chat_service.dart`.
+- Les données restent sur le téléphone : un autre téléphone ne voit pas les mêmes
+  articles (choix du projet : SQLite à la place de Firebase).
 
 ### IA de la gestion Vente & Don
 
-Code dans `lib/services/ai/`, tests dans `test/ai/`.
+Code dans `lib/services/ai/`, tests dans `test/ai/`. Tout tourne **sur le téléphone**,
+sauf la rédaction par Gemini qui passe par internet (sans Firebase).
 
-| Fonction | Où | Technique | Hors-ligne |
-|---|---|---|---|
-| Catégorie et mots-clés reconnus sur la photo | Formulaire « Publier » | Google ML Kit Image Labeling (modèle embarqué) | Oui |
-| Prix conseillé (fourchette + bouton « Utiliser ») | Formulaire | Articles comparables : mots du titre puis catégorie, quartiles | Oui |
-| Rédaction de la description | Formulaire, bouton « Rédiger avec l'IA » | Gemini 2.5 Flash via Firebase AI Logic (`firebase_ai`) | Non |
-| Recommandations « Pour toi » | Liste Vente & Don | Profil favoris (×2) + articles consultés : catégorie, mots, étiquettes photo | Oui |
-| Modération avant publication | Formulaire | Règles : objets interdits / insultes (bloquant), coordonnées, majuscules, prix suspect (avertissement) | Oui |
-| Recherche par photo | Liste, bouton appareil photo | Étiquettes ML Kit de la photo comparées (Jaccard) à celles des articles | Oui |
+**Activer Gemini** : crée une clé gratuite sur <https://aistudio.google.com/apikey>, puis lance
+`flutter run --dart-define=GEMINI_API_KEY=ta_cle`. Ne mets jamais la clé dans le code ni
+dans Git. Sans clé, le bouton utilise la rédaction locale.
 
-Pour la rédaction par Gemini : console Firebase → **AI Logic** → **Commencer** → choisir
-**Gemini Developer API** (gratuit, sans forfait Blaze).
+| Fonction | Où | Technique |
+|---|---|---|
+| Catégorie et mots-clés reconnus sur la photo | Formulaire « Publier » | Google ML Kit Image Labeling (modèle embarqué) |
+| Prix conseillé (fourchette + bouton « Utiliser ») | Formulaire | Articles comparables : mots du titre puis catégorie, quartiles |
+| Rédaction de la description | Formulaire, bouton « Rédiger avec l'IA » | **Par internet** : API Gemini (Google AI Studio, modèle `gemini-3.5-flash`, sans Firebase). Sans clé ou sans réseau : rédaction locale à partir du titre, de la catégorie, du prix et des mots-clés de la photo |
+| Recommandations « Pour toi » | Liste Vente & Don | Profil favoris (×2) + articles consultés : catégorie, mots, étiquettes photo |
+| Modération avant publication | Formulaire | Règles : objets interdits / insultes (bloquant), coordonnées, majuscules, prix suspect (avertissement) |
+| Recherche par photo | Liste, bouton appareil photo | Étiquettes ML Kit de la photo comparées (Jaccard) à celles des articles |
 
 ## 5. Architecture offline-first
 

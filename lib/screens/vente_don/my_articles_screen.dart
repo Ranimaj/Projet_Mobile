@@ -10,7 +10,6 @@ import '../../widgets/filter_chip_pill.dart';
 import '../../widgets/stat_tile.dart';
 import 'article_detail_screen.dart';
 import 'article_form_screen.dart';
-import 'vente_don_list_screen.dart' show addDemoArticles;
 import 'widgets/article_card.dart';
 
 /// Articles publiés par l'utilisateur, y compris réservés et terminés, avec
@@ -42,18 +41,9 @@ class _MyArticlesScreenState extends State<MyArticlesScreen> {
     final likes = mine.fold<int>(0, (sum, a) => sum + a.favoritedBy.length);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Mes articles'),
-        actions: [
-          IconButton(
-            key: const Key('add-demo-articles-menu'),
-            tooltip: 'Ajouter 4 articles de démo',
-            icon: const Icon(Icons.auto_awesome_outlined),
-            onPressed: () => addDemoArticles(context),
-          ),
-        ],
-      ),
+      appBar: AppBar(title: const Text('Mes articles')),
       floatingActionButton: FloatingActionButton(
+        heroTag: 'my_articles_add_fab',
         tooltip: 'Publier un article',
         onPressed: () => Navigator.of(context)
             .push(MaterialPageRoute(builder: (_) => const ArticleFormScreen())),

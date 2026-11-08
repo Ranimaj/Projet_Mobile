@@ -176,7 +176,7 @@ void main() {
     expect(find.byTooltip('Ajouter aux favoris'), findsNothing);
   });
 
-  testWidgets('an article published offline shows its local photo and a waiting note', (tester) async {
+  testWidgets('an article with a photo stored on the phone shows no network note', (tester) async {
     await h.signIn(tester);
     final photos = FakePhotoStore()..files.add('/local/photo-9.jpg');
     repo = FakeArticleRepo([
@@ -184,7 +184,7 @@ void main() {
     ]);
     await pumpMarket(tester, h, marketProvider(repo, online: false, photos: photos), const VenteDonListScreen());
     expect(find.text('Lampe hors ligne'), findsOneWidget);
-    expect(find.textContaining('En attente de réseau'), findsOneWidget);
+    expect(find.textContaining('En attente de réseau'), findsNothing);
   });
 
   testWidgets('empty market shows the empty state', (tester) async {
@@ -236,17 +236,5 @@ void main() {
     expect(rail, findsOneWidget);
     expect(find.descendant(of: rail, matching: find.text('Livre Python')), findsOneWidget);
     expect(find.descendant(of: rail, matching: find.text('Lampe')), findsNothing);
-  });
-
-  testWidgets('the empty market offers to add the demo articles', (tester) async {
-    await h.signIn(tester);
-    repo = FakeArticleRepo();
-    await pumpMarket(tester, h, marketProvider(repo), const VenteDonListScreen());
-    await tester.tap(find.byKey(const Key('add-demo-articles')));
-    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
-    await tester.pumpAndSettle();
-    expect(find.text('4 articles de démo ajoutés.'), findsOneWidget);
-    expect(find.text('Calculatrice scientifique'), findsOneWidget);
-    expect(find.text('4 articles'), findsOneWidget);
   });
 }

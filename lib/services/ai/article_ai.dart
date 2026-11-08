@@ -1,14 +1,10 @@
 import 'dart:io';
-import 'dart:typed_data';
 
-import 'package:firebase_ai/firebase_ai.dart'
-    show Content, FirebaseAI, GenerativeModel, InlineDataPart, Part, TextPart;
-import 'package:firebase_app_check/firebase_app_check.dart' show FirebaseAppCheck;
-import 'package:flutter_image_compress/flutter_image_compress.dart' show CompressFormat, FlutterImageCompress;
 import 'package:google_mlkit_image_labeling/google_mlkit_image_labeling.dart'
     show ImageLabeler, ImageLabelerOptions, InputImage;
 
 import 'category_mapper.dart';
+import 'gemini_api_writer.dart';
 
 /// Reconnaît le contenu d'une photo (sur le téléphone, sans réseau).
 abstract class ImageTagger {
@@ -55,58 +51,44 @@ ${keywords.isEmpty ? '' : 'Mots-clés détectés sur la photo : ${keywords.join(
 Réponds uniquement avec la description.''';
 }
 
-/// Rédige une description d'annonce (nécessite le réseau).
+/// Rédige une description d'annonce.
 abstract class DescriptionWriter {
   Future<String> write(DescriptionRequest request);
 }
 
-/// Gemini via Firebase AI Logic (API Gemini Developer).
-class GeminiDescriptionWriter implements DescriptionWriter {
-  GeminiDescriptionWriter({this.model = 'gemini-3.8-flash'});
+/// Rédaction **sur le téléphone**, sans réseau ni service externe : compose
+/// une description à partir du titre, de la catégorie, du prix et des
+/// mots-clés reconnus sur la photo. Le texte varie selon la catégorie et
+/// reste court, sans prix ni contact (règles de la modération).
+class LocalDescriptionWriter implements DescriptionWriter {
+  const LocalDescriptionWriter();
 
-  final String model;
-  GenerativeModel? _model;
+  static const Map<String, String> _detail = {
+    'Livres': 'Les pages sont complètes et lisibles, idéal pour réviser.',
+    'Électronique': 'Il fonctionne correctement et a été testé avant l\'annonce.',
+    'Vêtements': 'Il est propre et a été bien entretenu.',
+    'Mobilier': 'Il est solide et pratique pour une chambre ou un studio étudiant.',
+  };
 
   @override
   Future<String> write(DescriptionRequest request) async {
-    // Le jeton App Check n'est envoyé que si on passe l'instance explicitement.
-    final m = _model ??= FirebaseAI.googleAI(appCheck: FirebaseAppCheck.instance)
-        .generativeModel(model: model);
-    final photo = await _smallJpeg(request.photo);
-    String text;
-    try {
-      text = await _generate(m, request.prompt, photo);
-    } catch (_) {
-      // Serveur saturé ou délai dépassé (503) : un 2e essai, sans la photo
-      // (plus léger, donc plus rapide).
-      await Future<void>.delayed(const Duration(seconds: 2));
-      text = await _generate(m, request.prompt, null);
-    }
-    return text.length > 1000 ? text.substring(0, 1000) : text;
-  }
-
-  Future<String> _generate(GenerativeModel m, String prompt, List<int>? photo) async {
-    final parts = <Part>[
-      TextPart(prompt),
-      if (photo != null) InlineDataPart('image/jpeg', Uint8List.fromList(photo)),
+    final title = request.title.trim().isEmpty ? 'Objet' : request.title.trim();
+    final what = title[0].toLowerCase() + title.substring(1);
+    final words = [
+      for (final k in request.keywords)
+        if (!what.toLowerCase().contains(k.toLowerCase())) k,
+    ].take(3).toList();
+    final sentences = <String>[
+      request.price == null
+          ? 'Je donne $what, en bon état.'
+          : 'Je vends $what, en bon état.',
+      if (words.isNotEmpty) 'Sur la photo : ${words.join(', ')}.',
+      _detail[request.category] ?? 'Il est en bon état et prêt à servir.',
+      request.price == null
+          ? 'Gratuit pour un étudiant qui en a besoin, remise en main propre sur le campus.'
+          : 'Remise en main propre sur le campus.',
     ];
-    final response = await m
-        .generateContent([Content.multi(parts)])
-        .timeout(const Duration(seconds: 40));
-    final text = response.text?.trim() ?? '';
-    if (text.isEmpty) throw StateError('Réponse vide');
-    return text;
-  }
-
-  /// Réduit la photo (≤ 768 px, JPEG) pour un envoi rapide. Null si absente.
-  static Future<List<int>?> _smallJpeg(File? photo) async {
-    if (photo == null) return null;
-    try {
-      final out = await FlutterImageCompress.compressWithFile(photo.path,
-          minWidth: 768, minHeight: 768, quality: 75, format: CompressFormat.jpeg);
-      if (out != null) return out;
-    } catch (_) {}
-    return photo.readAsBytes();
+    return sentences.join(' ');
   }
 }
 
@@ -115,7 +97,8 @@ class GeminiDescriptionWriter implements DescriptionWriter {
 class ArticleAi {
   ArticleAi({ImageTagger? tagger, DescriptionWriter? writer})
       : tagger = tagger ?? MlKitImageTagger(),
-        writer = writer ?? GeminiDescriptionWriter();
+        // Gemini par internet si une clé est fournie, sinon rédaction locale.
+        writer = writer ?? GeminiApiDescriptionWriter(apiKey: kGeminiApiKey);
 
   final ImageTagger tagger;
   final DescriptionWriter writer;

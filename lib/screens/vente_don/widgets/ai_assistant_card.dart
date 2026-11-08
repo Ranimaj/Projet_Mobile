@@ -19,7 +19,6 @@ class AiAssistantCard extends StatelessWidget {
   final bool isFree;
   final VoidCallback? onUsePrice;
   final bool writing;
-  final bool online;
   final VoidCallback onWrite;
 
   const AiAssistantCard({
@@ -34,7 +33,6 @@ class AiAssistantCard extends StatelessWidget {
     required this.isFree,
     required this.onUsePrice,
     required this.writing,
-    required this.online,
     required this.onWrite,
   });
 
@@ -150,13 +148,8 @@ class AiAssistantCard extends StatelessWidget {
             icon: Icons.auto_awesome_outlined,
             style: PillStyle.ghost,
             isLoading: writing,
-            onPressed: online ? onWrite : null,
+            onPressed: onWrite,
           ),
-          if (!online)
-            Padding(
-              padding: const EdgeInsets.only(top: 6),
-              child: Text('La rédaction par IA demande une connexion.', style: text.bodySmall),
-            ),
         ],
       ),
     );

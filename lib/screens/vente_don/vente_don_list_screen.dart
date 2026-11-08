@@ -13,6 +13,7 @@ import '../../providers/article_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/ai/article_ai.dart';
 import '../../services/ai/category_mapper.dart';
+import '../../services/demo_articles.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/filter_chip_pill.dart';
 import '../../widgets/offline_banner.dart';
@@ -48,7 +49,10 @@ class _VenteDonListScreenState extends State<VenteDonListScreen> {
     super.initState();
     final provider = context.read<ArticleProvider>();
     _search.text = provider.searchQuery;
-    WidgetsBinding.instance.addPostFrameCallback((_) => provider.load());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      provider.load();
+      exportDemoPhotosToDevice();
+    });
   }
 
   @override
@@ -87,10 +91,51 @@ class _VenteDonListScreenState extends State<VenteDonListScreen> {
     return x == null ? null : File(x.path);
   }
 
+  static Future<File?> _pickFromCamera() async {
+    final x = await ImagePicker().pickImage(source: ImageSource.camera, imageQuality: 85);
+    return x == null ? null : File(x.path);
+  }
+
+  /// Affiche un menu Démo / Galerie / Caméra puis renvoie la photo choisie.
+  Future<File?> _pickPhotoForSearch() async {
+    if (widget.pickPhoto != null) return widget.pickPhoto!();
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.auto_awesome_outlined, color: Colors.deepOrange),
+              title: const Text('Photos de démo CampusConnect'),
+              subtitle: const Text('Livre, lampe, calculatrice, veste'),
+              onTap: () => Navigator.pop(ctx, 'demo'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Galerie photos'),
+              onTap: () => Navigator.pop(ctx, 'gallery'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.camera_alt_outlined),
+              title: const Text('Prendre une photo'),
+              onTap: () => Navigator.pop(ctx, 'camera'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (choice == null || !mounted) return null;
+    if (choice == 'demo') return showDemoPhotoPickerSheet(context);
+    if (choice == 'camera') return _pickFromCamera();
+    return _pickFromGallery();
+  }
+
   /// Recherche par photo : l'IA reconnaît l'objet et la liste est classée
   /// par ressemblance avec les photos des articles.
   Future<void> _searchByPhoto(ArticleProvider provider) async {
-    final photo = await (widget.pickPhoto ?? _pickFromGallery)();
+    final photo = await _pickPhotoForSearch();
     if (photo == null || !mounted) return;
     setState(() => _photoSearching = true);
     try {
@@ -136,6 +181,7 @@ class _VenteDonListScreenState extends State<VenteDonListScreen> {
       floatingActionButton: user == null
           ? null
           : FloatingActionButton.extended(
+              heroTag: 'vente_don_publish_fab',
               key: const Key('publish-article'),
               backgroundColor: t.primary,
               foregroundColor: t.onPrimary,
@@ -281,21 +327,10 @@ class _VenteDonListScreenState extends State<VenteDonListScreen> {
               else if (items.isEmpty)
                 SliverToBoxAdapter(
                   child: filters.isEmpty
-                      ? Column(
-                          children: [
-                            const EmptyState(
-                              icon: Icons.storefront_outlined,
-                              title: 'Aucun article pour le moment',
-                              subtitle: 'Sois le premier à publier un article à vendre ou à donner !',
-                            ),
-                            if (user != null)
-                              OutlinedButton.icon(
-                                key: const Key('add-demo-articles'),
-                                onPressed: () => addDemoArticles(context),
-                                icon: const Icon(Icons.auto_awesome_outlined),
-                                label: const Text('Ajouter 4 articles de démo'),
-                              ),
-                          ],
+                      ? const EmptyState(
+                          icon: Icons.storefront_outlined,
+                          title: 'Aucun article pour le moment',
+                          subtitle: 'Sois le premier à publier un article à vendre ou à donner !',
                         )
                       : const EmptyState(
                           icon: Icons.search_off_rounded,
@@ -532,19 +567,4 @@ class _LoadingGrid extends StatelessWidget {
       itemBuilder: (_, __) => const SkeletonBox(radius: 20),
     );
   }
-}
-
-/// Ajoute les articles de démonstration au compte connecté et le confirme.
-Future<void> addDemoArticles(BuildContext context) async {
-  final user = context.read<AuthProvider>().currentUser;
-  if (user == null) return;
-  final messenger = ScaffoldMessenger.of(context);
-  final added = await context
-      .read<ArticleProvider>()
-      .addDemoArticles(ownerId: user.id, ownerName: user.fullName);
-  messenger.showSnackBar(SnackBar(
-    content: Text(added == 0
-        ? 'Les articles de démo sont déjà publiés.'
-        : '$added article${added > 1 ? 's' : ''} de démo ajouté${added > 1 ? 's' : ''}.'),
-  ));
 }

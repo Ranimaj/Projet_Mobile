@@ -35,6 +35,7 @@ class _AnnoncesListScreenState extends State<AnnoncesListScreen> {
       floatingActionButton: isGuest
           ? null
           : FloatingActionButton(
+              heroTag: 'annonces_fab',
               onPressed: () => Navigator.of(context)
                   .push(MaterialPageRoute(builder: (_) => const AddAnnonceScreen())),
               child: const Icon(Icons.add_rounded),
