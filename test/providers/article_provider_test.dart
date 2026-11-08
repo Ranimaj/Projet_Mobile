@@ -294,4 +294,64 @@ void main() {
     expect(p.byId('book')!.viewCount, 1);
     expect(repo.updates.where((u) => u.$1 == 'book').single.$2, {'viewCount': 1});
   });
+
+  test('photo search ranks lookalikes and can be cleared', () async {
+    repo = FakeArticleRepo([
+      article('b1', title: 'Livre', labels: const ['book', 'paper']),
+      article('b2', title: 'Cahier', labels: const ['paper']),
+      article('l', title: 'Lampe', labels: const ['lamp']),
+    ]);
+    final p = make();
+    await p.load();
+    p.setPhotoSearch(['Book', 'Paper']);
+    expect(p.isPhotoSearch, isTrue);
+    expect([for (final a in p.items) a.id], ['b1', 'b2']);
+    p.clearPhotoSearch();
+    expect(p.items.length, 3);
+  });
+
+  test('recommendations and price advice come from the loaded articles', () async {
+    repo = FakeArticleRepo([
+      article('fav', title: 'Livre Java', category: 'Livres', price: 20, favoritedBy: const ['u9']),
+      article('py', title: 'Livre Python', category: 'Livres', price: 30),
+    ]);
+    final p = make();
+    await p.load();
+    expect([for (final a in p.recommendationsFor('u9')) a.id], ['py']);
+    final advice = p.priceAdviceFor(title: 'Livre C++', category: 'Livres')!;
+    expect(advice.basedOn, 2);
+    expect(advice.suggested, 25);
+  });
+
+  test('editArticle saves new photo labels', () async {
+    final p = make();
+    await p.load();
+    await p.editArticle(p.byId('book')!,
+        title: 'Livre', description: 'd', category: 'Livres', price: 1, keptUrls: const [], labels: const ['book']);
+    expect(repo.updates.single.$2['labels'], ['book']);
+    expect(p.byId('book')!.labels, ['book']);
+  });
+
+  test('addDemoArticles adds the 4 demo articles with bundled photos, once', () async {
+    final p = make();
+    await p.load();
+    final added = await p.addDemoArticles(ownerId: 'u1', ownerName: 'Ranim');
+    expect(added, 4);
+    final demos = [for (final (a, _) in repo.creates) a];
+    expect(demos.map((a) => a.title), [
+      'Livre d\'algorithmique',
+      'Lampe de bureau LED',
+      'Calculatrice scientifique',
+      'Veste d\'hiver',
+    ]);
+    expect(demos.every((a) => a.ownerId == 'u1' && a.ownerName == 'Ranim'), isTrue);
+    expect(demos.first.imageUrls.single, 'asset:assets/images/demo/livre_algo.jpg');
+    expect(demos.last.price, isNull);
+    expect(demos.every((a) => !a.hasLocalPhotos && a.hasLocation && a.labels.isNotEmpty), isTrue);
+    verifyNever(() => storage.uploadImages(any(), folder: any(named: 'folder')));
+
+    // Un 2e appui n'ajoute rien.
+    expect(await p.addDemoArticles(ownerId: 'u1', ownerName: 'Ranim'), 0);
+    expect(repo.creates, hasLength(4));
+  });
 }

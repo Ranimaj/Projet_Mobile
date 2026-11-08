@@ -21,6 +21,13 @@ class ArticlePhoto extends StatelessWidget {
           color: t.primarySoft,
           child: Center(child: Icon(icon, color: t.primary)),
         );
+    if (isAssetImage(url)) {
+      return Image.asset(
+        assetPathOf(url),
+        fit: fit,
+        errorBuilder: (_, __, ___) => fallback(Icons.broken_image_outlined),
+      );
+    }
     if (isLocalImage(url)) {
       return Image.file(
         File(url),

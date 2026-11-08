@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
@@ -13,7 +14,11 @@ import '../../providers/article_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../widgets/bottom_action_bar.dart';
 import '../../widgets/filter_chip_pill.dart';
+import '../../services/ai/article_ai.dart';
+import '../../services/ai/category_mapper.dart';
+import '../../services/ai/moderation.dart';
 import '../../widgets/pill_button.dart';
+import 'widgets/ai_assistant_card.dart';
 import 'widgets/article_photo.dart';
 
 /// Sélection de photos (remplaçable dans les tests).
@@ -68,7 +73,10 @@ class ArticleFormScreen extends StatefulWidget {
   final ArticleModel? article;
   final PickImages? pickImages;
 
-  const ArticleFormScreen({super.key, this.article, this.pickImages});
+  /// Services IA (reconnaissance de photo, rédaction) ; remplaçables en test.
+  final ArticleAi? ai;
+
+  const ArticleFormScreen({super.key, this.article, this.pickImages, this.ai});
 
   bool get isEditing => article != null;
 
@@ -93,10 +101,137 @@ class _ArticleFormScreenState extends State<ArticleFormScreen> {
   bool _locating = false;
   bool _submitting = false;
 
+  // --- IA ---
+  ArticleAi get _ai => widget.ai ?? ArticleAi.instance;
+  bool _analyzing = false;
+  bool _analysisFailed = false;
+  CategorySuggestion? _suggestion;
+  List<String>? _labels;
+  bool _categoryTouched = false;
+  bool _writing = false;
+  List<String> _keywords = const [];
+
   int get _photoCount => _kept.length + _newImages.length;
 
   @override
+  void initState() {
+    super.initState();
+    _titleCtrl.addListener(_onTitleChanged);
+  }
+
+  String _lastTitle = '';
+  void _onTitleChanged() {
+    // Recalcule le prix conseillé quand le titre change vraiment.
+    if (_titleCtrl.text.trim() == _lastTitle) return;
+    _lastTitle = _titleCtrl.text.trim();
+    if (mounted) setState(() {});
+  }
+
+  /// Reconnaît l'objet sur [photo] : catégorie, mots-clés et étiquettes.
+  Future<void> _analyze(File photo) async {
+    setState(() {
+      _analyzing = true;
+      _analysisFailed = false;
+    });
+    try {
+      final tags = await _ai.tagger.tag(photo);
+      if (!mounted) return;
+      final suggestion = suggestCategory(tags);
+      setState(() {
+        _analyzing = false;
+        _labels = labelsForSearch(tags);
+        _suggestion = suggestion;
+        _keywords = suggestion?.keywords ?? const [];
+        _analysisFailed = suggestion == null;
+        if (suggestion != null && !_categoryTouched) _category = suggestion.category;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _analyzing = false;
+        _analysisFailed = true;
+      });
+    }
+  }
+
+  void _addKeyword(String k) {
+    final current = _titleCtrl.text.trim();
+    if (current.toLowerCase().contains(k.toLowerCase())) return;
+    final next = current.isEmpty ? '${k[0].toUpperCase()}${k.substring(1)}' : '$current $k';
+    _titleCtrl.text = next.length > 80 ? next.substring(0, 80) : next;
+  }
+
+  Future<void> _writeDescription() async {
+    final online = context.read<ArticleProvider>().isOnline;
+    if (!online || _writing) return;
+    setState(() => _writing = true);
+    try {
+      final text = await _ai.writer.write(DescriptionRequest(
+        title: _titleCtrl.text.trim().isEmpty ? 'Objet' : _titleCtrl.text.trim(),
+        category: _category,
+        price: _isFree ? null : ArticleFormValidators.parsePrice(_priceCtrl.text),
+        keywords: _keywords,
+        photo: _newImages.isEmpty ? null : _newImages.first,
+      ));
+      if (!mounted) return;
+      _descCtrl.text = text;
+      _snack('Description proposée par l\'IA : relis-la et modifie-la si besoin.');
+    } catch (e) {
+      debugPrint('[IA] Gemini a échoué : $e');
+      if (mounted) {
+        _snack(kDebugMode
+            ? 'IA indisponible : $e'
+            : 'L\'IA n\'a pas pu rédiger la description. Réessaie plus tard.');
+      }
+    } finally {
+      if (mounted) setState(() => _writing = false);
+    }
+  }
+
+  /// Vérifie l'annonce (objets interdits, insultes, coordonnées…). Renvoie
+  /// false si la publication doit être annulée.
+  Future<bool> _passesModeration(double? price) async {
+    final result = moderateArticle(
+      title: _titleCtrl.text,
+      description: _descCtrl.text,
+      category: _category,
+      price: price,
+    );
+    if (result.ok) return true;
+    if (result.blocked) {
+      await showDialog<void>(
+        context: context,
+        builder: (d) => AlertDialog(
+          key: const Key('moderation-blocked'),
+          title: const Text('Annonce refusée'),
+          content: Text(result.messages(ModerationLevel.block).join('\n')),
+          actions: [TextButton(onPressed: () => Navigator.pop(d), child: const Text('Modifier'))],
+        ),
+      );
+      return false;
+    }
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (d) => AlertDialog(
+        key: const Key('moderation-warning'),
+        title: const Text('Vérifie ton annonce'),
+        content: Text(result.messages(ModerationLevel.warn).join('\n')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('Modifier')),
+          TextButton(
+            key: const Key('publish-anyway'),
+            onPressed: () => Navigator.pop(d, true),
+            child: const Text('Publier quand même'),
+          ),
+        ],
+      ),
+    );
+    return go == true;
+  }
+
+  @override
   void dispose() {
+    _titleCtrl.removeListener(_onTitleChanged);
     _titleCtrl.dispose();
     _descCtrl.dispose();
     _priceCtrl.dispose();
@@ -111,8 +246,11 @@ class _ArticleFormScreenState extends State<ArticleFormScreen> {
     if (room <= 0) return;
     final picked = await (widget.pickImages ?? _pickFromGallery)();
     if (!mounted || picked.isEmpty) return;
+    final coverBefore = _kept.isEmpty && _newImages.isEmpty;
     setState(() => _newImages.addAll(picked.take(room)));
     if (picked.length > room) _snack('${ArticleModel.maxPhotos} photos maximum.');
+    // La photo de couverture sert à reconnaître l'objet.
+    if (coverBefore || _suggestion == null) await _analyze(_newImages.first);
   }
 
   Future<void> _locate() async {
@@ -134,6 +272,8 @@ class _ArticleFormScreenState extends State<ArticleFormScreen> {
     final user = context.read<AuthProvider>().currentUser;
     if (user == null) return;
     final price = _isFree ? null : ArticleFormValidators.parsePrice(_priceCtrl.text);
+    if (!await _passesModeration(price)) return;
+    if (!mounted) return;
     setState(() => _submitting = true);
     try {
       final original = widget.article;
@@ -148,6 +288,7 @@ class _ArticleFormScreenState extends State<ArticleFormScreen> {
           newImages: _newImages,
           location: _location,
           removeLocation: _location == null && original.hasLocation,
+          labels: _labels,
         );
       } else {
         await provider.createArticle(
@@ -162,6 +303,7 @@ class _ArticleFormScreenState extends State<ArticleFormScreen> {
             latitude: _location?.latitude,
             longitude: _location?.longitude,
             createdAt: DateTime.now(),
+            labels: _labels ?? const [],
           ),
           imageFiles: _newImages,
         );
@@ -226,7 +368,16 @@ class _ArticleFormScreenState extends State<ArticleFormScreen> {
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
     final text = Theme.of(context).textTheme;
-    final online = context.watch<ArticleProvider>().isOnline;
+    final provider = context.watch<ArticleProvider>();
+    final online = provider.isOnline;
+    final advice = _isFree
+        ? null
+        : provider.priceAdviceFor(
+            title: _titleCtrl.text,
+            category: _category,
+            excludeId: widget.article?.id,
+          );
+    final suggestion = _suggestion;
 
     return Scaffold(
       appBar: AppBar(title: Text(widget.isEditing ? 'Modifier l\'article' : 'Publier un article')),
@@ -292,6 +443,28 @@ class _ArticleFormScreenState extends State<ArticleFormScreen> {
               Text('Hors ligne : l\'article et ses photos sont gardés sur le téléphone et partiront au retour du réseau.',
                   style: text.bodySmall?.copyWith(color: t.warning)),
             ],
+            const SizedBox(height: 16),
+            AiAssistantCard(
+              analyzing: _analyzing,
+              analysisFailed: _analysisFailed,
+              suggestion: suggestion,
+              categoryApplied: suggestion != null && suggestion.category == _category,
+              onApplyCategory: suggestion == null
+                  ? null
+                  : () => setState(() {
+                        _category = suggestion.category;
+                        _categoryTouched = true;
+                      }),
+              onKeyword: _addKeyword,
+              priceAdvice: advice,
+              isFree: _isFree,
+              onUsePrice: advice == null
+                  ? null
+                  : () => setState(() => _priceCtrl.text = advice.suggested.round().toString()),
+              writing: _writing,
+              online: online,
+              onWrite: _writeDescription,
+            ),
             const SizedBox(height: 20),
             TextFormField(
               key: const Key('field-title'),
@@ -327,7 +500,10 @@ class _ArticleFormScreenState extends State<ArticleFormScreen> {
                     key: ValueKey('category-$c'),
                     label: c,
                     selected: _category == c,
-                    onTap: () => setState(() => _category = c),
+                    onTap: () => setState(() {
+                      _category = c;
+                      _categoryTouched = true;
+                    }),
                   ),
               ],
             ),
