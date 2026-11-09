@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart' show SynchronousFuture, visibleForTesti
 import 'package:flutter/services.dart' show rootBundle;
 
 import '../../core/utils/article_search.dart';
+import '../../core/utils/trust_score.dart';
 import '../../models/article_model.dart';
 
 /// Niveau de risque d'arnaque d'une annonce.
@@ -76,7 +77,17 @@ const Map<String, String> _reasonText = {
   'short_description': 'Description très courte.',
   'no_photo': 'Pas de photo de l\'objet.',
   'shouting': 'Majuscules ou points d\'exclamation en excès.',
+  'untrusted_seller': 'Vendeur récent et peu vérifié (score de confiance bas).',
 };
+
+/// Poids du score de confiance du vendeur, ajouté au calcul du modèle (en
+/// échelle logit) : de +[kSellerTrustWeight] pour un score de 0 à
+/// −[kSellerTrustWeight] pour 100. Le modèle entraîné ne connaît que le texte
+/// de l'annonce ; ce terme s'y ajoute sans réentraînement.
+const double kSellerTrustWeight = 1.2;
+
+/// Logit ajouté pour un vendeur au score [trust] (0 à 100).
+double sellerTrustShift(int trust) => (0.5 - trust.clamp(0, 100) / 100) * 2 * kSellerTrustWeight;
 
 bool _hasAny(String normalized, List<String> phrases) {
   final padded = ' $normalized ';
@@ -179,6 +190,7 @@ class FraudModel {
     required String category,
     double? price,
     required bool hasPhoto,
+    TrustScore? sellerTrust,
   }) {
     final f = fraudFeatures(
       title: title,
@@ -187,10 +199,16 @@ class FraudModel {
       price: price,
       hasPhoto: hasPhoto,
     );
-    final p = probability(f);
+    var p = probability(f);
+    final shift = sellerTrust == null ? 0.0 : sellerTrustShift(sellerTrust.score);
+    if (shift != 0) {
+      final logit = math.log(p / (1 - p));
+      p = 1 / (1 + math.exp(-(logit + shift)));
+    }
     final contributions = [
       for (final e in f.entries)
         if (e.value > 0 && (weights[e.key] ?? 0) > 0) (e.key, e.value * weights[e.key]!),
+      if (shift > 0 && sellerTrust!.level == TrustLevel.nouveau) ('untrusted_seller', shift),
     ]..sort((a, b) => b.$2.compareTo(a.$2));
     return FraudReport(
       probability: p,
@@ -203,11 +221,13 @@ class FraudModel {
     );
   }
 
-  FraudReport analyzeArticle(ArticleModel article) => analyze(
+  /// [sellerTrust] : score de confiance du vendeur, s'il est connu.
+  FraudReport analyzeArticle(ArticleModel article, {TrustScore? sellerTrust}) => analyze(
         title: article.title,
         description: article.description,
         category: article.category,
         price: article.price,
         hasPhoto: article.imageUrls.isNotEmpty,
+        sellerTrust: sellerTrust,
       );
 }

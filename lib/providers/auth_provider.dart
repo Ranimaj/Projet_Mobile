@@ -7,8 +7,10 @@ import 'package:flutter/foundation.dart';
 
 import '../core/utils/auth_failure.dart';
 import '../core/utils/validators.dart';
+import '../models/device_session.dart';
 import '../models/user_model.dart';
 import '../services/auth_service.dart';
+import '../services/device_session_service.dart';
 import '../services/storage_service.dart';
 import '../services/student_card_service.dart';
 import '../core/utils/offline_queue_service.dart';
@@ -42,6 +44,30 @@ class AuthProvider extends ChangeNotifier {
 
   /// Code d'erreur posé quand un admin a désactivé le compte à la connexion.
   static const String accountDisabledCode = 'account-disabled';
+
+  /// Code d'erreur posé quand la session a été fermée depuis un autre appareil.
+  static const String sessionRevokedCode = 'session-revoked';
+
+  // Appareils et historique des connexions (« Mes appareils »). Comme le
+  // reste de Firebase, créé à la demande ; `null` quand Firebase n'est pas
+  // disponible (tests) : la connexion se fait alors sans suivi d'appareil.
+  DeviceSessionService? _sessions;
+  final DeviceSessionService? _injectedSessions;
+  StreamSubscription<DeviceSession?>? _deviceSub;
+
+  /// Service des appareils, ou `null` s'il n'est pas disponible.
+  DeviceSessionService? get deviceSessions {
+    try {
+      return _sessions ??= _injectedSessions ?? DeviceSessionService(firestore: FirebaseFirestore.instance);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Double authentification : la connexion vient d'un appareil qui n'est
+  /// pas encore de confiance. L'app demande le code SMS (ou l'accord d'un
+  /// appareil déjà connecté) avant d'ouvrir l'accueil.
+  bool deviceConfirmationRequired = false;
 
   /// Délai minimal entre deux envois d'email de vérification.
   static const Duration verificationCooldown = Duration(seconds: 60);
@@ -94,10 +120,12 @@ class AuthProvider extends ChangeNotifier {
     AuthService? authService,
     StorageService? storageService,
     StudentCardService? studentCardService,
+    DeviceSessionService? deviceSessionService,
     DateTime Function()? clock,
   })  : _authService = authService ?? AuthService(),
         _injectedStorage = storageService,
         _injectedCardService = studentCardService,
+        _injectedSessions = deviceSessionService,
         _now = clock ?? DateTime.now {
     _authSub = _authService.authStateChanges.listen(_onAuthStateChanged);
   }
@@ -105,6 +133,8 @@ class AuthProvider extends ChangeNotifier {
   Future<void> _onAuthStateChanged(User? firebaseUser) async {
     if (firebaseUser == null) {
       _stopProfileWatch();
+      _stopDeviceWatch();
+      deviceConfirmationRequired = false;
       status = AuthStatus.visitor;
       currentUser = null;
       emailVerified = false;
@@ -121,10 +151,76 @@ class AuthProvider extends ChangeNotifier {
         await _signOutDisabled();
         return;
       }
+      final outcome = await _registerDevice(firebaseUser.uid, profile ?? currentUser);
+      if (outcome?.revoked == true) {
+        await _signOutRevoked();
+        return;
+      }
+      deviceConfirmationRequired = outcome?.needsConfirmation ?? false;
       currentUser = profile ?? currentUser;
       status = AuthStatus.authenticated;
       _watchProfile(firebaseUser.uid);
+      _watchDevice(firebaseUser.uid);
     }
+    notifyListeners();
+  }
+
+  /// La double authentification ne s'applique qu'avec un numéro vérifié (le
+  /// code part par SMS).
+  static bool _twoFactorActive(AppUser? user) =>
+      user != null && user.twoFactorEnabled && user.isPhoneVerified && (user.phoneNumber ?? '').isNotEmpty;
+
+  /// Enregistre la connexion de cet appareil. Hors-ligne ou sans Firebase, la
+  /// session s'ouvre quand même (`null`).
+  Future<SignInOutcome?> _registerDevice(String uid, AppUser? profile) async {
+    final sessions = deviceSessions;
+    if (sessions == null) return null;
+    try {
+      return await sessions
+          .onSignedIn(uid, twoFactor: _twoFactorActive(profile))
+          .timeout(const Duration(seconds: 8));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Écoute le document de cet appareil : fermeture à distance, ou accord
+  /// donné depuis un autre appareil pendant la double authentification.
+  void _watchDevice(String uid) {
+    _stopDeviceWatch();
+    final sessions = deviceSessions;
+    if (sessions == null) return;
+    _deviceSub = sessions.watchThisDevice(uid).listen((device) {
+      if (device == null || status != AuthStatus.authenticated) return;
+      if (device.revoked) {
+        _signOutRevoked();
+      } else if (deviceConfirmationRequired && device.trusted) {
+        deviceConfirmationRequired = false;
+        notifyListeners();
+      }
+    }, onError: (Object _) {});
+  }
+
+  void _stopDeviceWatch() {
+    _deviceSub?.cancel();
+    _deviceSub = null;
+  }
+
+  /// Session fermée depuis un autre appareil : on se déconnecte ici aussi.
+  Future<void> _signOutRevoked() async {
+    _stopProfileWatch();
+    _stopDeviceWatch();
+    try {
+      await _authService.signOut();
+    } catch (_) {}
+    await deviceSessions?.forgetLocalSession();
+    currentUser = null;
+    emailVerified = false;
+    hasPasswordProvider = false;
+    deviceConfirmationRequired = false;
+    status = AuthStatus.visitor;
+    errorCode = sessionRevokedCode;
+    errorMessage = 'Ta session a été fermée depuis un autre appareil.';
     notifyListeners();
   }
 
@@ -188,6 +284,7 @@ class AuthProvider extends ChangeNotifier {
   void dispose() {
     _authSub?.cancel();
     _stopProfileWatch();
+    _stopDeviceWatch();
     super.dispose();
   }
 
@@ -356,6 +453,14 @@ class AuthProvider extends ChangeNotifier {
         await _authService.verifyPhoneOtp(code);
         currentUser = currentUser?.copyWith(isPhoneVerified: true, phoneNumber: otpPhone);
         otpPhone = null;
+        final uid = currentUser?.id;
+        if (deviceConfirmationRequired && uid != null) {
+          // Le code SMS confirme la connexion : cet appareil devient de confiance.
+          try {
+            await deviceSessions?.confirmThisDevice(uid);
+          } catch (_) {}
+          deviceConfirmationRequired = false;
+        }
       });
 
   // --- Session / compte ----------------------------------------------------------
@@ -368,9 +473,15 @@ class AuthProvider extends ChangeNotifier {
             // pas être rejoué (et refusé) sous une autre session.
             await _studentCardService.discardQueued(uid);
           } catch (_) {}
+          // Avant la déconnexion Firebase : il faut encore le droit d'écrire.
+          _stopDeviceWatch();
+          try {
+            await deviceSessions?.onSignedOut(uid).timeout(const Duration(seconds: 5));
+          } catch (_) {}
         }
         await _authService.signOut();
         _stopProfileWatch();
+        deviceConfirmationRequired = false;
         currentUser = null;
         status = AuthStatus.visitor;
       });
@@ -387,15 +498,38 @@ class AuthProvider extends ChangeNotifier {
             await _studentCardService.discardQueued(uid);
           } catch (_) {}
         }
-        await _authService.deleteAccount(password: password);
+        final sessions = deviceSessions;
+        if (sessions == null) {
+          await _authService.deleteAccount(password: password);
+        } else {
+          _stopDeviceWatch();
+          // Appareils et connexions effacés après la ré-authentification, tant
+          // que le compte existe encore (les règles l'exigent).
+          await _authService.deleteAccount(
+            password: password,
+            beforeDelete: (uid) async {
+              try {
+                await sessions.deleteAll(uid);
+              } catch (_) {}
+            },
+          );
+        }
         _stopProfileWatch();
         currentUser = null;
         status = AuthStatus.visitor;
       });
 
-  Future<Map<String, dynamic>> exportMyData() {
-    if (currentUser == null) return Future.value({});
-    return _authService.exportUserData(currentUser!.id);
+  Future<Map<String, dynamic>> exportMyData() async {
+    final user = currentUser;
+    if (user == null) return {};
+    final data = await _authService.exportUserData(user.id);
+    final sessions = deviceSessions;
+    if (sessions == null) return data;
+    try {
+      return {...data, ...await sessions.export(user.id)};
+    } catch (_) {
+      return data; // l'export du profil reste utile sans l'historique
+    }
   }
 
   /// Exécute une action async en gérant loading/erreur de façon uniforme.

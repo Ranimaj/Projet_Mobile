@@ -4,6 +4,7 @@ import 'dart:async';
 import 'package:campusconnect/models/user_model.dart';
 import 'package:campusconnect/providers/auth_provider.dart';
 import 'package:campusconnect/providers/connectivity_provider.dart';
+import 'package:campusconnect/services/device_session_service.dart';
 import 'package:campusconnect/services/student_card_service.dart';
 import 'package:firebase_auth/firebase_auth.dart' hide AuthProvider;
 import 'package:firebase_auth_mocks/firebase_auth_mocks.dart';
@@ -37,7 +38,7 @@ class AuthHarness {
   /// Heure courante vue par le provider (délai de renvoi d'email...).
   DateTime now = DateTime(2026, 1, 1, 12);
 
-  AuthHarness({StudentCardService? studentCardService}) {
+  AuthHarness({StudentCardService? studentCardService, DeviceSessionService? deviceSessionService}) {
     when(() => service.authStateChanges).thenAnswer((_) => _stream.stream);
     when(() => service.watchProfile(any()))
         .thenAnswer((_) => const Stream<AppUser?>.empty().asBroadcastStream());
@@ -47,6 +48,7 @@ class AuthHarness {
       authService: service,
       storageService: storage,
       studentCardService: studentCardService,
+      deviceSessionService: deviceSessionService,
       clock: () => now,
     );
   }

@@ -525,10 +525,28 @@ void main() {
   });
 
   group('security & session', () {
+    testWidgets('2FA needs a verified phone first', (tester) async {
+      await open(tester);
+
+      final row = find.ancestor(
+          of: find.text('Authentification à deux facteurs'),
+          matching: find.byType(SettingRow));
+      final toggle = find.descendant(of: row, matching: find.byType(Switch));
+      await tester.ensureVisible(toggle);
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Vérifie d\'abord ton numéro de téléphone.'), findsOneWidget);
+      verifyNever(() => h.service.updateProfile(any()));
+      expect(tester.widget<Switch>(toggle).value, isFalse);
+    });
+
     testWidgets('the 2FA switch updates the profile', (tester) async {
       when(() => h.service.updateProfile(any()))
           .thenAnswer((inv) async => inv.positionalArguments.first as AppUser);
-      await open(tester);
+      await open(tester,
+          user: sampleUser.copyWith(
+              isPhoneVerified: true, phoneNumber: '+21698765432'));
 
       final row = find.ancestor(
           of: find.text('Authentification à deux facteurs'),

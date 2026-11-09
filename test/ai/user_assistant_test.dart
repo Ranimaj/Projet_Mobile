@@ -89,6 +89,16 @@ void main() {
       expect(r.text, startsWith('Salut Amel'));
     });
 
+    test('knows about devices and the trust score', () async {
+      final devices = await ask('Quelqu\'un est connecté sur un autre appareil ?');
+      expect(devices.actions, [AssistantAction.devices]);
+
+      final trust = await ask('Comment augmenter mon score de confiance ?');
+      expect(trust.text, contains('/100'));
+      expect(trust.text, contains('Nouveau'));
+      expect(trust.actions, [AssistantAction.studentCard, AssistantAction.verifyPhone]);
+    });
+
     test('never asks for a password', () async {
       final r = await ask('mot de passe oublié');
       expect(r.text, contains('Je ne te demanderai jamais'));

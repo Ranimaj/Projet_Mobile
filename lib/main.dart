@@ -26,6 +26,8 @@ import 'screens/auth/register_screen.dart';
 import 'screens/onboarding/onboarding_screen.dart';
 import 'screens/visitor/visitor_home_screen.dart';
 import 'screens/home/app_shell.dart';
+import 'screens/security/confirm_device_screen.dart';
+import 'screens/security/new_device_alert.dart';
 import 'firebase_options.dart';
 
 /// Lance l'app contre les émulateurs Firebase locaux (mode hors-ligne) :
@@ -131,10 +133,12 @@ class _RootRouterState extends State<RootRouter> {
 
   bool _announced = false;
 
-  /// Un compte désactivé est déconnecté d'office : on l'explique une seule
-  /// fois sur l'accueil visiteur, puis on efface le message.
+  /// Un compte désactivé (ou une session fermée depuis un autre appareil) est
+  /// déconnecté d'office : on l'explique une seule fois sur l'accueil
+  /// visiteur, puis on efface le message.
   void _announceDisabledAccount(AuthProvider auth) {
-    if (auth.errorCode != AuthProvider.accountDisabledCode) {
+    if (auth.errorCode != AuthProvider.accountDisabledCode &&
+        auth.errorCode != AuthProvider.sessionRevokedCode) {
       _announced = false; // a later disable is announced again
       return;
     }
@@ -170,7 +174,9 @@ class _RootRouterState extends State<RootRouter> {
         }
         return const VisitorHomeScreen();
       case AuthStatus.authenticated:
-        return const AppShell();
+        // Double authentification : nouvel appareil à confirmer d'abord.
+        if (auth.deviceConfirmationRequired) return const ConfirmDeviceScreen();
+        return const NewDeviceAlert(child: AppShell());
     }
   }
 }

@@ -7,6 +7,7 @@ import '../../providers/auth_provider.dart';
 import '../../services/ai/gemini_api_writer.dart';
 import '../../services/ai/user_assistant.dart';
 import '../../widgets/round_icon_button.dart';
+import '../security/devices_screen.dart';
 import 'change_password_screen.dart';
 import 'edit_profile_screen.dart';
 import 'student_card_screen.dart';
@@ -113,6 +114,8 @@ class _AssistantScreenState extends State<AssistantScreen> {
         nav.push(MaterialPageRoute<void>(builder: (_) => const StudentCardScreen()));
       case AssistantAction.changePassword:
         nav.push(MaterialPageRoute<void>(builder: (_) => const ChangePasswordScreen()));
+      case AssistantAction.devices:
+        nav.push(MaterialPageRoute<void>(builder: (_) => const DevicesScreen()));
       case AssistantAction.verifyPhone:
       case AssistantAction.exportData:
         widget.onProfileAction?.call(action);

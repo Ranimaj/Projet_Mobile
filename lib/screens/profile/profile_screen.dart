@@ -37,6 +37,10 @@ import '../admin/admin_users_screen.dart';
 import '../debug/design_gallery_screen.dart';
 import '../auth/otp_verification_screen.dart';
 import '../../services/ai/user_assistant.dart';
+import '../security/devices_screen.dart';
+import '../../core/utils/trust_score.dart';
+import '../../widgets/trust_badge.dart';
+import '../admin/admin_reports_screen.dart';
 import 'assistant_screen.dart';
 import 'change_password_screen.dart';
 import 'edit_profile_screen.dart';
@@ -272,6 +276,11 @@ class ProfileScreen extends StatelessWidget {
           spacing: 8,
           runSpacing: 6,
           children: [
+            TrustBadge(
+              trust: TrustScore.of(user,
+                  completedSales: completedSalesOf(context, user.id)),
+              own: true,
+            ),
             auth.emailVerified
                 ? const StatusChip(
                     label: 'Email vérifié',
@@ -412,15 +421,32 @@ class ProfileScreen extends StatelessWidget {
             SettingRow(
               icon: Icons.shield_rounded,
               title: 'Authentification à deux facteurs',
-              subtitle: 'Protection renforcée de ton compte',
+              subtitle: 'Code SMS demandé sur tout nouvel appareil',
               trailing: Switch.adaptive(
+                key: const Key('two-factor-switch'),
                 value: user.twoFactorEnabled,
                 onChanged: auth.isLoading
                     ? null
-                    : (v) => context
-                        .read<AuthProvider>()
-                        .updateProfile(user.copyWith(twoFactorEnabled: v)),
+                    : (v) {
+                        // Le code part par SMS : il faut un numéro vérifié.
+                        if (v && !user.isPhoneVerified) {
+                          showAuthSnack(context,
+                              'Vérifie d\'abord ton numéro de téléphone.');
+                          return;
+                        }
+                        context
+                            .read<AuthProvider>()
+                            .updateProfile(user.copyWith(twoFactorEnabled: v));
+                      },
               ),
+            ),
+            SettingRow(
+              key: const Key('open-devices'),
+              icon: Icons.devices_rounded,
+              title: 'Mes appareils',
+              subtitle: 'Sessions ouvertes et historique des connexions',
+              onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => const DevicesScreen())),
             ),
             Consumer<ConnectivityProvider>(
               builder: (context, connectivity, _) => SettingRow(
@@ -469,6 +495,13 @@ class ProfileScreen extends StatelessWidget {
                     user,
                     const AdminUsersScreen(
                         initialCardFilter: StudentCardStatus.pending)),
+              ),
+              SettingRow(
+                key: const Key('open-reports'),
+                icon: Icons.report_rounded,
+                title: 'Signalements',
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => const AdminReportsScreen())),
               ),
               SettingRow(
                 icon: Icons.insights_rounded,

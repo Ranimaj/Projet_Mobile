@@ -38,7 +38,7 @@ service cloud.firestore {
     function touchesProtectedUserFields() {
       return changedKeys().hasAny([
         'role', 'isVerifiedStudent', 'email', 'createdAt', 'ratingAverage', 'ratingCount',
-        'disabled'
+        'disabled', 'reportCount'
       ]);
     }
 
@@ -79,6 +79,7 @@ service cloud.firestore {
         && request.resource.data.isPhoneVerified == false
         && request.resource.data.ratingAverage == 0
         && request.resource.data.ratingCount == 0
+        && request.resource.data.get('reportCount', 0) == 0
         && request.resource.data.studentCard.status == 'none'
         && request.resource.data.disabled == false;
 
@@ -87,6 +88,61 @@ service cloud.firestore {
             && studentCardChangeIsSubmission(userId));
 
       allow delete: if isOwner(userId) || isAdmin();
+
+      // Appareils du compte (« Mes appareils »). Seul le propriétaire les
+      // écrit ; un admin peut les consulter (enquête sur un piratage).
+      function validDevice(d) {
+        return d.name is string && d.name.size() <= 100
+          && d.platform is string && d.platform.size() <= 20
+          && (d.get('location', null) == null
+              || (d.location is string && d.location.size() <= 100))
+          && d.trusted is bool && d.revoked is bool && d.signedOut is bool
+          && d.alertPending is bool;
+      }
+
+      match /devices/{deviceId} {
+        allow read: if isOwner(userId) || isAdmin();
+        allow create, update: if isOwner(userId) && validDevice(request.resource.data);
+        allow delete: if isOwner(userId) || isAdmin();
+      }
+
+      // Historique des connexions : ajout seulement, à l'heure du serveur.
+      match /logins/{loginId} {
+        allow read: if isOwner(userId) || isAdmin();
+        allow create: if isOwner(userId)
+          && request.resource.data.at == request.time
+          && request.resource.data.deviceId is string
+          && request.resource.data.deviceName is string
+          && request.resource.data.deviceName.size() <= 100
+          && request.resource.data.newDevice is bool;
+        allow update: if false;
+        allow delete: if isOwner(userId);
+      }
+    }
+
+    // Signalements : un seul par personne et par compte visé
+    // (id = signaleur_visé). Seuls les admins les listent et les traitent ;
+    // confirmer ajoute 1 à `reportCount` du compte (écriture admin).
+    match /reports/{reportId} {
+      allow get: if isSignedIn()
+        && (isAdmin() || resource == null || resource.data.reporterId == request.auth.uid);
+      allow list: if isAdmin();
+      allow create: if isSignedIn()
+        && request.resource.data.reporterId == request.auth.uid
+        && request.resource.data.targetId is string
+        && request.resource.data.targetId != request.auth.uid
+        && reportId == request.auth.uid + '_' + request.resource.data.targetId
+        && request.resource.data.reason in ['scam', 'notAsDescribed', 'behavior', 'fakeProfile', 'other']
+        && request.resource.data.details is string
+        && request.resource.data.details.size() <= 500
+        && request.resource.data.status == 'pending'
+        && request.resource.data.createdAt == request.time;
+      allow update: if isAdmin()
+        && resource.data.status == 'pending'
+        && request.resource.data.status in ['confirmed', 'dismissed']
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['status', 'reviewedBy', 'reviewedAt']);
+      allow delete: if isAdmin();
     }
 
     // --- Gestion Vente & Don ---

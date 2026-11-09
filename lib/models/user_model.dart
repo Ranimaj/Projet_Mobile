@@ -112,6 +112,10 @@ class AppUser {
   final bool disabled; // compte désactivé, admin uniquement
   final StudentCard studentCard;
 
+  /// Signalements confirmés par un admin (baisse le score de confiance).
+  /// Écrit uniquement par un admin — voir `firestore.rules`.
+  final int reportCount;
+
   /// Champs qu'un utilisateur peut modifier lui-même. Tout le reste (rôle,
   /// statut de vérification, notes, email, téléphone) est géré côté serveur
   /// ou par un admin — voir `firestore.rules`.
@@ -147,6 +151,7 @@ class AppUser {
     this.studentId,
     this.disabled = false,
     this.studentCard = StudentCard.none,
+    this.reportCount = 0,
   });
 
   String get initials {
@@ -183,6 +188,7 @@ class AppUser {
       studentCard: StudentCard.fromMap(map['studentCard'] is Map
           ? Map<String, dynamic>.from(map['studentCard'] as Map)
           : null),
+      reportCount: (map['reportCount'] as num?)?.toInt() ?? 0,
     );
   }
 
@@ -213,6 +219,7 @@ class AppUser {
       'studentId': studentId,
       'disabled': disabled,
       'studentCard': studentCard.toMap(),
+      'reportCount': reportCount,
     };
   }
 
@@ -264,6 +271,7 @@ class AppUser {
       studentId: clearStudentId ? null : (studentId ?? this.studentId),
       disabled: disabled,
       studentCard: studentCard ?? this.studentCard,
+      reportCount: reportCount,
     );
   }
 }

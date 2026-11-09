@@ -469,3 +469,96 @@ describe('conversations rules', () => {
     );
   });
 });
+
+describe('devices & logins rules', () => {
+  const device = (overrides = {}) => ({
+    name: 'Pixel 8',
+    platform: 'android',
+    location: 'Tunis, Tunisie',
+    trusted: true,
+    revoked: false,
+    signedOut: false,
+    alertPending: false,
+    ...overrides,
+  });
+
+  it('only the owner writes their devices; admins can read them', async () => {
+    await seed();
+    const alice = env.authenticatedContext('alice').firestore();
+    await assertSucceeds(setDoc(doc(alice, 'users/alice/devices/d1'), device()));
+    await assertSucceeds(updateDoc(doc(alice, 'users/alice/devices/d1'), { revoked: true }));
+    await assertFails(setDoc(doc(alice, 'users/alice/devices/d2'), device({ trusted: 'yes' })));
+
+    const bob = env.authenticatedContext('bob').firestore();
+    await assertFails(getDoc(doc(bob, 'users/alice/devices/d1')));
+    await assertFails(updateDoc(doc(bob, 'users/alice/devices/d1'), { revoked: true }));
+
+    const admin = env.authenticatedContext('admin1').firestore();
+    await assertSucceeds(getDoc(doc(admin, 'users/alice/devices/d1')));
+  });
+
+  it('logins are append-only, at server time', async () => {
+    await seed();
+    const alice = env.authenticatedContext('alice').firestore();
+    const login = { deviceId: 'd1', deviceName: 'Pixel 8', location: null, newDevice: true };
+    const ref = await assertSucceeds(
+      addDoc(collection(alice, 'users/alice/logins'), { ...login, at: serverTimestamp() }),
+    );
+    await assertFails(
+      addDoc(collection(alice, 'users/alice/logins'), { ...login, at: Timestamp.fromDate(new Date('2020-01-01')) }),
+    );
+    await assertFails(updateDoc(ref, { deviceName: 'Autre' }));
+    const bob = env.authenticatedContext('bob').firestore();
+    await assertFails(addDoc(collection(bob, 'users/alice/logins'), { ...login, at: serverTimestamp() }));
+  });
+});
+
+describe('reports & reportCount rules', () => {
+  const report = (overrides = {}) => ({
+    reporterId: 'bob',
+    reporterName: 'Bob',
+    targetId: 'alice',
+    targetName: 'Alice',
+    reason: 'scam',
+    details: 'Demande un virement.',
+    status: 'pending',
+    createdAt: serverTimestamp(),
+    ...overrides,
+  });
+
+  it('a student reports another account once, under their own id', async () => {
+    await seed();
+    const bob = env.authenticatedContext('bob').firestore();
+    await assertSucceeds(setDoc(doc(bob, 'reports/bob_alice'), report()));
+    await assertSucceeds(getDoc(doc(bob, 'reports/bob_alice')));
+    await assertFails(setDoc(doc(bob, 'reports/bob_alice'), report({ reason: 'other' })));
+    await assertFails(setDoc(doc(bob, 'reports/carol_alice'), report({ reporterId: 'carol' })));
+    await assertFails(setDoc(doc(bob, 'reports/bob_bob'), report({ targetId: 'bob' })));
+    await assertFails(setDoc(doc(bob, 'reports/bob_x'), report({ targetId: 'x', status: 'confirmed' })));
+    await assertFails(getDocs(collection(bob, 'reports')));
+  });
+
+  it('only admins confirm reports and change reportCount', async () => {
+    await seed();
+    const bob = env.authenticatedContext('bob').firestore();
+    await setDoc(doc(bob, 'reports/bob_alice'), report());
+    await assertFails(updateDoc(doc(bob, 'reports/bob_alice'), { status: 'dismissed' }));
+
+    const alice = env.authenticatedContext('alice').firestore();
+    await assertFails(updateDoc(doc(alice, 'users/alice'), { reportCount: 0 }));
+
+    const admin = env.authenticatedContext('admin1').firestore();
+    await assertSucceeds(getDocs(collection(admin, 'reports')));
+    await assertSucceeds(
+      updateDoc(doc(admin, 'reports/bob_alice'), { status: 'confirmed', reviewedBy: 'admin1', reviewedAt: serverTimestamp() }),
+    );
+    await assertSucceeds(updateDoc(doc(admin, 'users/alice'), { reportCount: 1 }));
+    await assertFails(updateDoc(doc(admin, 'reports/bob_alice'), { status: 'dismissed' }));
+  });
+
+  it('a new profile cannot start with reports set', async () => {
+    const carol = env.authenticatedContext('carol').firestore();
+    await assertFails(setDoc(doc(carol, 'users/carol'), baseUser({ reportCount: -3 })));
+    await assertSucceeds(setDoc(doc(carol, 'users/carol'), baseUser({ reportCount: 0 })));
+  });
+});

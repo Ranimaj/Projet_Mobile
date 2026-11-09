@@ -392,7 +392,11 @@ class AuthService {
   /// `requires-recent-login` en plein milieu ; si la suppression du compte
   /// échoue malgré tout, le profil Firestore est restauré pour ne pas laisser
   /// un compte orphelin.
-  Future<void> deleteAccount({String? password}) => _guard(() async {
+  ///
+  /// [beforeDelete] s'exécute après la ré-authentification, juste avant
+  /// l'effacement du profil (nettoyage des sous-collections).
+  Future<void> deleteAccount({String? password, Future<void> Function(String uid)? beforeDelete}) =>
+      _guard(() async {
         final user = _auth.currentUser;
         if (user == null) return;
 
@@ -405,6 +409,7 @@ class AuthService {
           await user.reauthenticateWithCredential(credential);
         }
 
+        if (beforeDelete != null) await beforeDelete(user.uid);
         final doc = _userDoc(user.uid);
         final backup = (await doc.get()).data();
         await _deleteStoredFiles(backup);

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:http/http.dart' as http;
 
+import '../../core/utils/trust_score.dart';
 import '../../models/user_model.dart';
 import 'gemini_api_writer.dart';
 
@@ -13,6 +14,7 @@ enum AssistantAction {
   studentCard('Ma carte étudiant'),
   verifyPhone('Vérifier mon numéro'),
   changePassword('Changer le mot de passe'),
+  devices('Mes appareils'),
   exportData('Exporter mes données');
 
   const AssistantAction(this.label);
@@ -114,6 +116,11 @@ Fonctionnement de l'app (onglet Profil) :
 - Sécurité : double authentification, connexion biométrique, changement de mot de passe.
 - Données : export RGPD en JSON, suppression définitive du compte.
 - Thème clair / sombre ; mode hors-ligne : les actions sont envoyées au retour du réseau.
+- « Mes appareils » (Sécurité) : sessions ouvertes, déconnexion à distance, historique des
+  connexions. Avec la double authentification, un nouvel appareil demande un code SMS.
+- Score de confiance (badge Nouveau, Bronze, Argent, Or sur 100) : carte vérifiée 25, téléphone
+  15, double authentification 10, ancienneté jusqu'à 15, ventes conclues jusqu'à 15, avis jusqu'à
+  20 ; chaque signalement confirmé par un admin retire 15 points.
 
 État du compte de $firstName :
 - Nom : ${u.fullName} ; e-mail ${emailVerified ? 'vérifié' : 'NON vérifié'}
@@ -122,6 +129,7 @@ Fonctionnement de l'app (onglet Profil) :
 - Carte étudiant : $card
 - Téléphone : ${u.isPhoneVerified ? 'vérifié' : 'non vérifié'}
 - Double authentification : ${u.twoFactorEnabled ? 'activée' : 'désactivée'}
+- Score de confiance : ${TrustScore.of(u).score}/100 (niveau ${TrustScore.of(u).level.label})
 - Profil complet à ${health.percent} %${health.missing.isEmpty ? '' : ' ; il manque : ${health.missing.map((s) => s.label).join(', ')}'}
 ''';
   }
@@ -146,6 +154,8 @@ enum _Topic {
   deleteAccount,
   theme,
   offline,
+  devices,
+  trust,
   modules,
 }
 
@@ -153,7 +163,7 @@ const Map<_Topic, List<String>> _keywords = {
   _Topic.greeting: ['bonjour', 'salut', 'hello', 'hi', 'coucou', 'aslema', 'ahla', 'salam'],
   _Topic.thanks: ['merci', 'thanks', 'thank', 'yaatik', 'sahit'],
   _Topic.profile: ['profil', 'profile', 'compléter', 'completer', 'photo', 'filière', 'filiere', 'compétence', 'competence', 'skill', 'nom', 'campus', 'modifier'],
-  _Topic.card: ['carte', 'card', 'vérifié', 'verifie', 'badge', 'étudiant', 'etudiant', 'refus'],
+  _Topic.card: ['carte', 'card', 'vérifié', 'verifie', 'étudiant', 'etudiant', 'refus'],
   _Topic.phone: ['téléphone', 'telephone', 'phone', 'numéro', 'numero', 'sms', 'otp'],
   _Topic.password: ['mot de passe', 'password', 'mdp', 'oublié', 'oublie'],
   _Topic.security: ['sécurité', 'securite', 'security', '2fa', 'deux facteurs', 'double', 'biométri', 'biometri', 'empreinte', 'piraté', 'pirate', 'hack'],
@@ -162,6 +172,8 @@ const Map<_Topic, List<String>> _keywords = {
   _Topic.deleteAccount: ['supprimer', 'suppression', 'delete', 'fermer mon compte', 'désinscri'],
   _Topic.theme: ['thème', 'theme', 'sombre', 'dark', 'clair', 'light', 'couleur'],
   _Topic.offline: ['hors-ligne', 'hors ligne', 'offline', 'réseau', 'reseau', 'internet', 'connexion', 'synchro'],
+  _Topic.devices: ['appareil', 'appareils', 'session', 'device', 'déconnecter', 'deconnecter', 'historique', 'suspect'],
+  _Topic.trust: ['confiance', 'score', 'trust', 'badge', 'niveau', 'bronze', 'argent', 'réputation', 'reputation', 'fiable'],
   _Topic.modules: ['vendre', 'vente', 'don', 'annonce', 'événement', 'evenement', 'event', 'stage', 'emploi', 'job', 'quoi faire', 'fonctionnalit', 'aide', 'help'],
 };
 
@@ -316,6 +328,25 @@ class LocalUserAssistant implements UserAssistant {
             'Sans réseau, l\'app reste utilisable : tes actions sont gardées sur le téléphone et envoyées '
             'automatiquement au retour de la connexion. Le nombre d\'actions en attente s\'affiche dans '
             'Profil › Sécurité.');
+      case _Topic.devices:
+        return const AssistantMessage.bot(
+            'Dans « Mes appareils » tu vois où ton compte est connecté et l\'historique des connexions. '
+            'Tu peux fermer une session à distance. Si tu ne reconnais pas un appareil, déconnecte-le puis '
+            'change ton mot de passe.',
+            actions: [AssistantAction.devices]);
+      case _Topic.trust:
+        final trust = TrustScore.of(u);
+        final todo = [for (final f in trust.factors) if (!f.complete && f.tip != null) f];
+        final next = trust.level.next;
+        return AssistantMessage.bot(
+          'Ton score de confiance est de ${trust.score}/100 (niveau ${trust.level.label}). '
+          '${next == null ? 'C\'est le meilleur niveau, bravo !' : 'Encore ${trust.pointsToNextLevel} points pour ${next.label}.'}'
+          '${todo.isEmpty ? '' : ' Pour progresser : ${todo.first.tip!.toLowerCase()}'}',
+          actions: [
+            if (!(u.isVerifiedStudent || u.studentCard.status == StudentCardStatus.verified)) AssistantAction.studentCard,
+            if (!u.isPhoneVerified) AssistantAction.verifyPhone,
+          ],
+        );
       case _Topic.modules:
         return const AssistantMessage.bot(
             'Sur CampusConnect tu peux : vendre ou donner des objets (Vente & Don), publier des annonces, '
