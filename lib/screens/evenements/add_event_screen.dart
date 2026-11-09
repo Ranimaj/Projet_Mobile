@@ -20,9 +20,14 @@ import 'category_classifier_loader.dart';
 import 'event_categories.dart';
 import 'event_rules.dart';
 import 'event_validators.dart';
+import 'location_service.dart';
 import 'photon_service.dart';
 import 'poster_compressor.dart';
+import 'poster_ocr.dart';
+import 'poster_parser.dart';
 import 'poster_rules.dart';
+import 'poster_scan_sheets.dart';
+import 'poster_text_reader_mlkit.dart';
 
 /// BF8.3 / BF8.4 — un seul formulaire pour créer OU modifier un événement.
 /// Création si [existing] est null, modification sinon.
@@ -34,7 +39,23 @@ class AddEventScreen extends StatefulWidget {
   @visibleForTesting
   final Future<CategoryClassifier?> Function()? loadClassifier;
 
-  const AddEventScreen({super.key, this.existing, this.loadClassifier});
+  /// Lecture du texte d'une affiche (par défaut : ML Kit sur le téléphone).
+  /// Remplaçable dans les tests.
+  @visibleForTesting
+  final PosterTextReader? posterTextReader;
+
+  /// Choix de l'image à scanner (par défaut : image_picker, pleine résolution).
+  /// Remplaçable dans les tests.
+  @visibleForTesting
+  final Future<XFile?> Function(ImageSource source)? pickScanImage;
+
+  const AddEventScreen({
+    super.key,
+    this.existing,
+    this.loadClassifier,
+    this.posterTextReader,
+    this.pickScanImage,
+  });
 
   @override
   State<AddEventScreen> createState() => _AddEventScreenState();
@@ -45,6 +66,7 @@ enum _Field { title, description, location, capacity, price, category, start, en
 
 class _AddEventScreenState extends State<AddEventScreen> {
   final _formKey = GlobalKey<FormState>();
+  final _startFieldKey = GlobalKey<FormFieldState<DateTime>>();
   final _endFieldKey = GlobalKey<FormFieldState<DateTime>>();
   final _titleCtrl = TextEditingController();
   final _descCtrl = TextEditingController();
@@ -147,6 +169,9 @@ class _AddEventScreenState extends State<AddEventScreen> {
   bool _posterRemoved = false;
   bool _posterPreparing = false;
   bool _posterUploading = false;
+
+  /// « Scanner une affiche » : lecture du texte en cours.
+  bool _scanning = false;
 
   String? get _existingPosterUrl => widget.existing?.posterUrl;
 
@@ -332,11 +357,12 @@ class _AddEventScreenState extends State<AddEventScreen> {
     return DateTime(date.year, date.month, date.day, time.hour, time.minute);
   }
 
-  Future<void> _pickStart(FormFieldState<DateTime> field) async {
+  /// [onDay] : jour proposé d'office (date lue sur une affiche, sans heure).
+  Future<void> _pickStart(FormFieldState<DateTime> field, {DateTime? onDay}) async {
     final today = DateTime.now();
     final first = DateTime(today.year, today.month, today.day);
     final picked = await _pickDateTime(
-      _start,
+      onDay == null ? _start : DateTime(onDay.year, onDay.month, onDay.day, _start.hour, _start.minute),
       first: _start.isBefore(first) ? _start : first,
       last: today.add(const Duration(days: 366)),
     );
@@ -386,7 +412,13 @@ class _AddEventScreenState extends State<AddEventScreen> {
       return;
     }
     if (file == null) return; // sélection annulée : en silence
+    final error = await _preparePoster(file);
+    if (error != null) messenger.showSnackBar(SnackBar(content: Text(error)));
+  }
 
+  /// Contrôle (type réel, taille) puis compression d'une image choisie comme
+  /// affiche. Rien n'est envoyé ici. Renvoie le message d'erreur, ou null.
+  Future<String?> _preparePoster(XFile file) async {
     Uint8List? bytes;
     try {
       bytes = await file.readAsBytes();
@@ -394,10 +426,7 @@ class _AddEventScreenState extends State<AddEventScreen> {
       bytes = null;
     }
     final error = PosterRules.validate(file.name, bytes);
-    if (error != null) {
-      messenger.showSnackBar(SnackBar(content: Text(error)));
-      return;
-    }
+    if (error != null) return error;
 
     setState(() => _posterPreparing = true);
     Uint8List? compressed;
@@ -406,7 +435,7 @@ class _AddEventScreenState extends State<AddEventScreen> {
     } catch (_) {
       compressed = null;
     }
-    if (!mounted) return;
+    if (!mounted) return null;
     setState(() {
       _posterPreparing = false;
       if (compressed != null) {
@@ -415,9 +444,7 @@ class _AddEventScreenState extends State<AddEventScreen> {
         _posterRemoved = false;
       }
     });
-    if (compressed == null) {
-      messenger.showSnackBar(const SnackBar(content: Text('Impossible de préparer cette image. Essayez-en une autre.')));
-    }
+    return compressed == null ? 'Impossible de préparer cette image. Essayez-en une autre.' : null;
   }
 
   void _removePoster() => setState(() {
@@ -425,6 +452,128 @@ class _AddEventScreenState extends State<AddEventScreen> {
         _savedPosterPath = null;
         _posterRemoved = _existingPosterUrl != null;
       });
+
+  // --------------------------------------------------- Scanner une affiche
+
+  /// Photo ou galerie → lecture du texte sur le téléphone → règles →
+  /// feuille de vérification → remplissage des cases cochées. Rien n'est
+  /// enregistré : l'utilisateur relit puis appuie sur « Créer l'événement ».
+  Future<void> _scanPoster() async {
+    if (_scanning || _submitting) return;
+    final source = await showPosterSourceSheet(context);
+    if (source == null || !mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final camera = source == ImageSource.camera;
+
+    XFile? file;
+    try {
+      // Pleine résolution : la lecture du texte a besoin de détails.
+      file = await (widget.pickScanImage ??
+          (s) => ImagePicker().pickImage(source: s, requestFullMetadata: false))(source);
+    } catch (e) {
+      debugPrint('Choix de l\'image à scanner impossible : $e');
+      final denied = e is PlatformException && e.code.toLowerCase().contains('denied');
+      messenger.showSnackBar(SnackBar(
+        content: Text(denied
+            ? (camera
+                ? "Accès à l'appareil photo refusé : autorisez-le dans les réglages du téléphone."
+                : 'Accès aux photos refusé : autorisez-le dans les réglages du téléphone.')
+            : (camera ? "Impossible d'ouvrir l'appareil photo." : "Impossible d'ouvrir la galerie.")),
+        action: denied
+            ? const SnackBarAction(label: 'Ouvrir les réglages', onPressed: LocationService.openAppSettings)
+            : null,
+      ));
+      return;
+    }
+    if (file == null || !mounted) return; // annulé : rien ne se passe
+
+    setState(() => _scanning = true);
+    PosterDraft? draft;
+    try {
+      final reader = widget.posterTextReader ?? MlKitPosterTextReader();
+      draft = PosterParser.parse(await reader.read(File(file.path)), DateTime.now());
+    } on PosterReadException catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (e) {
+      debugPrint('Lecture de l\'affiche échouée : $e');
+      messenger.showSnackBar(const SnackBar(content: Text("Impossible de lire cette image. Essayez-en une autre.")));
+    } finally {
+      if (mounted) setState(() => _scanning = false);
+    }
+    if (draft == null || !mounted) return;
+
+    final choice = await showPosterReviewSheet(
+      context,
+      draft: draft,
+      form: PosterFormState(
+        titleFilled: _titleCtrl.text.trim().isNotEmpty,
+        descriptionFilled: _descCtrl.text.trim().isNotEmpty,
+        placeFilled: _locationCtrl.text.trim().isNotEmpty,
+        priceFilled: _priceCtrl.text.trim().isNotEmpty,
+        startTouched: _touched.contains(_Field.start),
+        endTouched: _touched.contains(_Field.end),
+      ),
+      hasPoster: _hasPoster,
+    );
+    if (choice == null || !mounted) return;
+    await _applyScan(draft, choice, file);
+  }
+
+  /// Remplit les champs cochés. Les contrôleurs de texte déclenchent la
+  /// suggestion de catégorie comme une saisie. Les erreurs restent masquées
+  /// tant que l'utilisateur n'a pas retouché le champ ou tenté d'enregistrer.
+  Future<void> _applyScan(PosterDraft d, PosterReviewChoice choice, XFile file) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final f = choice.fields;
+    void fill(TextEditingController c, String text) =>
+        c.value = TextEditingValue(text: text, selection: TextSelection.collapsed(offset: text.length));
+
+    setState(() {
+      if (f.contains(PosterField.title) && d.title != null) fill(_titleCtrl, d.title!);
+      if (f.contains(PosterField.description) && d.description != null) fill(_descCtrl, d.description!);
+      if (f.contains(PosterField.place) && d.place != null) {
+        fill(_locationCtrl, d.place!);
+        // Seulement le texte : aucune position (pas de recherche réseau).
+        _placeLat = null;
+        _placeLng = null;
+        _placeLabel = null;
+      }
+      if (f.contains(PosterField.price) && d.priceFound) {
+        fill(_priceCtrl, d.isFree ? '' : _priceText(d.priceTnd));
+      }
+      if (f.contains(PosterField.start) && d.start != null) {
+        // Comme un choix manuel : la fin garde la même durée, sauf fin lue.
+        final duration = _end.difference(_start);
+        _start = d.start!;
+        _end = _start.add(duration);
+      }
+      if (f.contains(PosterField.end) && d.end != null) _end = d.end!;
+    });
+    _closePlaceList();
+    _startFieldKey.currentState?.didChange(_start);
+    _endFieldKey.currentState?.didChange(_end);
+
+    String? posterError;
+    if (choice.usePoster) posterError = await _preparePoster(file);
+    if (!mounted) return;
+
+    final day = d.dateWithoutTime;
+    messenger.showSnackBar(SnackBar(
+      content: Text([
+        "Champs préremplis : vérifiez avant d'enregistrer",
+        if (posterError != null) "L'image n'est pas gardée comme affiche : $posterError",
+      ].join('\n')),
+      action: day == null
+          ? null
+          : SnackBarAction(
+              label: "Choisir l'heure",
+              onPressed: () {
+                final field = _startFieldKey.currentState;
+                if (field != null) _pickStart(field, onDay: day);
+              },
+            ),
+    ));
+  }
 
   /// Enregistre l'affiche choisie (si besoin) sur le téléphone au moment
   /// d'enregistrer l'événement. proceed false = l'organisateur a annulé ;
@@ -711,6 +860,11 @@ class _AddEventScreenState extends State<AddEventScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                // Création seulement : en modification, les champs sont déjà remplis.
+                if (!_isEdit) ...[
+                  _ScanPosterCard(scanning: _scanning, enabled: !_submitting, onTap: _scanPoster),
+                  const SizedBox(height: 16),
+                ],
                 _PosterPicker(
                   bytes: _posterBytes,
                   existingUrl: _posterRemoved ? null : _existingPosterUrl,
@@ -863,6 +1017,7 @@ class _AddEventScreenState extends State<AddEventScreen> {
                   ),
                 const SizedBox(height: 16),
                 FormField<DateTime>(
+                  key: _startFieldKey,
                   autovalidateMode: _modeFor(_Field.start),
                   initialValue: _start,
                   // En modification, un début inchangé n'est pas revérifié
@@ -903,6 +1058,70 @@ class _AddEventScreenState extends State<AddEventScreen> {
                         textAlign: TextAlign.center, style: TextStyle(color: t.textSecondary)),
                   ),
               ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Carte « Scanner une affiche » en haut du formulaire de création.
+class _ScanPosterCard extends StatelessWidget {
+  final bool scanning;
+  final bool enabled;
+  final VoidCallback onTap;
+  const _ScanPosterCard({required this.scanning, required this.enabled, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
+    return Semantics(
+      button: true,
+      enabled: enabled && !scanning,
+      label: scanning
+          ? "Lecture de l'affiche en cours"
+          : "Scanner une affiche. Remplit le formulaire à partir d'une photo ou d'une image",
+      excludeSemantics: true,
+      child: Material(
+        color: t.primarySoft,
+        borderRadius: BorderRadius.circular(16),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: enabled && !scanning ? onTap : null,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 64),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              child: Row(
+                children: [
+                  scanning
+                      ? SizedBox(
+                          width: 28,
+                          height: 28,
+                          child: Padding(
+                            padding: const EdgeInsets.all(3),
+                            child: CircularProgressIndicator(strokeWidth: 2.5, color: t.onPrimarySoft),
+                          ),
+                        )
+                      : Icon(Icons.document_scanner_outlined, size: 28, color: t.onPrimarySoft),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(scanning ? "Lecture de l'affiche…" : 'Scanner une affiche',
+                            style: TextStyle(fontWeight: FontWeight.w700, color: t.onPrimarySoft)),
+                        const SizedBox(height: 2),
+                        Text("Remplit le formulaire à partir d'une photo ou d'une image",
+                            style: TextStyle(fontSize: 12.5, color: t.onPrimarySoft)),
+                      ],
+                    ),
+                  ),
+                  if (!scanning) Icon(Icons.chevron_right_rounded, color: t.onPrimarySoft),
+                ],
+              ),
             ),
           ),
         ),
