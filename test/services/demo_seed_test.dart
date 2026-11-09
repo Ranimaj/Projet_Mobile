@@ -112,8 +112,8 @@ void main() {
     expect(jobs.offers.where((o) => o.type == JobType.emploi), hasLength(2));
     await jobs.loadMyApplications(DemoSeed.jawherId);
     expect(jobs.myApplications.map((a) => a.status), [
-      ApplicationStatus.sent,
-      ApplicationStatus.seen,
+      ApplicationStatus.pending,
+      ApplicationStatus.hrInterview,
       ApplicationStatus.accepted,
     ]);
   });

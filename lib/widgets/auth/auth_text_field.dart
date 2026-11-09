@@ -14,6 +14,8 @@ class AuthTextField extends StatefulWidget {
   final TextEditingController controller;
   final String? Function(String?)? validator;
   final TextInputType? keyboardType;
+  final int minLines;
+  final int maxLines;
   final TextInputAction? textInputAction;
   final TextCapitalization textCapitalization;
   final bool isPassword;
@@ -33,6 +35,8 @@ class AuthTextField extends StatefulWidget {
     this.helper,
     this.validator,
     this.keyboardType,
+    this.minLines = 1,
+    this.maxLines = 1,
     this.textInputAction,
     this.textCapitalization = TextCapitalization.none,
     this.isPassword = false,
@@ -72,6 +76,8 @@ class _AuthTextFieldState extends State<AuthTextField> {
           obscureText: widget.isPassword && _obscure,
           autofocus: widget.autofocus,
           keyboardType: widget.keyboardType,
+          minLines: widget.minLines,
+          maxLines: widget.isPassword ? 1 : widget.maxLines,
           textInputAction: widget.textInputAction,
           textCapitalization: widget.textCapitalization,
           autofillHints: widget.autofillHints,

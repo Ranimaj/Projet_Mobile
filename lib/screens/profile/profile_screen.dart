@@ -31,6 +31,9 @@ import '../../widgets/setting_row.dart';
 import '../../widgets/stat_tile.dart';
 import '../../widgets/status_chip.dart';
 import '../admin/admin_analytics_screen.dart';
+import '../stages_emploi/admin/admin_dashboard_screen.dart';
+import '../stages_emploi/admin/admin_emails_screen.dart';
+import '../stages_emploi/admin/admin_jobs_screen.dart';
 import '../admin/admin_users_screen.dart';
 import '../debug/design_gallery_screen.dart';
 import '../auth/otp_verification_screen.dart';
@@ -480,6 +483,27 @@ class ProfileScreen extends StatelessWidget {
                 title: 'Signalements',
                 onTap: () => Navigator.of(context).push(MaterialPageRoute(
                     builder: (_) => const AdminReportsScreen())),
+              ),
+              SettingRow(
+                key: const Key('open-stage-admin'),
+                icon: Icons.work_rounded,
+                title: 'Suivi des stages',
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => const AdminDashboardScreen())),
+              ),
+              SettingRow(
+                key: const Key('open-stage-jobs'),
+                icon: Icons.business_center_rounded,
+                title: 'Offres et candidatures',
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => const AdminJobsScreen())),
+              ),
+              SettingRow(
+                key: const Key('open-stage-emails'),
+                icon: Icons.mail_rounded,
+                title: 'Emails de candidature',
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => const AdminEmailsScreen())),
               ),
               SettingRow(
                 icon: Icons.insights_rounded,
