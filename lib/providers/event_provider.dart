@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../core/constants/app_constants.dart';
 import '../models/event_model.dart';
+import '../screens/evenements/event_actor.dart';
 import '../screens/evenements/event_rules.dart';
 import '../screens/evenements/event_validators.dart';
 import '../screens/evenements/location_service.dart';
@@ -31,15 +32,43 @@ class EventHasRegistrantsException extends EventActionException {
 /// enregistrée, vérifie les règles puis écrit, SANS `await` entre la lecture
 /// et l'écriture : c'est atomique (rôle des anciennes transactions), deux
 /// actions ne peuvent pas s'écraser.
+///
+/// Les règles que vérifiait le serveur sont vérifiées ICI, sur la version
+/// enregistrée et avec l'identité de la session ([EventActor]), pas avec ce
+/// que l'écran transmet : contenu valide à la création et à la modification,
+/// organisateur = personne connectée, seul l'organisateur ou un admin
+/// modifie / annule / supprime / pointe, chacun ne s'inscrit que lui-même.
 class EventProvider extends ChangeNotifier {
-  /// [store] et [storage] remplaçables dans les tests.
-  EventProvider({LocalStore? store, StorageService? storage})
+  /// [store], [storage] et [actor] (personne connectée, lue par défaut dans
+  /// la session enregistrée) remplaçables dans les tests.
+  EventProvider({LocalStore? store, StorageService? storage, EventActor? Function()? actor})
       : _store = store ?? LocalStore(),
-        _storage = storage ?? StorageService();
+        _storage = storage ?? StorageService(),
+        _actorOverride = actor;
 
   final LocalStore _store;
   final StorageService _storage;
+  final EventActor? Function()? _actorOverride;
   static const _collection = AppConstants.eventsCollection;
+
+  /// Personne connectée maintenant (null = visiteur).
+  EventActor? get _actor => _actorOverride != null ? _actorOverride() : EventActor.fromStore(_store);
+
+  EventActor _requireActor(String action) {
+    final actor = _actor;
+    if (actor == null) throw EventActionException('Connectez-vous pour $action.');
+    return actor;
+  }
+
+  /// Seul l'organisateur de l'événement ou un admin peut [action].
+  static void _requireManager(EventActor actor, EventModel event, String action) {
+    if (!actor.canManage(event)) {
+      throw EventActionException("Seul l'organisateur ou un admin peut $action.");
+    }
+  }
+
+  /// Tous les événements enregistrés (pas seulement ceux chargés à l'écran).
+  List<EventModel> _storedEvents() => [for (final d in _store.all(_collection)) EventModel.fromMap(d.id, d.data)];
 
   /// Réseau disponible : ne concerne plus les données (toujours locales),
   /// seulement les services web de la fiche et du formulaire (carte, météo,
@@ -250,11 +279,53 @@ class EventProvider extends ChangeNotifier {
   // --------------------------------------------------------------- Création
 
   /// Création. [draft.id] est généré UNE fois à l'ouverture du formulaire :
-  /// un nouvel essai réécrit le même document, jamais de doublon.
+  /// un nouvel essai avec le même id ne recrée rien (jamais de doublon) et
+  /// garde la date de création du premier enregistrement.
+  ///
+  /// Vérifié ici, même si le formulaire est contourné : personne connectée
+  /// et organisateur = elle ; contenu valide (titre, description, lieu,
+  /// catégorie, dates, capacité, prix, coordonnées, affiche) ; début dans au
+  /// moins 15 minutes ; événement neuf (actif, sans inscrits, présents ni
+  /// payés) ; pas de doublon (même titre, même début) ; 5 créations par jour.
   Future<void> createEvent(EventModel draft) async {
+    final actor = _requireActor('créer un événement');
     final now = DateTime.now();
+    if (draft.organizerId != actor.uid) {
+      throw const EventActionException("L'organisateur doit être la personne connectée.");
+    }
+    final existing = _store.get(_collection, draft.id);
+    if (existing != null) {
+      if (existing['organizerId'] != actor.uid) {
+        throw const EventActionException('Cet identifiant est déjà utilisé. Rouvrez le formulaire.');
+      }
+      _putLocal(EventModel.fromMap(draft.id, existing)); // nouvel essai : déjà enregistré
+      return;
+    }
+    final invalid = EventValidators.eventContent(draft) ??
+        EventValidators.start(draft.startDate, now: now) ??
+        _notNew(draft);
+    if (invalid != null) throw EventActionException(invalid);
+
+    final others = _storedEvents();
+    final duplicate =
+        EventValidators.duplicate(organizerId: actor.uid, title: draft.title, start: draft.startDate, existing: others);
+    if (duplicate != null) throw EventActionException(duplicate);
+    final limit = EventValidators.dailyLimit(organizerId: actor.uid, existing: others, now: now);
+    if (limit != null) throw EventActionException(limit);
+
     final data = draft.copyWith(createdAt: now, updatedAt: now).toMap();
     await _write(draft.id, () => _store.set(_collection, draft.id, data));
+  }
+
+  /// Un événement créé part actif, sans inscrits, présents ni payés.
+  static String? _notNew(EventModel draft) {
+    if (draft.status != EventStatus.active || draft.cancelReason != null || draft.cancelledAt != null) {
+      return 'Un nouvel événement ne peut pas être annulé.';
+    }
+    if (draft.registeredUserIds.isNotEmpty || draft.checkedInUserIds.isNotEmpty || draft.paidUserIds.isNotEmpty) {
+      return 'Un nouvel événement commence sans inscrits.';
+    }
+    return null;
   }
 
   // ---------------------------------------------- Modification / annulation
@@ -264,9 +335,17 @@ class EventProvider extends ChangeNotifier {
   /// inscriptions faites entre-temps seraient effacées. organizerId n'est
   /// jamais modifié. Une affiche remplacée ou retirée est supprimée du
   /// téléphone.
+  ///
+  /// Vérifié ici : organisateur ou admin ; ni terminé ni annulé ; capacité
+  /// jamais sous le nombre d'inscrits ; contenu final valide ; un début
+  /// modifié doit être dans au moins 15 minutes. Seuls les champs
+  /// modifiables sont écrits : jamais organizerId, createdAt, le statut, les
+  /// inscrits, présents ou payés.
   Future<void> updateEvent(EventModel original, EventModel edited) async {
+    final actor = _requireActor('modifier un événement');
     final now = DateTime.now();
     final current = _readStored(original.id); // inscrits les plus récents
+    _requireManager(actor, current, 'modifier cet événement');
 
     final blocked = EventValidators.editBlocked(current, now);
     if (blocked != null) throw EventActionException(blocked);
@@ -276,6 +355,11 @@ class EventProvider extends ChangeNotifier {
 
     final changes = edited.changedFieldsSince(original);
     if (changes.isEmpty) return; // rien à enregistrer
+    // Contenu final (version enregistrée + changements), comme l'ancien serveur.
+    final merged = EventModel.fromMap(current.id, {...current.toMap(), ...changes});
+    final invalid = EventValidators.eventContent(merged) ??
+        (changes.containsKey('startDate') ? EventValidators.start(merged.startDate, now: now) : null);
+    if (invalid != null) throw EventActionException(invalid);
     final patch = {...changes, 'updatedAt': now};
 
     await _write(original.id, () => _store.update(_collection, original.id, patch));
@@ -284,11 +368,13 @@ class EventProvider extends ChangeNotifier {
     }
   }
 
-  /// Annulation (règle 6) : motif de 5 à 200 caractères ; les inscriptions
-  /// sont conservées.
+  /// Annulation (règle 6) : organisateur ou admin ; ni déjà annulé ni
+  /// terminé ; motif de 5 à 200 caractères ; les inscriptions sont conservées.
   Future<void> cancelEvent(EventModel event, String reason) async {
+    final actor = _requireActor('annuler un événement');
     final now = DateTime.now();
     final current = _readStored(event.id);
+    _requireManager(actor, current, 'annuler cet événement');
     final blocked = EventRules.cancelBlocked(current, now) ?? EventValidators.cancelReason(reason);
     if (blocked != null) throw EventActionException(blocked);
 
@@ -303,13 +389,17 @@ class EventProvider extends ChangeNotifier {
 
   // ------------------------------------------------------------ Suppression
 
-  /// Suppression (règle 7) : refusée à l'organisateur si des personnes sont
-  /// inscrites ([EventHasRegistrantsException] → l'écran propose d'annuler) ;
-  /// l'admin peut toujours supprimer. L'affiche est supprimée du téléphone.
-  Future<void> deleteEvent(EventModel event, {required bool isAdmin}) async {
+  /// Suppression (règle 7) : organisateur ou admin seulement ; refusée à
+  /// l'organisateur si des personnes sont inscrites
+  /// ([EventHasRegistrantsException] → l'écran propose d'annuler) ; l'admin
+  /// peut toujours supprimer. Le rôle vient de la session, pas de l'écran.
+  /// L'affiche est supprimée du téléphone.
+  Future<void> deleteEvent(EventModel event) async {
+    final actor = _requireActor('supprimer un événement');
     final data = _store.get(_collection, event.id);
     final current = data == null ? (findById(event.id) ?? event) : EventModel.fromMap(event.id, data);
-    final blocked = EventRules.deleteBlocked(current, isAdmin: isAdmin);
+    _requireManager(actor, current, 'supprimer cet événement');
+    final blocked = EventRules.deleteBlocked(current, isAdmin: actor.isAdmin);
     if (blocked != null) throw EventHasRegistrantsException(blocked);
 
     try {
@@ -364,7 +454,10 @@ class EventProvider extends ChangeNotifier {
   Future<void> _toggleAttendance(String eventId, String field, String uid, {bool onlyAdd = false}) async {
     final key = '$eventId|$field|$uid';
     if (_busyAttendance.contains(key)) return; // double tap ignoré
+    final actor = _requireActor('pointer les participants');
     final current = _readStored(eventId);
+    // Organisateur ou admin seulement, comme l'ancien serveur (isAttendanceChange).
+    _requireManager(actor, current, 'pointer les participants');
     final isPresentList = field == 'checkedInUserIds';
     final blocked = isPresentList
         ? EventRules.presentBlockedReason(current, uid, DateTime.now())
@@ -400,8 +493,19 @@ class EventProvider extends ChangeNotifier {
   /// Une désinscription retire aussi l'uid des présents / payés.
   /// Renvoie true si l'utilisateur est maintenant inscrit, false s'il est
   /// désinscrit, null si le tap est ignoré (écriture déjà en cours).
+  ///
+  /// Chacun n'inscrit ou ne désinscrit que lui-même : [userId] doit être la
+  /// personne de la session (organisateur et admin compris, comme l'ancien
+  /// serveur).
   Future<bool?> toggleRegistrationWithResult(EventModel event, String? userId) async {
     if (_busyEventIds.contains(event.id)) return null; // double tap ignoré
+    if (userId != null) {
+      final actor = _actor;
+      if (actor == null) throw const EventActionException('Connectez-vous pour vous inscrire.');
+      if (actor.uid != userId) {
+        throw const EventActionException('Vous ne pouvez inscrire ou désinscrire que vous-même.');
+      }
+    }
 
     final current = _readStored(event.id);
     final register = userId == null || !current.isUserRegistered(userId);

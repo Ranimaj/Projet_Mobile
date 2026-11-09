@@ -1,6 +1,8 @@
 import 'package:campusconnect/core/constants/app_constants.dart';
 import 'package:campusconnect/models/event_model.dart';
 import 'package:campusconnect/providers/event_provider.dart';
+import 'package:campusconnect/screens/evenements/event_actor.dart';
+import 'package:campusconnect/screens/evenements/event_categories.dart';
 import 'package:campusconnect/services/local_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -12,6 +14,10 @@ void main() {
   late LocalStore store;
   late EventProvider provider;
   const col = AppConstants.eventsCollection;
+
+  /// Personne connectée vue par le provider : l'organisateur par défaut ;
+  /// les tests d'inscription agissent au nom de l'étudiant concerné.
+  EventActor? actingAs;
 
   final start = DateTime.now().add(const Duration(days: 3));
 
@@ -28,7 +34,8 @@ void main() {
         organizerName: 'Club',
         title: 'Atelier',
         description: 'Un atelier pour tous',
-        category: 'Atelier',
+        // Catégorie de la liste : la création vérifie de nouveau le contenu.
+        category: EventCategories.conference,
         startDate: startDate ?? start,
         location: 'Salle B12',
         capacity: capacity,
@@ -46,7 +53,8 @@ void main() {
   setUp(() async {
     await openTestDatabase();
     store = LocalStore();
-    provider = EventProvider(store: store);
+    actingAs = const EventActor('org');
+    provider = EventProvider(store: store, actor: () => actingAs);
   });
 
   tearDown(closeTestDatabase);
@@ -79,6 +87,7 @@ void main() {
     });
 
     test('fonctionne hors-ligne : la connexion ne bloque rien', () async {
+      actingAs = const EventActor('u1');
       provider.updateConnectivity(false);
       await seed(event());
       expect(await provider.toggleRegistrationWithResult(event(), 'u1'), isTrue);
@@ -154,23 +163,27 @@ void main() {
       await store.merge(col, 'e1', {
         'registeredUserIds': ['u1']
       }); // inscrit entre-temps
-      expect(() => provider.deleteEvent(event(), isAdmin: false), throwsA(isA<EventHasRegistrantsException>()));
+      expect(() => provider.deleteEvent(event()), throwsA(isA<EventHasRegistrantsException>()));
       expect(store.exists(col, 'e1'), isTrue);
     });
 
     test('organisateur sans inscrit, ou admin : supprimé', () async {
       await seed(event());
-      await provider.deleteEvent(event(), isAdmin: false);
+      await provider.deleteEvent(event());
       expect(store.exists(col, 'e1'), isFalse);
       expect(provider.findById('e1'), isNull);
 
       await seed(event(id: 'e2', registered: ['u1']));
-      await provider.deleteEvent(event(id: 'e2', registered: ['u1']), isAdmin: true);
+      actingAs = const EventActor('admin', isAdmin: true); // l'admin agit
+      await provider.deleteEvent(event(id: 'e2', registered: ['u1']));
       expect(store.exists(col, 'e2'), isFalse);
     });
   });
 
   group('inscription', () {
+    // Chacun ne s'inscrit que lui-même : on agit au nom de « u1 ».
+    setUp(() => actingAs = const EventActor('u1'));
+
     test('inscription puis désinscription', () async {
       await seed(event());
       expect(await provider.toggleRegistrationWithResult(event(), 'u1'), isTrue);
@@ -182,7 +195,7 @@ void main() {
     test('dernière place : la 2e personne voit l’événement complet', () async {
       await seed(event(capacity: 1));
       // Deux comptes en même temps, chacun avec sa copie locale (périmée).
-      final other = EventProvider(store: store);
+      final other = EventProvider(store: store, actor: () => const EventActor('u2'));
       await other.load();
       final results = await Future.wait([
         provider.toggleRegistrationWithResult(event(capacity: 1), 'u1').then((r) => '$r', onError: (_) => 'refus'),
@@ -194,7 +207,7 @@ void main() {
 
     test('inscriptions simultanées sans capacité : aucune perdue', () async {
       await seed(event());
-      final other = EventProvider(store: store);
+      final other = EventProvider(store: store, actor: () => const EventActor('u2'));
       await other.load();
       await Future.wait([
         provider.toggleRegistrationWithResult(event(), 'u1'),
