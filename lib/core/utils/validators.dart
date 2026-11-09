@@ -107,6 +107,16 @@ class Validators {
     return _studentIdRegex.hasMatch(v) ? null : 'Identifiant invalide (6 à 12 caractères)';
   }
 
+  static String? required(String? value, {String message = 'Champ requis'}) =>
+      (value ?? '').trim().isEmpty ? message : null;
+
+  static String? minLength(String? value, int min, String label) {
+    final length = (value ?? '').trim().length;
+    if (length == 0) return '$label requis';
+    if (length < min) return '$label : $min caractères minimum ($length actuellement)';
+    return null;
+  }
+
   /// Compétence ajoutée au profil (ex. "Flutter", "Gestion de projet").
   static String? skill(String? value, {List<String> existing = const []}) {
     final v = (value ?? '').trim();

@@ -305,17 +305,21 @@ class AuthProvider extends ChangeNotifier {
         status = AuthStatus.visitor;
       });
 
+  /// Efface les données des modules liées au compte, une fois le mot de passe vérifié.
+  Future<void> Function(String uid)? beforeAccountDeletion;
+
   /// Supprime le compte après vérification du mot de passe, avec son
   /// historique de connexions.
   Future<bool> deleteAccount({String? password}) => _run(() async {
         final sessions = deviceSessions;
         await _authService.deleteAccount(
           password: password,
-          beforeDelete: sessions == null
+          beforeDelete: sessions == null && beforeAccountDeletion == null
               ? null
               : (uid) async {
                   try {
-                    await sessions.deleteAll(uid);
+                    await sessions?.deleteAll(uid);
+                    await beforeAccountDeletion?.call(uid);
                   } catch (_) {}
                 },
         );

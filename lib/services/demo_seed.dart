@@ -408,24 +408,33 @@ class DemoSeed {
       );
     }
     const applied = [
-      ('vermeg-pfe', ApplicationStatus.seen, 3),
-      ('talan-mobile', ApplicationStatus.sent, 1),
+      ('vermeg-pfe', ApplicationStatus.hrInterview, 3),
+      ('talan-mobile', ApplicationStatus.pending, 1),
       ('sofrecom-uiux', ApplicationStatus.accepted, 8),
     ];
     for (final (key, status, days) in applied) {
       final offer = byKey[key]!;
+      final id = 'demo-${key}_$jawherId';
       _set(
         AppConstants.applicationsCollection,
-        'demo-jawher-$key',
+        id,
         ApplicationModel(
-          id: 'demo-jawher-$key',
+          id: id,
           jobOfferId: 'demo-$key',
           jobTitle: offer.$3,
           companyName: offer.$2,
           candidateId: jawherId,
+          studentName: 'Jawher Khalifa',
+          studentEmail: 'jawher@esprit.tn',
+          cvName: 'cv_jawher.pdf',
           coverLetter: 'Étudiant en 4SIM2, je développe en Flutter et Firebase depuis deux ans.',
+          message: 'Disponible dès le prochain semestre.',
           status: status,
           appliedAt: _ago(days: days),
+          history: [
+            ApplicationEvent(status: ApplicationStatus.pending, createdAt: _ago(days: days)),
+            if (status != ApplicationStatus.pending) ApplicationEvent(status: status, createdAt: _ago(days: days - 1)),
+          ],
         ).toMap(),
       );
     }

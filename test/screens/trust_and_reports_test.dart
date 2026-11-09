@@ -1,9 +1,8 @@
 import 'package:campusconnect/core/utils/local_database.dart';
 import 'package:campusconnect/models/article_model.dart';
-import 'package:campusconnect/models/job_offer_model.dart';
 import 'package:campusconnect/models/user_model.dart';
 import 'package:campusconnect/screens/admin/admin_reports_screen.dart';
-import 'package:campusconnect/screens/stages_emploi/job_detail_screen.dart';
+import 'package:campusconnect/widgets/stages/recruiter_trust.dart';
 import 'package:campusconnect/screens/vente_don/article_detail_screen.dart';
 import 'package:campusconnect/services/ai/fraud_detector.dart';
 import 'package:campusconnect/services/local_store.dart';
@@ -132,21 +131,12 @@ void main() {
 
   testWidgets('a job offer shows its recruiter trust', (tester) async {
     await h.signIn(tester);
-    final offer = JobOfferModel(
-      id: 'j1',
-      recruiterId: 'rec-1',
-      companyName: 'Vermeg',
-      title: 'Stage Flutter',
-      description: 'Stage de 6 mois.',
-      type: JobType.stage,
-      location: 'Tunis',
-      postedAt: DateTime(2026, 11, 1),
-    );
     await h.pump(
         tester,
-        JobDetailScreen(
-            offer: offer,
-            recruiterLoader: (_) async => seller.copyWith(fullName: 'Leila RH')));
+        Scaffold(
+            body: RecruiterTrust(
+                recruiterId: 'rec-1',
+                loader: (_) async => seller.copyWith(fullName: 'Leila RH'))));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('recruiter-trust')), findsOneWidget);
     expect(find.text('Publiée par Leila RH'), findsOneWidget);

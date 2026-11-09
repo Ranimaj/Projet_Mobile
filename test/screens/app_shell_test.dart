@@ -11,6 +11,7 @@ import 'package:campusconnect/screens/evenements/event_rules.dart';
 import 'package:campusconnect/screens/home/app_shell.dart';
 import 'package:campusconnect/screens/home/home_screen.dart';
 import 'package:campusconnect/widgets/floating_nav_bar.dart';
+import 'package:campusconnect/services/stages/stage_services.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
@@ -18,6 +19,7 @@ import 'package:mocktail/mocktail.dart';
 import 'package:provider/provider.dart';
 
 import '../helpers/authenticated.dart';
+import '../helpers/stage_env.dart';
 
 class _MockArticles extends Mock implements ArticleProvider {}
 
@@ -82,6 +84,8 @@ void main() {
 
   Future<void> pumpShell(WidgetTester tester) async {
     await h.signIn(tester);
+    final stage = (await tester.runAsync(makeStage))!;
+    addTearDown(() => closeStage(stage));
     tester.view.physicalSize = const Size(420, 1000);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -96,6 +100,7 @@ void main() {
           ChangeNotifierProvider<AnnonceProvider>.value(value: annonces),
           ChangeNotifierProvider<EventProvider>.value(value: events),
           ChangeNotifierProvider<JobProvider>.value(value: jobs),
+          Provider<StageServices>.value(value: stage),
         ],
         child: MaterialApp(theme: AppTheme.light, home: const AppShell()),
       ),

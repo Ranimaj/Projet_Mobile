@@ -16,6 +16,7 @@ import 'providers/job_provider.dart';
 import 'providers/theme_provider.dart';
 import 'services/app_prefs.dart';
 import 'services/demo_seed.dart';
+import 'services/stages/stage_services.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/auth/register_screen.dart';
 import 'screens/onboarding/onboarding_screen.dart';
@@ -43,9 +44,12 @@ Future<void> main() async {
 }
 
 class CampusConnectApp extends StatelessWidget {
-  const CampusConnectApp({super.key, required this.prefs});
+  const CampusConnectApp({super.key, required this.prefs, this.stages});
 
   final AppPrefs prefs;
+
+  /// Remplace les services du module Stage & Emploi (tests).
+  final StageServices? stages;
 
   @override
   Widget build(BuildContext context) {
@@ -53,7 +57,19 @@ class CampusConnectApp extends StatelessWidget {
       providers: [
         Provider<AppPrefs>.value(value: prefs),
         ChangeNotifierProvider(create: (_) => ThemeProvider(prefs)),
-        ChangeNotifierProvider(create: (_) => AuthProvider()),
+        Provider<StageServices>(
+          lazy: false,
+          create: (_) {
+            final services = stages ?? StageServices();
+            unawaited(services.emails.flush());
+            return services;
+          },
+          dispose: (_, services) => services.dispose(),
+        ),
+        ChangeNotifierProvider(
+          create: (context) =>
+              AuthProvider()..beforeAccountDeletion = context.read<StageServices>().deleteUserData,
+        ),
         ChangeNotifierProvider(create: (_) => ConnectivityProvider()),
 
         // Chaque provider de module reçoit l'état réseau courant pour
