@@ -347,9 +347,12 @@ téléphone, gratuitement, sans réseau.
    sur le téléphone : à l'enregistrement, elle est rangée dans le dossier de
    l'app comme une affiche choisie dans la galerie.
 
-Précision des règles sur les 5 affiches de référence, mesurée sur des lignes de
-texte propres (elle évalue les règles, pas la lecture de l'image) :
-`flutter test test/evenements/poster_accuracy_report_test.dart`.
+Précision des règles sur les 5 affiches de référence (lignes de texte
+propres) et sur 3 affiches dans le découpage en lignes observé sur émulateur ;
+elle évalue les règles, pas la lecture d'une nouvelle image :
+`flutter test test/evenements/poster_accuracy_report_test.dart`. En version de
+débogage, chaque lecture est détaillée dans le journal (`adb logcat -s flutter`,
+lignes « [PosterScan] »).
 
 ### API gratuites et limites
 
@@ -474,7 +477,11 @@ Déjà présents et réutilisés : `image_picker`, `flutter_image_compress`,
   est ignoré). Le résultat dépend de la photo (flou, reflets, polices
   décoratives) et les règles de date restent des heuristiques qui peuvent se
   tromper : l'utilisateur vérifie toujours avant d'enregistrer. Le lieu lu
-  n'est pas localisé (choisir une suggestion pour avoir la carte).
+  n'est pas localisé (choisir une suggestion pour avoir la carte). Les
+  accents des lettres majuscules peuvent être perdus à la lecture
+  (« ASSEMBLEE »). Les champs répartis sur plusieurs lignes (titre, lieu,
+  date et heure) sont reconstitués par des règles de hauteur et de
+  proximité, qui peuvent se tromper.
 - Le moteur de lecture embarqué alourdit l'APK d'environ 12 Mo par
   architecture (mesuré : +40 Mo sur l'APK de débogage, qui contient 3
   architectures).
