@@ -1,8 +1,11 @@
+import 'dart:io';
+
 import 'package:campusconnect/core/constants/app_constants.dart';
 import 'package:campusconnect/models/event_model.dart';
 import 'package:campusconnect/providers/event_provider.dart';
 import 'package:campusconnect/screens/evenements/event_actor.dart';
 import 'package:campusconnect/screens/evenements/event_categories.dart';
+import 'package:campusconnect/screens/evenements/event_rules.dart';
 import 'package:campusconnect/screens/evenements/ticket_rules.dart';
 import 'package:campusconnect/services/auth_service.dart';
 import 'package:campusconnect/services/local_store.dart';
@@ -420,6 +423,80 @@ void main() {
       await provider.markPresent('e1', verdict.uid!);
       expect(stored('e1').checkedInUserIds, ['u1']);
       expect(TicketRules.scanVerdict(stored('e1'), raw, DateTime.now()).verdict, ScanVerdict.alreadyPresent);
+    });
+  });
+
+  group('lecture, filtres et suivi en direct (données locales)', () {
+    test('onglets, catégorie, prix, jour et recherche sans accents sur les événements enregistrés', () async {
+      final day = DateTime.now().add(const Duration(days: 2));
+      await seed(draft(id: 'cine', title: 'Soirée cinéma', category: EventCategories.culture, price: 5, start: day));
+      await seed(draft(id: 'foot', title: 'Tournoi', category: EventCategories.sport, registered: ['u1']));
+      await seed(draft(id: 'vieux', title: 'Ancien', start: DateTime.now().subtract(const Duration(days: 3))));
+      await seed(draft(id: 'annule', title: 'Annulé', status: EventStatus.cancelled));
+      // Ancienne catégorie stockée : relue comme « Carrière ».
+      await store.set(col, 'jf', {...draft(id: 'jf', title: 'École et entreprise').toMap(), 'category': 'Job Fair'});
+      await provider.load();
+      List<String> ids(String? user, {String query = ''}) =>
+          provider.visibleEvents(user, query: query).map((e) => e.id).toList();
+
+      expect(ids(null), unorderedEquals(['cine', 'foot', 'jf']));
+      provider.setCategoryFilter(EventCategories.career);
+      expect(ids(null), ['jf']);
+      provider.setCategoryFilter(null);
+      expect(ids(null, query: 'ecole'), ['jf']); // sans accents
+      provider.setPriceFilter(PriceFilter.paid);
+      expect(ids(null), ['cine']);
+      provider.setPriceFilter(PriceFilter.all);
+      provider.setSelectedDay(day);
+      expect(ids(null), ['cine']);
+      provider.setSelectedDay(null);
+      provider.setFilter(EventFilter.past);
+      expect(ids(null), ['vieux']);
+      provider.setFilter(EventFilter.myRegistrations);
+      expect(ids('u1'), ['foot']);
+      provider.setFilter(EventFilter.myEvents);
+      expect(ids('org'), hasLength(5)); // annulés et passés compris
+    });
+
+    test('la fiche suit en direct inscription, annulation et pointage', () async {
+      await seed(draft(start: DateTime.now().add(const Duration(minutes: 40)), price: 8));
+      await provider.load();
+      final seen = <EventModel?>[];
+      final sub = provider.watchEvent('e1').listen(seen.add);
+      await pumpEventQueue();
+
+      final student = EventProvider(store: store, actor: () => const EventActor('u1'));
+      await student.toggleRegistrationWithResult(stored('e1'), 'u1');
+      await pumpEventQueue();
+      expect(seen.last!.registeredUserIds, ['u1']);
+
+      await provider.togglePresent('e1', 'u1');
+      await provider.togglePaid('e1', 'u1');
+      await pumpEventQueue();
+      expect(seen.last!.checkedInUserIds, ['u1']);
+      expect(seen.last!.paidUserIds, ['u1']);
+
+      await provider.cancelEvent(stored('e1'), 'Intervenant malade');
+      await pumpEventQueue();
+      expect(seen.last!.status, EventStatus.cancelled);
+      await sub.cancel();
+    });
+  });
+
+  group('affiche (fichier sur le téléphone)', () {
+    test('remplacée : l\'ancien fichier est supprimé ; événement supprimé : son fichier aussi', () async {
+      final dir = Directory.systemTemp.createTempSync('event_posters');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final first = File('${dir.path}${Platform.pathSeparator}a.jpg')..writeAsBytesSync([1]);
+      final second = File('${dir.path}${Platform.pathSeparator}b.jpg')..writeAsBytesSync([2]);
+
+      await provider.createEvent(draft(posterUrl: first.path));
+      await provider.updateEvent(stored('e1'), stored('e1').copyWith(posterUrl: second.path));
+      expect(stored('e1').posterUrl, second.path);
+      expect(first.existsSync(), isFalse);
+
+      await provider.deleteEvent(stored('e1'));
+      expect(second.existsSync(), isFalse);
     });
   });
 
