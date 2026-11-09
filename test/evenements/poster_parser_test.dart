@@ -472,6 +472,16 @@ void main() {
     });
   });
 
+  test('compte rendu de débogage : lignes (bloc, top, hauteur, écart) puis champs', () {
+    final fx = posterFixtures[3];
+    final report = PosterParser.debugReport(fx.ocr, PosterParser.parse(fx.ocr, posterNow));
+    expect(report.every((l) => l.startsWith('[PosterScan]')), isTrue);
+    expect(report[1], '[PosterScan] #0 bloc=0 top=100 h=56 écart=- « SOIRÉE CINÉMA EN PLEIN AIR »');
+    expect(report[2], '[PosterScan] #1 bloc=1 top=190 h=28 écart=34 « Vendredi 18/12/2026 à 19h30 »');
+    expect(report, contains('[PosterScan] prix: trouvé → 5.0'));
+    expect(report, contains('[PosterScan] description: non trouvé'));
+  });
+
   test('formats d\'affichage', () {
     expect(PosterParser.formatDay(DateTime(2026, 12, 12)), 'samedi 12 décembre 2026');
     expect(PosterParser.formatDateTime(DateTime(2026, 12, 12, 9, 5)), 'samedi 12 décembre 2026 à 09:05');

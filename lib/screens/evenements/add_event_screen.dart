@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -491,7 +492,10 @@ class _AddEventScreenState extends State<AddEventScreen> {
     PosterDraft? draft;
     try {
       final reader = widget.posterTextReader ?? MlKitPosterTextReader();
-      draft = PosterParser.parse(await reader.read(File(file.path)), DateTime.now());
+      final ocr = await reader.read(File(file.path));
+      draft = PosterParser.parse(ocr, DateTime.now());
+      // Débogage seulement (adb logcat -s flutter) : rien en version publiée.
+      if (kDebugMode) PosterParser.debugReport(ocr, draft).forEach(debugPrint);
     } on PosterReadException catch (e) {
       messenger.showSnackBar(SnackBar(content: Text(e.message)));
     } catch (e) {

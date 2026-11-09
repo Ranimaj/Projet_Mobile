@@ -442,6 +442,32 @@ class PosterParser {
     return best;
   }
 
+  /// Compte rendu lisible (lignes lues puis champs trouvés) pour le journal de
+  /// débogage. Chaque ligne commence par « [PosterScan] ».
+  static List<String> debugReport(PosterOcrResult ocr, PosterDraft d) {
+    String n(double v) => v.toStringAsFixed(0);
+    final out = <String>['[PosterScan] ${ocr.lines.length} ligne(s) lue(s)'];
+    for (var i = 0; i < ocr.lines.length; i++) {
+      final l = ocr.lines[i];
+      final gap = i == 0 ? '-' : n(l.top - ocr.lines[i - 1].bottom);
+      out.add('[PosterScan] #$i bloc=${l.block} top=${n(l.top)} h=${n(l.height)} écart=$gap « ${l.text} »');
+    }
+    String f(String name, bool found, Object? value) => '[PosterScan] $name: ${found ? 'trouvé' : 'non trouvé'}'
+        '${found ? ' → $value' : ''}';
+    out
+      ..add(f('titre', d.titleFound, d.title))
+      ..add(f('début', d.startFound, d.start))
+      ..add(f('fin', d.endFound, d.end))
+      ..add(f('date sans heure', d.dateWithoutTime != null, d.dateWithoutTime))
+      ..add(f('lieu', d.placeFound, d.place))
+      ..add(f('prix', d.priceFound, d.isFree ? 'gratuit' : d.priceTnd))
+      ..add(f('description', d.descriptionFound, d.description?.replaceAll('\n', ' ⏎ ')));
+    for (final w in d.warnings) {
+      out.add('[PosterScan] avertissement: $w');
+    }
+    return out;
+  }
+
   static String _clean(String s) =>
       s.replaceAll(_spaces, ' ').trim().replaceAll(RegExp(r'^[\s:·,\-–]+|[\s:·,\-–]+$'), '').trim();
 
