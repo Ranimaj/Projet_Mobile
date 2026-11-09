@@ -117,20 +117,30 @@ class AdminUsersProvider extends ChangeNotifier {
       notifyListeners();
       return false;
     } catch (_) {
-      error = 'Action impossible. Vérifie ta connexion et tes droits.';
+      error = 'Action impossible. Vérifie tes droits.';
       notifyListeners();
       return false;
     }
   }
 
-  Future<String> cardImageUrl(String path) => _service.cardImageUrl(path);
+  /// Réinitialise le mot de passe de [user] ; renvoie le mot de passe
+  /// temporaire à lui transmettre, ou null en cas d'échec ([error] posé).
+  Future<String?> resetPassword(AppUser user) async {
+    try {
+      return await _service.resetPassword(user.id);
+    } catch (_) {
+      error = 'Réinitialisation impossible pour ce compte.';
+      notifyListeners();
+      return null;
+    }
+  }
 
   Future<bool> _run(Future<void> Function() action) async {
     try {
       await action();
       return true;
     } catch (_) {
-      error = 'Action impossible. Vérifie ta connexion et tes droits.';
+      error = 'Action impossible. Vérifie tes droits.';
       notifyListeners();
       return false;
     }

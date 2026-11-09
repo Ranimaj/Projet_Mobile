@@ -1,5 +1,5 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import '../screens/evenements/event_categories.dart';
+import '../services/local_store.dart' show parseDate;
 
 /// Statut STOCKÉ dans Firestore : seule l'annulation est une décision humaine.
 enum EventStatus { active, cancelled }
@@ -9,7 +9,7 @@ enum EventDisplayStatus { cancelled, finished, ongoing, full, upcoming }
 
 /// Modèle "Gestion des Événements".
 ///
-/// Les dates sont stockées en Timestamp (instant UTC) et manipulées en heure
+/// Les dates sont stockées en DateTime UTC et manipulées en heure
 /// locale dans l'app.
 class EventModel {
   /// Durée appliquée aux anciens documents qui n'ont pas de date de fin.
@@ -116,16 +116,9 @@ class EventModel {
     );
   }
 
-  /// Une date peut arriver sous 4 formes : Timestamp (Firestore), DateTime
-  /// (cache local), int (millisecondes) ou String (ISO 8601). Toujours rendue
-  /// en heure locale ; null si absente ou illisible.
-  static DateTime? _parseDate(dynamic value) {
-    if (value is Timestamp) return value.toDate().toLocal();
-    if (value is DateTime) return value.toLocal();
-    if (value is int) return DateTime.fromMillisecondsSinceEpoch(value);
-    if (value is String) return DateTime.tryParse(value)?.toLocal();
-    return null;
-  }
+  /// DateTime (base locale), int (millisecondes) ou String (ISO 8601),
+  /// rendue en heure locale ; null si absente ou illisible.
+  static DateTime? _parseDate(dynamic value) => parseDate(value);
 
   Map<String, dynamic> toMap() {
     return {
@@ -134,8 +127,8 @@ class EventModel {
       'title': title,
       'description': description,
       'category': category,
-      'startDate': Timestamp.fromDate(startDate),
-      'endDate': Timestamp.fromDate(endDate),
+      'startDate': startDate,
+      'endDate': endDate,
       'location': location,
       'latitude': latitude,
       'longitude': longitude,
@@ -145,11 +138,11 @@ class EventModel {
       'price': price,
       'status': status.name,
       'cancelReason': cancelReason,
-      'cancelledAt': cancelledAt == null ? null : Timestamp.fromDate(cancelledAt!),
+      'cancelledAt': cancelledAt,
       'checkedInUserIds': checkedInUserIds,
       'paidUserIds': paidUserIds,
-      'createdAt': Timestamp.fromDate(createdAt),
-      'updatedAt': Timestamp.fromDate(updatedAt),
+      'createdAt': createdAt,
+      'updatedAt': updatedAt,
     };
   }
 

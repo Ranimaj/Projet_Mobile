@@ -1,7 +1,6 @@
 import 'package:campusconnect/models/event_model.dart';
 import 'package:campusconnect/models/user_model.dart';
 import 'package:campusconnect/screens/evenements/event_rules.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Étape 12 : outils organisateur (participants, présence, paiement).
@@ -44,7 +43,7 @@ void main() {
         'description': 'Document ancien',
         'category': 'Sport',
         'location': 'Stade',
-        'startDate': Timestamp.fromDate(start),
+        'startDate': start,
       });
       expect(e.paidUserIds, isEmpty);
       expect(e.checkedInUserIds, isEmpty);

@@ -1,4 +1,3 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -6,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../core/theme/app_tokens.dart';
 import '../../models/user_model.dart';
 import '../../providers/admin_users_provider.dart';
+import '../../widgets/app_image.dart';
 import '../../widgets/hero_sheet_scaffold.dart';
 import '../../widgets/pill_button.dart';
 import '../../widgets/round_icon_button.dart';
@@ -24,17 +24,7 @@ class AdminCardReviewScreen extends StatefulWidget {
 }
 
 class _AdminCardReviewScreenState extends State<AdminCardReviewScreen> {
-  Future<String>? _imageUrl;
   bool _busy = false;
-
-  @override
-  void initState() {
-    super.initState();
-    final path = widget.user.studentCard.imagePath;
-    if (path != null) {
-      _imageUrl = context.read<AdminUsersProvider>().cardImageUrl(path);
-    }
-  }
 
   static String _date(DateTime? d) =>
       d == null ? '—' : DateFormat('d MMMM y', 'fr_FR').format(d);
@@ -81,7 +71,7 @@ class _AdminCardReviewScreenState extends State<AdminCardReviewScreen> {
             Positioned.fill(
               child: InteractiveViewer(
                 maxScale: 5,
-                child: CachedNetworkImage(imageUrl: url, fit: BoxFit.contain),
+                child: AppImage(url: url, fit: BoxFit.contain),
               ),
             ),
             Positioned(
@@ -112,29 +102,19 @@ class _AdminCardReviewScreenState extends State<AdminCardReviewScreen> {
             ],
           ),
         );
-    final future = _imageUrl;
-    if (future == null) {
+    final path = widget.user.studentCard.imagePath;
+    if (path == null || path.isEmpty) {
       return box(Icons.image_not_supported_rounded, 'Aucune image');
     }
-    return FutureBuilder<String>(
-      future: future,
-      builder: (context, snap) {
-        if (snap.hasError) {
-          return box(Icons.broken_image_rounded, 'Image indisponible');
-        }
-        final url = snap.data;
-        if (url == null) return Container(color: t.primarySoft);
-        return GestureDetector(
-          onTap: () => _zoom(url),
-          child: CachedNetworkImage(
-            imageUrl: url,
-            fit: BoxFit.cover,
-            placeholder: (_, __) => Container(color: t.primarySoft),
-            errorWidget: (_, __, ___) =>
-                box(Icons.broken_image_rounded, 'Image indisponible'),
-          ),
-        );
-      },
+    // Fichier sur le téléphone (ou image embarquée) : affiché directement.
+    return GestureDetector(
+      onTap: () => _zoom(path),
+      child: AppImage(
+        url: path,
+        fit: BoxFit.cover,
+        placeholder: (_) => Container(color: t.primarySoft),
+        error: (_) => box(Icons.broken_image_rounded, 'Image indisponible'),
+      ),
     );
   }
 

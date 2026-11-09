@@ -5,13 +5,17 @@ import '../../core/theme/app_colors.dart';
 import '../../models/job_offer_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../widgets/primary_button.dart';
+import '../../widgets/trust_badge.dart';
 import 'apply_screen.dart';
 
 /// Détail d'une offre — compétences requises, score de correspondance,
 /// bouton de candidature.
 class JobDetailScreen extends StatelessWidget {
   final JobOfferModel offer;
-  const JobDetailScreen({super.key, required this.offer});
+
+  /// Charge le profil du recruteur pour son score de confiance (tests).
+  final PublicUserLoader? recruiterLoader;
+  const JobDetailScreen({super.key, required this.offer, this.recruiterLoader});
 
   @override
   Widget build(BuildContext context) {
@@ -44,6 +48,27 @@ class JobDetailScreen extends StatelessWidget {
             Text(offer.title, style: Theme.of(context).textTheme.displayMedium),
             const SizedBox(height: 6),
             Text('${offer.companyName} · ${offer.location}', style: Theme.of(context).textTheme.bodyLarge),
+            UserTrust(
+              userId: offer.recruiterId,
+              loader: recruiterLoader,
+              builder: (context, trust, recruiter) => trust == null
+                  ? const SizedBox.shrink()
+                  : Padding(
+                      key: const Key('recruiter-trust'),
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Row(
+                        children: [
+                          Flexible(
+                            child: Text('Publiée par ${recruiter!.fullName}',
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context).textTheme.bodyMedium),
+                          ),
+                          const SizedBox(width: 8),
+                          TrustBadge(trust: trust),
+                        ],
+                      ),
+                    ),
+            ),
             const SizedBox(height: 4),
             Text('Publiée le ${DateFormat('d MMM yyyy', 'fr_FR').format(offer.postedAt)}',
                 style: Theme.of(context).textTheme.bodyMedium),

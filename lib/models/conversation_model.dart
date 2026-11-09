@@ -1,7 +1,5 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 
 DateTime? _date(dynamic v) {
-  if (v is Timestamp) return v.toDate();
   if (v is DateTime) return v;
   if (v == null) return null;
   return DateTime.tryParse(v.toString());
@@ -76,7 +74,7 @@ class ConversationModel {
         'participants': participants,
         'lastMessage': lastMessage,
         'lastSenderId': lastSenderId,
-        'updatedAt': Timestamp.fromDate(updatedAt),
+        'updatedAt': updatedAt,
         'unreadBy': unreadBy,
       };
 }

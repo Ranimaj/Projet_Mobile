@@ -31,7 +31,6 @@ void main() {
     cards = MockCardService();
     picker = MockPicker();
     h = AuthHarness(studentCardService: cards);
-    when(() => cards.hasQueuedSubmission(any())).thenReturn(false);
     when(() => picker.pickImage(
           source: any(named: 'source'),
           imageQuality: any(named: 'imageQuality'),
@@ -59,14 +58,13 @@ void main() {
     expect(sendButton(tester).onPressed, isNotNull);
   });
 
-  testWidgets('pick, send online: submits, shows the snack and pops', (tester) async {
+  testWidgets('pick and send: submits, shows the snack and pops', (tester) async {
     when(() => cards.submit(
           uid: any(named: 'uid'),
           photo: any(named: 'photo'),
-          isOnline: any(named: 'isOnline'),
           now: any(named: 'now'),
         )).thenAnswer((_) async => StudentCard.pending(
-          imagePath: 'student_cards/uid-1/1.jpg',
+          imagePath: '/app/student_cards/uid-1/1.jpg',
           submittedAt: DateTime(2026, 1, 1),
         ));
     await h.signIn(tester);
@@ -80,7 +78,6 @@ void main() {
     final captured = verify(() => cards.submit(
           uid: 'uid-1',
           photo: captureAny(named: 'photo'),
-          isOnline: true,
           now: any(named: 'now'),
         )).captured;
     expect((captured.single as File).path, '/tmp/card.jpg');
@@ -101,33 +98,17 @@ void main() {
     expect(pill.left - bar.left, lessThanOrEqualTo(20));
   });
 
-  testWidgets('online send that fell back to the queue uses the queued wording',
+  testWidgets('no network needed: the camera photo is sent and stored locally',
       (tester) async {
-    when(() => cards.submit(
-          uid: any(named: 'uid'),
-          photo: any(named: 'photo'),
-          isOnline: true,
-          now: any(named: 'now'),
-        )).thenAnswer((_) async => const StudentCard(status: StudentCardStatus.pending));
-    await h.signIn(tester);
-    await h.pump(tester, StudentCardScreen(picker: picker));
-
-    await tester.tap(find.text('Galerie'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Envoyer pour validation'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Carte enregistrée, envoi à la reconnexion'), findsOneWidget);
-  });
-
-  testWidgets('offline send uses the queued wording', (tester) async {
     when(() => h.connectivity.isOnline).thenReturn(false);
     when(() => cards.submit(
           uid: any(named: 'uid'),
           photo: any(named: 'photo'),
-          isOnline: false,
           now: any(named: 'now'),
-        )).thenAnswer((_) async => const StudentCard(status: StudentCardStatus.pending));
+        )).thenAnswer((_) async => StudentCard.pending(
+          imagePath: '/app/student_cards/uid-1/1.jpg',
+          submittedAt: DateTime(2026, 1, 1),
+        ));
     await h.signIn(tester);
     await h.pump(tester, StudentCardScreen(picker: picker));
 
@@ -136,7 +117,32 @@ void main() {
     await tester.tap(find.text('Envoyer pour validation'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Carte enregistrée, envoi à la reconnexion'), findsOneWidget);
+    verify(() => picker.pickImage(
+          source: ImageSource.camera,
+          imageQuality: any(named: 'imageQuality'),
+          maxWidth: any(named: 'maxWidth'),
+        )).called(1);
+    expect(find.text('Carte envoyée, en attente de validation'), findsOneWidget);
+    expect(find.byType(StudentCardScreen), findsNothing);
+  });
+
+  testWidgets('a failed send shows the error and stays on the screen', (tester) async {
+    when(() => cards.submit(
+          uid: any(named: 'uid'),
+          photo: any(named: 'photo'),
+          now: any(named: 'now'),
+        )).thenThrow(const FileSystemException('disk full'));
+    await h.signIn(tester);
+    await h.pump(tester, StudentCardScreen(picker: picker));
+
+    await tester.tap(find.text('Galerie'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Envoyer pour validation'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(StudentCardScreen), findsOneWidget);
+    expect(find.text('Carte envoyée, en attente de validation'), findsNothing);
+    expect(sendButton(tester).onPressed, isNotNull);
   });
 
   testWidgets('rejected card shows the chip, the reason and Renvoyer', (tester) async {
@@ -154,17 +160,6 @@ void main() {
     expect(find.text('Renvoyer'), findsOneWidget);
     expectNoSmallText(tester);
     expectTapTargets(tester);
-  });
-
-  testWidgets('pending card waiting for the network says so', (tester) async {
-    when(() => cards.hasQueuedSubmission('uid-1')).thenReturn(true);
-    await h.signIn(
-      tester,
-      user: sampleUser.copyWith(studentCard: const StudentCard(status: StudentCardStatus.pending)),
-    );
-    await h.pump(tester, StudentCardScreen(picker: picker));
-
-    expect(find.text('En attente de connexion'), findsOneWidget);
   });
 
   testWidgets('pending card shows the in-review chip', (tester) async {

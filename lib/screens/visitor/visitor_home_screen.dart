@@ -1,4 +1,3 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_constants.dart';
@@ -12,6 +11,7 @@ import '../../providers/annonce_provider.dart';
 import '../../providers/article_provider.dart';
 import '../../providers/event_provider.dart';
 import '../../providers/job_provider.dart';
+import '../../services/local_store.dart';
 import '../../widgets/bottom_action_bar.dart';
 import '../../widgets/featured_card.dart';
 import '../../widgets/photo_card.dart';
@@ -41,7 +41,7 @@ double _railHeight(BuildContext context) =>
 /// fixe en pied d'écran. Les chiffres sont réels (jamais inventés).
 class VisitorHomeScreen extends StatefulWidget {
   /// Nombre d'étudiants inscrits (pastille du héro). Injectable dans les tests ;
-  /// par défaut, comptage Firestore de la collection `users`.
+  /// par défaut, nombre de documents de la collection `users` (base locale).
   final Future<int> Function()? studentsCount;
 
   const VisitorHomeScreen({super.key, this.studentsCount});
@@ -55,11 +55,7 @@ class _VisitorHomeScreenState extends State<VisitorHomeScreen> {
 
   static Future<int> _countStudents() async {
     try {
-      final snap = await FirebaseFirestore.instance
-          .collection(AppConstants.usersCollection)
-          .count()
-          .get();
-      return snap.count ?? 0;
+      return LocalStore().all(AppConstants.usersCollection).length;
     } catch (_) {
       return 0;
     }

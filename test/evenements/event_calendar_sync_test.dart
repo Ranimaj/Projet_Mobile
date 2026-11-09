@@ -1,6 +1,5 @@
 import 'package:campusconnect/models/event_model.dart';
 import 'package:campusconnect/screens/evenements/event_calendar_sync.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Logique pure de la synchronisation calendrier : aucun téléphone, aucun plugin.
@@ -46,7 +45,7 @@ void main() {
         'description': 'Sans date de fin',
         'category': 'Sport',
         'location': 'Stade',
-        'startDate': Timestamp.fromDate(start),
+        'startDate': start,
       });
       final e = EventCalendarSync.buildEntry(legacy);
       expect(e.end, start.add(const Duration(hours: 2)));

@@ -6,107 +6,40 @@ entre les 5 membres de l'équipe :
 
 | Module | Responsable | CRUD | Fonctionnalités avancées | API dédiée |
 |---|---|---|---|---|
-| Gestion Utilisateurs | Membre 1 | Profil, inscription, rôles | Authentification biométrique (`local_auth`) + Connexion Google | Firebase Authentication + Google ML Kit |
-| Gestion Vente & Don | Membre 2 | Articles (créer/lire/modifier/supprimer, réserver, terminer) | Upload multi-images compressées + recherche/filtres avancés | Cloud Firestore + Firebase Storage |
-| Gestion Annonces | Membre 3 | Annonces (créer/lire/modifier/supprimer) | Notifications push ciblées par filière/année + épinglage auto des annonces officielles | Firebase Cloud Messaging |
-| Gestion Événements | Membre 4 | Événements (créer/lire/modifier/annuler/supprimer, inscription atomique, présences/paiements) | Calendrier natif + vue mois, carte et itinéraire, météo, affiches, billet QR + scanner, « Près de moi » | add_2_calendar, Photon, OSRM, Open-Meteo, Cloudinary (voir [Événements (P4)](#9-événements-p4)) |
-| Gestion Stage & Emploi | Membre 5 | Offres + candidatures (créer/lire/modifier/supprimer) | Matching intelligent par compétences + suivi de statut en temps réel | Firestore (candidatures en temps réel) |
+| Gestion Utilisateurs | Membre 1 | Profil, inscription, rôles | Authentification biométrique (`local_auth`), double authentification, historique des connexions, score de confiance | Comptes locaux (SQLite, mots de passe PBKDF2) |
+| Gestion Vente & Don | Membre 2 | Articles (créer/lire/modifier/supprimer, réserver, terminer) | Photos multiples compressées + recherche/filtres avancés | SQLite (`sqflite`) + Google ML Kit |
+| Gestion Annonces | Membre 3 | Annonces (créer/lire/modifier/supprimer) | Ciblage par filière + épinglage auto des annonces officielles | SQLite (`sqflite`) |
+| Gestion Événements | Membre 4 | Événements (créer/lire/modifier/annuler/supprimer, inscription atomique, présences/paiements) | Calendrier natif + vue mois, carte et itinéraire, météo, affiches, billet QR + scanner, « Près de moi » | add_2_calendar, Photon, OSRM, Open-Meteo (voir [Événements (P4)](#9-événements-p4)) |
+| Gestion Stage & Emploi | Membre 5 | Offres + candidatures (créer/lire/modifier/supprimer) | Matching intelligent par compétences + suivi de statut en temps réel | SQLite (`sqflite`) |
 
-Toute l'application fonctionne **hors-ligne** : consultation depuis le cache
-local (SQLite, `sqflite`), actions mises en file d'attente puis synchronisées
-automatiquement au retour du réseau (voir [Architecture offline](#architecture-offline-first)).
+**Pas de Firebase ni de serveur** : toutes les données (comptes, profils, annonces,
+événements, offres, articles, messages) sont dans une base **SQLite** sur le téléphone.
+L'app fonctionne donc entièrement hors-ligne ; seuls les services web optionnels
+(assistant Gemini, cartes, météo, itinéraires) ont besoin du réseau (voir
+[Données locales](#5-données-locales-sqlite)).
 
 ---
 
 ## 1. Prérequis
 
 - Flutter SDK ≥ 3.22 (Dart ≥ 3.3) — `flutter --version`
-- Un compte Firebase (gratuit) et le CLI FlutterFire
 - Android Studio / Xcode pour les émulateurs, ou un téléphone physique
 
-```bash
-dart pub global activate flutterfire_cli
-npm install -g firebase-tools   # ou: curl -sL https://firebase.tools | bash
-firebase login
-```
+Aucun compte en ligne n'est nécessaire.
 
-## 2. Installation
+## 2. Installation et lancement
 
 ```bash
 flutter pub get
+flutter run
 ```
 
-## 3. Configuration Firebase
+Au premier lancement, l'app crée sa base SQLite et y ajoute des **données de
+démonstration** (comptes, annonces, événements, offres). Elle démarre en **mode
+visiteur** (lecture seule avec aperçus des modules) : connecte-toi avec un compte
+ci-dessous ou crée le tien.
 
-Le fichier `lib/firebase_options.dart` fourni est un **placeholder** — il doit
-être régénéré pour votre propre projet Firebase :
-
-```bash
-firebase projects:create campusconnect-esprit   # ou utilisez un projet existant
-flutterfire configure
-```
-
-Suivez les invites (sélection du projet, des plateformes Android/iOS/Web).
-Cela remplace automatiquement `lib/firebase_options.dart` par vos vraies clés.
-
-Dans la [console Firebase](https://console.firebase.google.com/), activez :
-
-1. **Authentication** → méthodes "E-mail/mot de passe" et "Google"
-2. **Cloud Firestore** → créer la base en mode production
-3. **Storage** → créer le bucket par défaut
-4. **Cloud Messaging** → aucune activation manuelle nécessaire
-
-### Règles de sécurité Firestore
-
-Déployez le fichier `firestore.rules` fourni à la racine du projet :
-
-```bash
-firebase deploy --only firestore:rules
-```
-
-Logique résumée : lecture publique sur les articles/annonces/événements/offres
-(mode visiteur), écriture réservée aux auteurs authentifiés, modération et
-épinglage réservés au rôle `admin`, candidatures visibles uniquement par leur
-auteur, le recruteur concerné et les admins.
-
-### Index Firestore recommandés
-
-Pour les requêtes triées (annonces épinglées, événements à venir), Firestore
-vous proposera automatiquement un lien de création d'index composite dans les
-logs au premier lancement — cliquez-le, ou créez-les manuellement dans
-Firestore → Index.
-
-## 4. Lancer l'application
-
-### En une commande
-
-```bash
-tool/run.sh emu     # émulateurs Firebase locaux : aucun compte, aucun SMS réel
-tool/run.sh prod    # projet Firebase réel : Google Sign-In et vrais SMS
-```
-
-- `emu` démarre les émulateurs (Auth 9099, Firestore 8085, Storage 9199) s'ils ne tournent pas,
-  puis lance l'app dessus. Les codes SMS et les liens de vérification d'email s'affichent dans
-  l'UI des émulateurs (http://127.0.0.1:4000), rien n'est envoyé pour de vrai.
-- `prod` lit `.env.json` (copie de `.env.example.json`) pour `GOOGLE_WEB_CLIENT_ID`,
-  le client OAuth *Web* du projet (Firebase console → Authentication → Google). Ce fichier
-  n'est pas versionné.
-
-Pour Google Sign-In sur Android, l'empreinte SHA-1 de la clé de debug doit être déclarée sur
-l'app Android du projet Firebase et `android/app/google-services.json` téléchargé :
-
-```bash
-keytool -list -v -keystore ~/.android/debug.keystore -alias androiddebugkey -storepass android | grep SHA1
-```
-
-### Comptes de démonstration (émulateurs)
-
-Avec les émulateurs lancés, `tool/seed.sh` crée (de façon idempotente) des comptes
-et leurs documents `users/{uid}` :
-
-```bash
-tool/seed.sh
-```
+### Comptes de démonstration
 
 | Email | Rôle | Carte étudiante |
 |---|---|---|
@@ -115,23 +48,27 @@ tool/seed.sh
 | `sarra@esprit.tn` | étudiant | en attente |
 | `youssef@esprit.tn` | étudiant | en attente |
 | `recruteur@vermeg.tn` | recruteur | aucune |
+| `jawher@esprit.tn` | étudiant | vérifiée |
 
-Mot de passe commun : `Campus2026!`.
+Mot de passe commun : `Campus2026!`. Un admin change le rôle d'un compte
+(`student` / `recruiter` / `admin`) dans **Profil › Administration › Utilisateurs**.
 
-### Manuellement
+Pour repartir de zéro, désinstalle l'app (ou efface ses données) : la base et
+les données de démonstration sont recréées au lancement suivant.
 
-```bash
-flutter run
-```
+### Sans serveur : ce qui change
 
-Au premier lancement, l'app démarre en **mode visiteur** (lecture seule avec
-aperçus des 4 modules) — créez un compte ou connectez-vous pour débloquer la
-publication, les favoris, les inscriptions et les candidatures.
-
-Pour créer un compte **admin** (modération des annonces) ou **recruteur**
-(publication d'offres), modifiez manuellement le champ `role` du document
-utilisateur correspondant dans la console Firestore (`student` → `admin` /
-`recruiter`).
+- **Comptes** : créés et vérifiés sur le téléphone. Le mot de passe n'est jamais
+  stocké, seulement son empreinte PBKDF2-SHA256 avec un sel propre au compte ;
+  5 erreurs en 5 minutes bloquent la connexion 5 minutes.
+- **Pas d'email** : pas de lien de vérification ni de réinitialisation. Un mot de
+  passe oublié est réinitialisé par un admin (mot de passe provisoire à changer).
+- **Pas de SMS** : le code de vérification du téléphone et de la double
+  authentification est affiché dans l'app (« SMS simulé »).
+- **Un seul téléphone** : chaque téléphone a sa propre base. Les comptes, les
+  annonces ou les signalements créés sur un téléphone n'existent pas sur un autre,
+  et « Mes appareils » montre l'historique des connexions de ce téléphone.
+- **Pas de notifications push.**
 
 ## Gestion Vente & Don
 
@@ -232,20 +169,23 @@ utilise la rédaction locale.
   vendeur (baisse de prix, réservation) et rappelle de ne jamais payer à l'avance.
 - `test/ai/chat_assistant_test.dart` vérifie que l'app calcule exactement comme Python.
 
-## 5. Architecture offline-first
+## 5. Données locales (SQLite)
 
-- **SQLite (`sqflite`)** (`lib/core/utils/local_cache_service.dart`) met en cache chaque
-  collection lue depuis Firestore, pour un affichage instantané hors-ligne.
-- **File d'attente** (`lib/core/utils/offline_queue_service.dart`) : toute
-  création/modification/suppression faite hors-ligne est enregistrée
-  localement et rejouée automatiquement dès la reconnexion
-  (`ConnectivityProvider._syncPendingActions()`).
-- **`FirestoreRepository<T>`** (`lib/services/firestore_repository.dart`) est
-  le cœur générique réutilisé par les 4 providers de modules (articles,
-  annonces, événements, offres) : il centralise la logique
-  Firestore ↔ cache ↔ file d'attente pour éviter toute duplication de code.
-- Un bandeau orange (`OfflineBanner`) informe l'utilisateur du mode
-  hors-ligne et du nombre d'actions en attente de synchronisation.
+- **`LocalDatabase`** (`lib/core/utils/local_database.dart`) : la base SQLite de l'app
+  (`campusconnect.db`). Les documents de chaque collection (`users`, `accounts`,
+  `annonces`, `events`, `job_offers`, `applications`, `logins`, `reports`...) sont
+  stockés en JSON, chargés en mémoire au démarrage puis écrits en arrière-plan.
+- **`LocalStore`** (`lib/services/local_store.dart`) : l'accès aux documents —
+  lectures synchrones, écritures, flux temps réel (`watch`, `watchDoc`). Une lecture
+  suivie d'une écriture sans `await` entre les deux est atomique : c'est ce qui
+  remplace les transactions (inscription à un événement, places restantes...).
+- **`LocalRepository<T>`** (`lib/services/local_repository.dart`) : le dépôt générique
+  réutilisé par les modules Annonces et Stage & Emploi.
+- **Vente & Don** garde sa propre base (`lib/services/sqlite/article_database.dart`).
+- **Fichiers** (photos de profil, cartes étudiant, affiches, CV) : copiés et
+  compressés dans le dossier de l'app (`StorageService`).
+- Un bandeau (`OfflineBanner`) signale l'absence de réseau : les données restent
+  disponibles, seuls l'assistant IA et les cartes en dépendent.
 
 ## 6. Structure du projet
 
@@ -253,7 +193,7 @@ utilise la rédaction locale.
 lib/
 ├── core/            # thème (couleurs/typographie), constantes, services utilitaires
 ├── models/          # modèles de données (User, Article, Annonce, Event, JobOffer...)
-├── services/        # Auth, Storage, Notifications, FirestoreRepository générique
+├── services/        # Auth locale, LocalStore, fichiers, dépôt générique, IA
 ├── providers/        # état applicatif (Provider/ChangeNotifier) par module
 ├── widgets/         # composants partagés (boutons, badges, bandeau offline...)
 └── screens/
@@ -296,14 +236,13 @@ Palette orange de marque (voir [décisions](docs/decisions.md)).
 | `shared_preferences` | mode de thème, drapeau d'onboarding, préférence biométrique |
 | `fl_chart` | accueil (activité de la semaine), anneau du profil, statistiques admin |
 | `LayoutBuilder` | mise en page adaptative (accueil visiteur et connecté, héros d'authentification) |
-| SQLite (`sqflite`, file d'attente) | `uploadStudentCard` : soumission de carte hors-ligne rejouée au retour du réseau |
-| `path_provider` | copies locales des photos de carte en attente d'envoi |
+| SQLite (`sqflite`) | comptes, profils, cartes étudiant, historique des connexions, signalements |
+| `path_provider` | dossier de l'app où sont gardées les photos de profil et de carte |
 
 ## Captures d'écran
 
-Thème clair et sombre dans `docs/screenshots/`. Les captures sont prises sur les émulateurs
-Firebase avec les données de `tool/seed.sh` (comptes et cartes de démonstration, aucun
-contenu des modules Vente & Don, Annonces, Événements ni Stages) :
+Thème clair et sombre dans `docs/screenshots/`. Les captures ont été prises avec
+l'ancienne version Firebase de l'app ; l'interface n'a pas changé :
 
 | Écran | Clair | Sombre |
 |---|---|---|
@@ -360,43 +299,38 @@ typé (succès / erreur) et n'empêche jamais l'écran de s'afficher.
 | **Photon** (photon.komoot.io) | Autocomplétion du lieu | Pause de 500 ms après la frappe, 1 requête / 500 ms max, délai 8 s, résultats limités à la Tunisie, 5 suggestions, cache en mémoire |
 | **OSRM** (router.project-osrm.org) | Durée et tracé de l'itinéraire | Serveur de démonstration : 1 requête / s, délai 10 s, pas de garantie de disponibilité → Google Maps reste proposé |
 | **Open-Meteo** | Puce météo | Prévisions sur 14 jours seulement, délai 10 s, cache en mémoire, cachée hors-ligne |
-| **Cloudinary** (envoi *unsigned*) | Affiches | Seulement le *cloud name* et le *preset* dans l'app (pas de secret). Image ≤ 5 Mo avant compression, JPEG/PNG, 1600 px max, EXIF supprimé. **Limite** : un envoi unsigned ne peut pas supprimer l'image (il faudrait un serveur) |
 | **flutter_map + tuiles OSM** | Cartes | Usage raisonnable (politique OSM), `User-Agent` de l'app, pas de mode hors-ligne pour les tuiles |
 | **Google Maps** (lien `url_launcher`) | Navigation | Simple URL publique, aucune clé |
 
-### Règles hors-ligne
+### Données et hors-ligne
 
-- **Consultation** : la liste vient du cache SQLite (`sqflite`) ; bandeau orange.
-- **Création / modification / annulation** : envoyées tout de suite si
-  possible, sinon **mises en file d'attente** (seulement pour une absence de
-  réseau ou `unavailable`, jamais pour un refus `permission-denied`). Un
-  identifiant fixé à l'avance évite les doublons au renvoi.
-- **Inscription** : **connexion obligatoire** (transaction Firestore pour ne
-  pas dépasser la capacité).
-- **Affiche, météo, itinéraire, autocomplétion** : désactivés hors-ligne, avec
-  un message.
+- Les événements sont dans la base SQLite du téléphone (`LocalStore`, collection
+  `events`) : liste, détail, création, modification, annulation, inscription et
+  pointage fonctionnent sans réseau.
+- **Inscription atomique** : chaque action relit la version enregistrée, vérifie
+  les règles (places restantes, fenêtre d'inscription, liste des présents) et
+  écrit sans `await` entre les deux, ce qui remplace la transaction Firestore.
+- **Affiches** : compressées puis gardées dans le dossier de l'app
+  (`StorageService`), supprimées avec l'événement.
+- **Météo, itinéraire, autocomplétion du lieu, carte** : ont besoin du réseau,
+  désactivés hors-ligne avec un message.
 
-### Règles Firestore (bloc `events` de `firestore.rules`)
+### Règles métier
 
-- Lecture publique (mode visiteur).
-- **Création** : utilisateur connecté, `organizerId` = lui-même, contenu valide
-  (titre 3–80, description 10–1000, lieu 3–100, catégorie connue, fin après le
-  début et ≤ 72 h, capacité 1–5000, prix 0–1000, affiche venant de notre cloud
-  Cloudinary), début dans le futur selon l'**heure du serveur**, listes vides.
-- **Modification** par l'organisateur ou un admin : jamais `organizerId`,
-  `createdAt`, ni les présences ; capacité ≥ inscrits ; un événement annulé ne
-  redevient pas actif ; l'annulation seule (4 champs) reste possible pour un
-  ancien document.
-- **Inscription** : chacun ajoute ou retire **uniquement son propre uid**,
-  avant le début, dans la limite des places.
-- **Présences / paiements** : organisateur ou admin, une personne inscrite à la
-  fois ; « payé » seulement si l'événement est payant.
+Appliquées par `EventProvider` sur la version enregistrée :
+
+- **Contenu** : titre 3–80, description 10–1000, lieu 3–100, catégorie connue,
+  fin après le début et ≤ 72 h, capacité 1–5000, prix 0–1000, début dans le futur.
+- **Modification** : jamais `organizerId`, `createdAt`, ni les présences ;
+  capacité ≥ inscrits ; un événement annulé ne redevient pas actif.
+- **Inscription** : avant le début, dans la limite des places ; se désinscrire
+  retire aussi la personne des présents et des payés.
+- **Présences / paiements** : une personne inscrite ; « payé » seulement si
+  l'événement est payant.
 - **Suppression** : organisateur sans inscrits, ou admin.
 
-Tester : console Firebase → Firestore → **Règles** → **Rules Playground**
-(simuler `update` sur `/events/{id}` avec un uid et des données). Le fichier
-n'est **pas déployé** par ce module ; le déploiement se fait par la personne
-responsable (`firebase deploy --only firestore:rules`).
+Qui peut modifier, annuler ou pointer (organisateur ou admin) est contrôlé par
+l'interface : sans serveur, il n'y a plus de règles de sécurité au-dessous.
 
 ### Rôles
 
@@ -417,25 +351,24 @@ responsable (`firebase deploy --only firestore:rules`).
 | `organizerId`, `organizerName` | string | auteur, jamais modifié |
 | `title`, `description`, `location` | string | 3–80 / 10–1000 / 3–100 caractères |
 | `category` | string | Conférence, Carrière, Sport, Culture, Vie associative (anciennes valeurs traduites à la lecture) |
-| `startDate`, `endDate` | timestamp | fin par défaut : début + 2 h |
+| `startDate`, `endDate` | date | fin par défaut : début + 2 h |
 | `latitude`, `longitude` | number? | seulement si le lieu vient d'une suggestion |
 | `capacity` | int? | null = illimité |
 | `price` | number? | null ou 0 = gratuit (TND, informatif) |
-| `posterUrl` | string? | URL Cloudinary |
+| `posterUrl` | string? | chemin du fichier sur le téléphone (ou `asset:` pour la démonstration) |
 | `status` | string | `active` / `cancelled` |
-| `cancelReason`, `cancelledAt` | string?, timestamp? | si annulé |
+| `cancelReason`, `cancelledAt` | string?, date? | si annulé |
 | `registeredUserIds` | string[] | inscrits |
 | `checkedInUserIds`, `paidUserIds` | string[] | présents, payés (sous-ensembles des inscrits) |
-| `createdAt`, `updatedAt` | timestamp | heure du téléphone (une `serverTimestamp` ne peut pas être stockée dans la file SQLite) |
-| `pendingSync` | bool | **local seulement** (en attente d'envoi), jamais écrit dans Firestore |
+| `createdAt`, `updatedAt` | date | heure du téléphone |
 
 ### Structure
 
 ```
 lib/models/event_model.dart          # modèle, fromMap/toMap, changedFieldsSince
-lib/providers/event_provider.dart    # état, Firestore, cache, file d'attente
+lib/providers/event_provider.dart    # état, lecture/écriture SQLite (LocalStore), règles
 lib/screens/evenements/              # écrans, règles métier, services API
-test/evenements/                     # 15 fichiers de tests (349 tests)
+test/evenements/                     # tests du module (dont event_provider_test sur SQLite)
 docs/EVENEMENT_TESTS.md, docs/EVENEMENT_DEFENSE.md, docs/NOTE_USERS_RULES.md
 ```
 
@@ -448,18 +381,14 @@ docs/EVENEMENT_TESTS.md, docs/EVENEMENT_DEFENSE.md, docs/NOTE_USERS_RULES.md
 | `android/build.gradle.kts` | compileSdk 36 imposé aux plugins (correction du build) |
 | `ios/Runner/Info.plist` | textes d'autorisation : calendrier, contacts, localisation, caméra, photos |
 | `lib/main.dart` | `initializeDateFormatting('fr_FR')` (dates en français) |
-| `lib/core/utils/local_cache_service.dart` | `sanitize` : convertit les `Timestamp` avant SQLite (`sqflite`) |
-| `lib/core/utils/offline_queue_service.dart` | `_storable` sur les actions en attente (SQLite) |
 | `lib/core/constants/app_constants.dart` | liste des catégories déplacée dans le module |
-| `lib/services/firestore_repository.dart` | `debugPrint` dans les `catch` (pas de changement de logique) |
-| `firestore.rules` | bloc `events` uniquement |
 
 ### Paquets ajoutés
 
 | Paquet | Pourquoi |
 |---|---|
 | `add_2_calendar` | ajout au calendrier natif |
-| `http` | appels Photon, OSRM, Open-Meteo, Cloudinary |
+| `http` | appels Photon, OSRM, Open-Meteo |
 | `flutter_map`, `latlong2` | carte OSM sans clé Google |
 | `url_launcher` | ouvrir Google Maps / les réglages |
 | `qr_flutter` | dessiner le billet QR |
@@ -471,19 +400,13 @@ Déjà présents et réutilisés : `image_picker`, `flutter_image_compress`,
 
 ### Limites connues
 
-- L'heure du téléphone sert aux contrôles de l'app ; seules les règles
-  (`request.time`) font foi côté serveur.
-- Les règles ne sont pas couvertes par des tests automatiques (pas
-  d'émulateur Firebase dans le projet) : vérification au Rules Playground.
-- Une affiche remplacée ou un événement supprimé laisse l'image sur
-  Cloudinary (suppression impossible sans serveur).
+- L'heure du téléphone sert à tous les contrôles (il n'y a plus de serveur).
+- Les événements n'existent que sur le téléphone où ils ont été créés.
 - Le billet QR n'est pas signé : il contient l'id de l'événement et l'uid ;
   le scanner vérifie l'inscription en direct, mais un QR copié reste lisible.
-- Pas de notifications (rappel, annulation) : il faudrait Cloud Functions.
+- Pas de notifications (rappel, annulation).
 - OSRM et Photon sont des serveurs publics de démonstration : ils peuvent être
   lents ou indisponibles.
-- Le test d'équipe `test/widget_test.dart` échoue (il lance l'app sans
-  Firebase) ; il est hors du module.
 
 ---
 

@@ -133,30 +133,47 @@ void main() {
 
   testWidgets('shows the error and stays when saving fails', (tester) async {
     when(() => h.service.updateProfile(any()))
-        .thenThrow(AuthFailure.fromCode('network-request-failed'));
+        .thenThrow(AuthFailure.from(const FileSystemException('disk full')));
     await open(tester);
 
     await tapText(tester, 'Enregistrer');
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
 
-    expect(find.text('Pas de connexion réseau.'), findsOneWidget);
+    expect(find.text('Une erreur est survenue. Réessayez.'), findsOneWidget);
     expect(find.byType(EditProfileScreen), findsOneWidget);
   });
 
-  testWidgets('picking a photo uploads it and updates the profile',
+  testWidgets('picking a photo stores it locally and updates the profile',
       (tester) async {
     final file = File('avatar.jpg');
-    when(() => h.storage.uploadAvatar(file, uid: 'uid-1'))
-        .thenAnswer((_) async => 'https://cdn/new.jpg');
+    when(() => h.storage.saveAvatar(file, uid: 'uid-1'))
+        .thenAnswer((_) async => '/app/avatars/uid-1/new.jpg');
     await open(tester, pickImage: () async => file);
 
     await tester.tap(find.byIcon(Icons.photo_camera_rounded));
     await tester.pumpAndSettle();
 
-    verify(() => h.storage.uploadAvatar(file, uid: 'uid-1')).called(1);
-    expect(savedUser().photoUrl, 'https://cdn/new.jpg');
+    verify(() => h.storage.saveAvatar(file, uid: 'uid-1')).called(1);
+    expect(savedUser().photoUrl, '/app/avatars/uid-1/new.jpg');
     expect(find.text('Photo de profil mise à jour.'), findsOneWidget);
+  });
+
+  testWidgets('a new photo replaces the previous file on the phone',
+      (tester) async {
+    final file = File('avatar.jpg');
+    when(() => h.storage.saveAvatar(file, uid: 'uid-1'))
+        .thenAnswer((_) async => '/app/avatars/uid-1/new.jpg');
+    when(() => h.storage.delete(any())).thenAnswer((_) async {});
+    await h.signIn(tester,
+        user: sampleUser.copyWith(photoUrl: '/app/avatars/uid-1/old.jpg'));
+    await h.pump(tester, EditProfileScreen(pickImage: () async => file));
+
+    await tester.tap(find.byIcon(Icons.photo_camera_rounded));
+    await tester.pumpAndSettle();
+
+    expect(savedUser().photoUrl, '/app/avatars/uid-1/new.jpg');
+    verify(() => h.storage.delete('/app/avatars/uid-1/old.jpg')).called(1);
   });
 
   testWidgets('cancelling the picker does nothing', (tester) async {
@@ -165,13 +182,13 @@ void main() {
     await tester.tap(find.byIcon(Icons.photo_camera_rounded));
     await tester.pumpAndSettle();
 
-    verifyNever(() => h.storage.uploadAvatar(any(), uid: any(named: 'uid')));
+    verifyNever(() => h.storage.saveAvatar(any(), uid: any(named: 'uid')));
     verifyNever(() => h.service.updateProfile(any()));
   });
 
-  testWidgets('an upload failure is reported', (tester) async {
+  testWidgets('a rejected photo is reported', (tester) async {
     final file = File('big.jpg');
-    when(() => h.storage.uploadAvatar(file, uid: 'uid-1'))
+    when(() => h.storage.saveAvatar(file, uid: 'uid-1'))
         .thenThrow(AuthFailure.fromCode('invalid-file'));
     await open(tester, pickImage: () async => file);
 

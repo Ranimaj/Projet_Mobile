@@ -14,7 +14,9 @@ import '../../widgets/hero_sheet_scaffold.dart';
 import '../../widgets/initials_avatar.dart';
 import '../../widgets/pill_button.dart';
 import '../../widgets/round_icon_button.dart';
+import '../../widgets/report_user_sheet.dart';
 import '../../widgets/status_chip.dart';
+import '../../widgets/trust_badge.dart';
 import 'article_form_screen.dart';
 import 'chat_screen.dart';
 import 'widgets/article_card.dart';
@@ -29,7 +31,11 @@ class ArticleDetailScreen extends StatefulWidget {
   final ChatService? chatService;
   final ChatReplier? chatReplier;
 
-  const ArticleDetailScreen({super.key, required this.article, this.chatService, this.chatReplier});
+  /// Charge le profil du vendeur pour son score de confiance (tests).
+  final PublicUserLoader? sellerLoader;
+
+  const ArticleDetailScreen(
+      {super.key, required this.article, this.chatService, this.chatReplier, this.sellerLoader});
 
   @override
   State<ArticleDetailScreen> createState() => _ArticleDetailScreenState();
@@ -328,27 +334,54 @@ class _ArticleDetailScreenState extends State<ArticleDetailScreen> {
         Text('Description', style: text.titleMedium),
         const SizedBox(height: 6),
         Text(article.description, style: text.bodyLarge),
-        if (!isOwner) ...[
-          const SizedBox(height: 16),
-          FraudRiskCard(article: article),
-        ],
-        const SizedBox(height: 20),
-        Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: t.surfaceMuted,
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Row(
+        UserTrust(
+          userId: article.ownerId,
+          loader: widget.sellerLoader,
+          builder: (context, trust, _) => Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              InitialsAvatar(initials: _initials(article.ownerName), size: 44),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+              if (!isOwner) ...[
+                const SizedBox(height: 16),
+                FraudRiskCard(article: article, sellerTrust: trust),
+              ],
+              const SizedBox(height: 20),
+              Container(
+                key: const Key('seller-card'),
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: t.surfaceMuted,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Row(
                   children: [
-                    Text(isOwner ? 'Toi' : article.ownerName, style: text.titleSmall),
-                    Text(isOwner ? 'Tu as publié cet article' : 'Vendeur', style: text.labelMedium),
+                    InitialsAvatar(initials: _initials(article.ownerName), size: 44),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(isOwner ? 'Toi' : article.ownerName, style: text.titleSmall),
+                          Text(isOwner ? 'Tu as publié cet article' : 'Vendeur', style: text.labelMedium),
+                          if (trust != null) ...[
+                            const SizedBox(height: 6),
+                            TrustBadge(trust: trust, own: isOwner),
+                          ],
+                        ],
+                      ),
+                    ),
+                    if (!isOwner && user != null)
+                      IconButton(
+                        key: const Key('report-seller'),
+                        tooltip: 'Signaler ce vendeur',
+                        style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
+                        icon: Icon(Icons.flag_outlined, color: t.textSecondary),
+                        onPressed: () => showReportUserSheet(
+                          context,
+                          targetId: article.ownerId,
+                          targetName: article.ownerName,
+                          articleId: article.id,
+                        ),
+                      ),
                   ],
                 ),
               ),

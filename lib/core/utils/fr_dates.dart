@@ -40,4 +40,15 @@ abstract final class FrDates {
   ];
   static String hhmm(DateTime d) =>
       '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+
+  /// « 9 nov. à 14:32 » ; « à l'instant » quand la date n'est pas encore
+  /// connue (heure du serveur en attente).
+  static String shortDateTime(DateTime? d) {
+    if (d == null) return 'à l\'instant';
+    final month = months[d.month - 1];
+    final short = month.length <= 4 ? month : '${month.substring(0, 3)}.';
+    final hh = d.hour.toString().padLeft(2, '0');
+    final mm = d.minute.toString().padLeft(2, '0');
+    return '${d.day} $short à $hh:$mm';
+  }
 }

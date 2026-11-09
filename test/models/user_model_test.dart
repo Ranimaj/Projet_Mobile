@@ -1,6 +1,5 @@
 import 'package:campusconnect/core/constants/app_constants.dart';
 import 'package:campusconnect/models/user_model.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -52,11 +51,11 @@ void main() {
     expect(editable['skills'], ['Flutter', 'Dart']);
   });
 
-  test('fromMap tolerates missing fields and ISO date strings', () {
+  test('fromMap tolerates missing fields, ISO date strings and stored DateTime', () {
     final minimal = AppUser.fromMap('u2', {
       'fullName': 'X Y',
       'createdAt': '2023-05-06T00:00:00.000',
-      'updatedAt': Timestamp.fromDate(DateTime(2024, 1, 1)),
+      'updatedAt': DateTime(2024, 1, 1).toUtc(),
     });
     expect(minimal.email, '');
     expect(minimal.role, UserRole.student);
@@ -125,7 +124,7 @@ void main() {
       expect(restored.campus, 'ESPRIT Charguia');
       expect(restored.studentId, '12345');
       expect((u.toMap()['studentCard'] as Map)['status'], 'rejected');
-      expect((u.toMap()['studentCard'] as Map)['submittedAt'], isA<Timestamp>());
+      expect((u.toMap()['studentCard'] as Map)['submittedAt'], isA<DateTime>());
     });
 
     test('StudentCard.fromMap tolerates null and unknown status', () {

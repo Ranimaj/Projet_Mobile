@@ -1,87 +1,91 @@
 import 'dart:async';
+import 'dart:math';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:google_sign_in/google_sign_in.dart';
 import 'package:local_auth/local_auth.dart';
 
 import '../core/constants/app_constants.dart';
 import '../core/utils/auth_failure.dart';
+import '../core/utils/password_hasher.dart';
 import '../core/utils/validators.dart';
 import '../models/user_model.dart';
+import 'local_store.dart';
 import 'storage_service.dart';
 
-/// Gestion des Utilisateurs — authentification, inscription, OTP, biométrie,
-/// profil et cycle de vie du compte.
+/// Compte connecté sur ce téléphone.
+class AuthAccount {
+  final String uid;
+  final String email;
+  const AuthAccount({required this.uid, required this.email});
+
+  @override
+  bool operator ==(Object other) => other is AuthAccount && other.uid == uid && other.email == email;
+
+  @override
+  int get hashCode => Object.hash(uid, email);
+}
+
+/// Gestion des Utilisateurs — comptes, connexion, téléphone, biométrie,
+/// profil et cycle de vie du compte, **entièrement sur le téléphone**
+/// (SQLite via [LocalStore], pas de serveur).
 ///
-/// Toutes les méthodes normalisent leurs entrées (email, nom, téléphone) et
-/// lèvent une [AuthFailure] avec un message prêt à afficher. Les dépendances
-/// sont injectables pour les tests ; Google Sign-In et la biométrie sont
-/// instanciés à la demande (le plugin web plante à la construction si aucun
-/// client ID n'est configuré).
+/// - `accounts/{uid}` : email et empreinte du mot de passe (PBKDF2, voir
+///   [PasswordHasher]) ; jamais le mot de passe lui-même ;
+/// - `users/{uid}` : le profil ([AppUser]) ;
+/// - la session ouverte est mémorisée dans les réglages ([sessionKey]) et
+///   survit au redémarrage de l'app.
+///
+/// Sans serveur, il n'y a ni email ni SMS : les codes de vérification du
+/// téléphone sont affichés dans l'app ([demoSmsCode], « SMS simulé ») et un
+/// mot de passe oublié est réinitialisé par un admin
+/// ([resetPasswordByAdmin]).
+///
+/// Toutes les méthodes lèvent une [AuthFailure] avec un message prêt à
+/// afficher.
 class AuthService {
-  final FirebaseAuth _auth;
-  final FirebaseFirestore _firestore;
-  final GoogleSignIn Function() _googleFactory;
-  final LocalAuthentication Function() _localAuthFactory;
+  static const String accountsCollection = 'accounts';
+  static const String sessionKey = 'auth.session_uid';
 
-  // Instancié à la demande : FirebaseStorage.instance exige une app Firebase.
-  final StorageService? _injectedStorage;
-  StorageService? _storage;
+  /// Connexion ouverte mais double authentification pas encore validée.
+  static const String twoFactorPendingKey = 'auth.two_factor_pending';
 
-  GoogleSignIn? _google;
-  LocalAuthentication? _localAuth;
-
-  String? _verificationId;
-  int? _resendToken;
-  String? _pendingPhone;
-
-  static const String passwordProviderId = 'password';
-  static const String googleProviderId = 'google.com';
-  static const String phoneProviderId = 'phone';
-
-  /// Client OAuth « Web » du projet Firebase, requis par Google Sign-In sur
-  /// Android quand le plugin Gradle google-services n'est pas appliqué.
-  /// Fourni au build : `--dart-define=GOOGLE_WEB_CLIENT_ID=xxx.apps.googleusercontent.com`.
-  static const String googleWebClientId = String.fromEnvironment('GOOGLE_WEB_CLIENT_ID');
-
-  static GoogleSignIn _defaultGoogleSignIn() =>
-      GoogleSignIn(serverClientId: googleWebClientId.isEmpty ? null : googleWebClientId);
+  static const Duration otpValidity = Duration(minutes: 5);
+  static const int maxFailedAttempts = 5;
+  static const Duration lockout = Duration(minutes: 5);
 
   AuthService({
-    FirebaseAuth? auth,
-    FirebaseFirestore? firestore,
-    GoogleSignIn Function()? googleFactory,
+    LocalStore? store,
     LocalAuthentication Function()? localAuthFactory,
     StorageService? storage,
-  })  : _auth = auth ?? FirebaseAuth.instance,
+    PasswordHasher? hasher,
+    Random? random,
+    DateTime Function()? clock,
+  })  : _store = store ?? LocalStore(),
+        _localAuthFactory = localAuthFactory ?? LocalAuthentication.new,
         _injectedStorage = storage,
-        _firestore = firestore ?? FirebaseFirestore.instance,
-        _googleFactory = googleFactory ?? _defaultGoogleSignIn,
-        _localAuthFactory = localAuthFactory ?? LocalAuthentication.new;
+        _hasher = hasher ?? PasswordHasher(),
+        _random = random ?? Random.secure(),
+        _now = clock ?? DateTime.now;
 
-  GoogleSignIn get _googleSignIn => _google ??= _googleFactory();
+  final LocalStore _store;
+  final LocalAuthentication Function() _localAuthFactory;
+  final StorageService? _injectedStorage;
+  final PasswordHasher _hasher;
+  final Random _random;
+  final DateTime Function() _now;
+
+  LocalAuthentication? _localAuth;
   LocalAuthentication get _localAuthentication => _localAuth ??= _localAuthFactory();
+  StorageService? _storage;
+  StorageService get _files => _storage ??= _injectedStorage ?? StorageService();
 
-  User? get currentFirebaseUser => _auth.currentUser;
-  Stream<User?> get authStateChanges => _auth.authStateChanges();
-  bool get isEmailVerified => _auth.currentUser?.emailVerified ?? false;
+  final StreamController<AuthAccount?> _changes = StreamController<AuthAccount?>.broadcast();
 
-  /// Identifiants des fournisseurs liés au compte courant (`password`,
-  /// `google.com`, `phone`...).
-  List<String> get providerIds =>
-      _auth.currentUser?.providerData.map((p) => p.providerId).toList() ?? const [];
+  /// email → échecs récents (anti force brute, en mémoire).
+  final Map<String, List<DateTime>> _failures = {};
 
-  bool get hasPasswordProvider => providerIds.contains(passwordProviderId);
-
-  DocumentReference<Map<String, dynamic>> _userDoc(String uid) =>
-      _firestore.collection(AppConstants.usersCollection).doc(uid);
-
-  User _requireUser() {
-    final user = _auth.currentUser;
-    if (user == null) throw AuthFailure.fromCode('no-session');
-    return user;
-  }
+  String? _pendingPhone;
+  String? _pendingCode;
+  DateTime? _codeSentAt;
 
   /// Lance [action] et convertit toute exception en [AuthFailure].
   Future<T> _guard<T>(Future<T> Function() action) async {
@@ -92,31 +96,78 @@ class AuthService {
     }
   }
 
+  // --- Session -----------------------------------------------------------------
+
+  /// Le compte de la session ouverte sur ce téléphone, ou null.
+  AuthAccount? get currentAccount {
+    final uid = _store.getValue(sessionKey);
+    if (uid == null) return null;
+    final account = _store.get(accountsCollection, uid);
+    if (account == null) return null;
+    return AuthAccount(uid: uid, email: account['email'] as String? ?? '');
+  }
+
+  /// La session actuelle dès l'écoute, puis chaque connexion / déconnexion.
+  Stream<AuthAccount?> get authStateChanges {
+    late StreamController<AuthAccount?> controller;
+    StreamSubscription<AuthAccount?>? sub;
+    controller = StreamController<AuthAccount?>(
+      onListen: () {
+        controller.add(currentAccount);
+        sub = _changes.stream.listen(controller.add);
+      },
+      onCancel: () => sub?.cancel(),
+    );
+    return controller.stream;
+  }
+
+  /// Une session est mémorisée (déverrouillage biométrique possible).
+  bool get hasRestorableSession => currentAccount != null;
+
+  /// La connexion attend le code de double authentification.
+  bool get twoFactorPending => _store.getValue(twoFactorPendingKey) == '1';
+
+  Future<void> _openSession(String uid, {bool twoFactor = false}) async {
+    await _store.setValue(twoFactorPendingKey, twoFactor ? '1' : null);
+    await _store.setValue(sessionKey, uid);
+    await _store.merge(accountsCollection, uid, {'lastSignInAt': _now()});
+    _changes.add(currentAccount);
+  }
+
+  Future<void> signOut() => _guard(() async {
+        _clearOtp();
+        await _store.setValue(sessionKey, null);
+        await _store.setValue(twoFactorPendingKey, null);
+        _changes.add(null);
+      });
+
+  AuthAccount _requireAccount() {
+    final account = currentAccount;
+    if (account == null) throw AuthFailure.fromCode('no-session');
+    return account;
+  }
+
   // --- Profil ----------------------------------------------------------------
 
-  Future<AppUser?> fetchProfile(String uid) => _guard(() async {
-        final doc = await _userDoc(uid).get();
-        final data = doc.data();
-        return doc.exists && data != null ? AppUser.fromMap(doc.id, data) : null;
-      });
+  Future<AppUser?> fetchProfile(String uid) => _guard(() async => _profile(uid));
+
+  AppUser? _profile(String uid) {
+    final data = _store.get(AppConstants.usersCollection, uid);
+    return data == null ? null : AppUser.fromMap(uid, data);
+  }
 
   /// Profil en temps réel (décision d'un admin, désactivation du compte...).
-  /// Émet `null` tant que le document n'existe pas.
-  Stream<AppUser?> watchProfile(String uid) => _userDoc(uid).snapshots().map((doc) {
-        final data = doc.data();
-        return doc.exists && data != null ? AppUser.fromMap(doc.id, data) : null;
-      });
+  /// Émet `null` tant que le profil n'existe pas.
+  Stream<AppUser?> watchProfile(String uid) => _store
+      .watchDoc(AppConstants.usersCollection, uid)
+      .map((data) => data == null ? null : AppUser.fromMap(uid, data));
 
-  /// Écriture complète du profil (création). Pour une modification par
-  /// l'utilisateur, utiliser [updateProfile] qui ne touche qu'aux champs
-  /// autorisés.
-  Future<void> saveProfile(AppUser user) => _guard(
-        () => _userDoc(user.id).set(user.toMap(), SetOptions(merge: true)),
-      );
+  /// Écriture complète du profil (création).
+  Future<void> saveProfile(AppUser user) =>
+      _guard(() => _store.merge(AppConstants.usersCollection, user.id, user.toMap()));
 
-  /// Met à jour les champs modifiables du profil ([AppUser.editableFields])
-  /// et synchronise nom / photo avec Firebase Auth. Renvoie le profil tel
-  /// qu'il a été enregistré (nom normalisé).
+  /// Met à jour les champs modifiables du profil ([AppUser.editableFields]).
+  /// Renvoie le profil tel qu'il a été enregistré (nom normalisé).
   Future<AppUser> updateProfile(AppUser user) => _guard(() async {
         final nameError = Validators.fullName(user.fullName);
         if (nameError != null) throw AuthFailure('invalid-name', nameError);
@@ -127,25 +178,22 @@ class AuthService {
           year: user.year?.trim(),
           skills: user.skills.map((s) => s.trim()).where((s) => s.isNotEmpty).toList(),
         );
-
-        final data = cleaned.toEditableMap()..['updatedAt'] = FieldValue.serverTimestamp();
-        await _userDoc(cleaned.id).set(data, SetOptions(merge: true));
-
-        final firebaseUser = _auth.currentUser;
-        if (firebaseUser != null && firebaseUser.uid == cleaned.id) {
-          if (firebaseUser.displayName != cleaned.fullName) {
-            await firebaseUser.updateDisplayName(cleaned.fullName);
-          }
-          if (cleaned.photoUrl != null && firebaseUser.photoURL != cleaned.photoUrl) {
-            await firebaseUser.updatePhotoURL(cleaned.photoUrl);
-          }
-        }
+        final data = {
+          // null efface le champ (ex. photo retirée)
+          for (final f in AppUser.editableFields) f: null,
+          ...cleaned.toEditableMap(),
+          'updatedAt': _now(),
+        };
+        await _store.update(AppConstants.usersCollection, cleaned.id, data);
         return cleaned;
       });
 
   // --- Email / mot de passe ---------------------------------------------------
 
-  /// Inscription par email académique (BF1). Crée aussi le profil Firestore.
+  StoredDoc? _accountByEmail(String email) =>
+      _store.firstWhere(accountsCollection, (d) => d['email'] == email);
+
+  /// Inscription (BF1) : crée le compte et son profil, puis ouvre la session.
   Future<AppUser> registerWithEmail({
     required String email,
     required String password,
@@ -154,57 +202,64 @@ class AuthService {
       _guard(() async {
         final cleanEmail = Validators.normalizeEmail(email);
         final cleanName = Validators.normalizeFullName(fullName);
-        final credential = await _auth.createUserWithEmailAndPassword(
-          email: cleanEmail,
-          password: password,
-        );
-        final firebaseUser = credential.user!;
+        if (Validators.email(cleanEmail) != null) throw AuthFailure.fromCode('invalid-email');
+        if (Validators.newPassword(password) != null) throw AuthFailure.fromCode('weak-password');
+        if (_accountByEmail(cleanEmail) != null) throw AuthFailure.fromCode('email-already-in-use');
 
-        final newUser = AppUser(
-          id: firebaseUser.uid,
-          fullName: cleanName,
-          email: cleanEmail,
-          createdAt: DateTime.now(),
-        );
-        await _userDoc(firebaseUser.uid).set(newUser.toMap());
-        await firebaseUser.updateDisplayName(cleanName);
+        final uid = LocalStore.newId();
+        final now = _now();
+        await _store.set(accountsCollection, uid, {
+          'email': cleanEmail,
+          'password': _hasher.hash(password).toMap(),
+          'createdAt': now,
+        });
+        final newUser = AppUser(id: uid, fullName: cleanName, email: cleanEmail, createdAt: now);
+        await _store.set(AppConstants.usersCollection, uid, newUser.toMap());
+        await _openSession(uid);
         return newUser;
       });
 
-  /// Connexion email / mot de passe (BF2).
-  Future<UserCredential> signInWithEmail(String email, String password) => _guard(
-        () => _auth.signInWithEmailAndPassword(
-          email: Validators.normalizeEmail(email),
-          password: password,
-        ),
-      );
-
-  Future<void> sendPasswordReset(String email) => _guard(
-        () => _auth.sendPasswordResetEmail(email: Validators.normalizeEmail(email)),
-      );
-
-  Future<void> sendEmailVerification() => _guard(() async {
-        await _auth.currentUser?.sendEmailVerification();
+  /// Connexion email / mot de passe (BF2). Avec la double authentification,
+  /// la session s'ouvre en attente du code ([twoFactorPending]).
+  Future<AuthAccount> signInWithEmail(String email, String password) => _guard(() async {
+        final cleanEmail = Validators.normalizeEmail(email);
+        _checkLockout(cleanEmail);
+        final account = _accountByEmail(cleanEmail);
+        final hash = PasswordHash.fromMap(_mapOf(account?.data['password']));
+        if (account == null || hash == null || !PasswordHasher.verify(password, hash)) {
+          _recordFailure(cleanEmail);
+          throw AuthFailure.fromCode('invalid-credential');
+        }
+        _failures.remove(cleanEmail);
+        final profile = _profile(account.id);
+        if (profile?.disabled == true) throw AuthFailure.fromCode('user-disabled');
+        await _openSession(account.id, twoFactor: _twoFactorActive(profile));
+        return currentAccount!;
       });
 
-  /// Recharge l'utilisateur Firebase (statut de vérification email, fournisseurs
-  /// liés...) et renvoie `true` si l'email est vérifié.
-  Future<bool> reloadUser() => _guard(() async {
-        final user = _auth.currentUser;
-        if (user == null) return false;
-        await user.reload();
-        return _auth.currentUser?.emailVerified ?? false;
-      });
+  /// La double authentification ne s'applique qu'avec un numéro vérifié.
+  static bool _twoFactorActive(AppUser? user) =>
+      user != null && user.twoFactorEnabled && user.isPhoneVerified && (user.phoneNumber ?? '').isNotEmpty;
 
-  /// Ré-authentifie l'utilisateur avec son mot de passe — requis par Firebase
-  /// avant les opérations sensibles (changement de mot de passe, suppression).
+  void _checkLockout(String email) {
+    final since = _now().subtract(lockout);
+    final recent = (_failures[email] ?? const <DateTime>[]).where((t) => t.isAfter(since)).toList();
+    _failures[email] = recent;
+    if (recent.length >= maxFailedAttempts) throw AuthFailure.fromCode('too-many-requests');
+  }
+
+  void _recordFailure(String email) => (_failures[email] ??= []).add(_now());
+
+  static Map<String, dynamic>? _mapOf(Object? v) => v is Map ? Map<String, dynamic>.from(v) : null;
+
+  /// Vérifie le mot de passe du compte connecté (opérations sensibles).
   Future<void> reauthenticateWithPassword(String password) => _guard(() async {
-        final user = _requireUser();
-        if (!hasPasswordProvider) throw AuthFailure.fromCode('no-password-provider');
+        final account = _requireAccount();
         if (password.isEmpty) throw AuthFailure.fromCode('password-required');
-        await user.reauthenticateWithCredential(
-          EmailAuthProvider.credential(email: user.email!, password: password),
-        );
+        final hash = PasswordHash.fromMap(_mapOf(_store.get(accountsCollection, account.uid)?['password']));
+        if (hash == null || !PasswordHasher.verify(password, hash)) {
+          throw AuthFailure.fromCode('wrong-password');
+        }
       });
 
   Future<void> changePassword({
@@ -212,52 +267,27 @@ class AuthService {
     required String newPassword,
   }) =>
       _guard(() async {
-        final weak = Validators.newPassword(newPassword);
-        if (weak != null) throw AuthFailure.fromCode('weak-password');
+        if (Validators.newPassword(newPassword) != null) throw AuthFailure.fromCode('weak-password');
         if (currentPassword == newPassword) throw AuthFailure.fromCode('same-password');
-
         await reauthenticateWithPassword(currentPassword);
-        await _requireUser().updatePassword(newPassword);
+        await _setPassword(_requireAccount().uid, newPassword);
       });
 
-  // --- Google ------------------------------------------------------------------
+  Future<void> _setPassword(String uid, String password) =>
+      _store.update(accountsCollection, uid, {'password': _hasher.hash(password).toMap()});
 
-  /// Connexion via Google Sign-In. Renvoie `null` si l'utilisateur annule.
-  Future<UserCredential?> signInWithGoogle() => _guard(() async {
-        final credential = await _googleCredential();
-        if (credential == null) return null;
-        final userCredential = await _auth.signInWithCredential(credential);
-
-        // Crée le profil Firestore s'il n'existe pas encore.
-        final user = userCredential.user!;
-        final doc = _userDoc(user.uid);
-        if (!(await doc.get()).exists) {
-          await doc.set(AppUser(
-            id: user.uid,
-            fullName: user.displayName ?? 'Étudiant',
-            email: user.email ?? '',
-            photoUrl: user.photoURL,
-            createdAt: DateTime.now(),
-          ).toMap());
-        }
-        return userCredential;
+  /// Mot de passe oublié : un admin attribue un mot de passe provisoire au
+  /// compte [uid] et le transmet à l'étudiant. Renvoie ce mot de passe.
+  Future<String> resetPasswordByAdmin(String uid) => _guard(() async {
+        if (!_store.exists(accountsCollection, uid)) throw AuthFailure.fromCode('user-not-found');
+        const letters = 'abcdefghjkmnpqrstuvwxyz';
+        final word = List.generate(6, (_) => letters[_random.nextInt(letters.length)]).join();
+        final temporary = 'Campus-$word${10 + _random.nextInt(90)}';
+        await _setPassword(uid, temporary);
+        return temporary;
       });
-
-  Future<OAuthCredential?> _googleCredential() async {
-    final googleUser = await _googleSignIn.signIn();
-    if (googleUser == null) return null;
-    final googleAuth = await googleUser.authentication;
-    return GoogleAuthProvider.credential(
-      accessToken: googleAuth.accessToken,
-      idToken: googleAuth.idToken,
-    );
-  }
 
   // --- Biométrie ---------------------------------------------------------------
-
-  /// `true` quand une session Firebase est encore mémorisée sur l'appareil
-  /// (l'utilisateur ne s'est pas déconnecté explicitement).
-  bool get hasRestorableSession => _auth.currentUser != null;
 
   /// L'appareil dispose-t-il d'une biométrie utilisable (capteur + empreinte
   /// ou visage enrôlé) ? Ne lève jamais : `false` en cas de doute.
@@ -286,168 +316,100 @@ class AuthService {
         );
       });
 
-  // --- OTP téléphone -----------------------------------------------------------
+  // --- Code téléphone (SMS simulé) ----------------------------------------------
 
-  /// Envoie un code SMS au [phone] (saisie libre, normalisée en E.164) et
-  /// renvoie le numéro normalisé. Appelable à nouveau pour renvoyer le code.
+  /// Code du dernier « SMS » : sans serveur, l'app l'affiche elle-même.
+  String? get demoSmsCode => _pendingCode;
+
+  /// Prépare un code pour [phone] (saisie libre, normalisée en E.164) et
+  /// renvoie le numéro normalisé. Rappeler la méthode envoie un nouveau code.
   Future<String> sendPhoneOtp(String phone) => _guard(() async {
-        _requireUser();
+        final account = _requireAccount();
         final normalized = Validators.normalizePhone(phone);
         if (normalized == null) throw AuthFailure.fromCode('invalid-phone-number');
-
-        final resendToken = normalized == _pendingPhone ? _resendToken : null;
-        _pendingPhone = normalized;
-
-        final sent = Completer<void>();
-        await _auth.verifyPhoneNumber(
-          phoneNumber: normalized,
-          forceResendingToken: resendToken,
-          timeout: const Duration(seconds: 60),
-          verificationCompleted: (credential) async {
-            // Validation automatique (Android) : on lie directement le numéro.
-            try {
-              await _linkPhone(credential, normalized);
-              if (!sent.isCompleted) sent.complete();
-            } catch (e) {
-              if (!sent.isCompleted) sent.completeError(e);
-            }
-          },
-          verificationFailed: (e) {
-            if (!sent.isCompleted) sent.completeError(e);
-          },
-          codeSent: (verificationId, resendToken) {
-            _verificationId = verificationId;
-            _resendToken = resendToken;
-            if (!sent.isCompleted) sent.complete();
-          },
-          codeAutoRetrievalTimeout: (verificationId) => _verificationId = verificationId,
+        final taken = _store.firstWhere(
+          AppConstants.usersCollection,
+          (d) => d['phoneNumber'] == normalized && d['isPhoneVerified'] == true,
         );
-        await sent.future;
+        if (taken != null && taken.id != account.uid) throw AuthFailure.fromCode('credential-already-in-use');
+        _pendingPhone = normalized;
+        _pendingCode = List.generate(6, (_) => _random.nextInt(10)).join();
+        _codeSentAt = _now();
         return normalized;
       });
 
-  /// Vérifie le code saisi et lie le numéro au compte courant.
+  /// Vérifie le code : le numéro devient vérifié sur le profil, et une
+  /// double authentification en attente est validée.
   Future<void> verifyPhoneOtp(String code) => _guard(() async {
-        final verificationId = _verificationId;
+        final account = _requireAccount();
         final phone = _pendingPhone;
-        if (verificationId == null || phone == null) throw AuthFailure.fromCode('otp-not-sent');
-        if (Validators.otp(code) != null) throw AuthFailure.fromCode('invalid-verification-code');
-
-        await _linkPhone(
-          PhoneAuthProvider.credential(verificationId: verificationId, smsCode: code.trim()),
-          phone,
-        );
-        _verificationId = null;
-        _resendToken = null;
-        _pendingPhone = null;
+        final expected = _pendingCode;
+        final sentAt = _codeSentAt;
+        if (phone == null || expected == null || sentAt == null) throw AuthFailure.fromCode('otp-not-sent');
+        if (_now().difference(sentAt) > otpValidity) {
+          _clearOtp();
+          throw AuthFailure.fromCode('session-expired');
+        }
+        if (Validators.otp(code) != null || code.trim() != expected) {
+          throw AuthFailure.fromCode('invalid-verification-code');
+        }
+        await _store.update(AppConstants.usersCollection, account.uid, {
+          'isPhoneVerified': true,
+          'phoneNumber': phone,
+          'updatedAt': _now(),
+        });
+        await _store.setValue(twoFactorPendingKey, null);
+        _clearOtp();
       });
 
-  /// Associe le numéro vérifié au compte : première association par
-  /// `linkWithCredential`, changement de numéro par `updatePhoneNumber`
-  /// (Firebase refuse un second `link` du fournisseur téléphone).
-  Future<void> _linkPhone(PhoneAuthCredential credential, String phone) async {
-    final user = _requireUser();
-    if (user.providerData.any((p) => p.providerId == phoneProviderId)) {
-      await user.updatePhoneNumber(credential);
-    } else {
-      await user.linkWithCredential(credential);
-    }
-    await _userDoc(user.uid).set({
-      'isPhoneVerified': true,
-      'phoneNumber': phone,
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+  void _clearOtp() {
+    _pendingPhone = null;
+    _pendingCode = null;
+    _codeSentAt = null;
   }
 
-  // --- Session / compte ----------------------------------------------------------
+  // --- Compte ------------------------------------------------------------------
 
-  Future<void> signOut() => _guard(() async {
-        // Google n'est pas forcément initialisé : ne pas le construire pour rien.
-        if (_google != null) await _google!.signOut();
-        await _auth.signOut();
-      });
-
-  /// Export RGPD des données personnelles (BNF2) — profil Firestore + données
-  /// de compte, sous une forme sérialisable en JSON.
+  /// Export RGPD des données personnelles (BNF2), sérialisable en JSON.
   Future<Map<String, dynamic>> exportUserData(String uid) => _guard(() async {
-        final doc = await _userDoc(uid).get();
-        final user = _auth.currentUser;
+        final account = _store.get(accountsCollection, uid) ?? const {};
         return {
-          'exportedAt': DateTime.now().toIso8601String(),
+          'exportedAt': _now().toIso8601String(),
           'account': {
             'uid': uid,
-            'email': user?.email,
-            'emailVerified': user?.emailVerified,
-            'phoneNumber': user?.phoneNumber,
-            'providers': providerIds,
-            'createdAt': user?.metadata.creationTime?.toIso8601String(),
-            'lastSignInAt': user?.metadata.lastSignInTime?.toIso8601String(),
+            'email': account['email'],
+            'createdAt': parseDate(account['createdAt'])?.toIso8601String(),
+            'lastSignInAt': parseDate(account['lastSignInAt'])?.toIso8601String(),
           },
-          'profile': _jsonSafe(doc.data() ?? <String, dynamic>{}),
+          'profile': jsonSafe(_store.get(AppConstants.usersCollection, uid) ?? const {}),
         };
       });
 
-  /// Supprime le compte et son profil. La ré-authentification est faite
-  /// d'abord (mot de passe ou Google) pour éviter l'erreur
-  /// `requires-recent-login` en plein milieu ; si la suppression du compte
-  /// échoue malgré tout, le profil Firestore est restauré pour ne pas laisser
-  /// un compte orphelin.
-  Future<void> deleteAccount({String? password}) => _guard(() async {
-        final user = _auth.currentUser;
-        if (user == null) return;
+  /// Supprime le compte, son profil et ses fichiers (photo, carte), après
+  /// vérification du mot de passe. [beforeDelete] nettoie les autres données
+  /// du compte (appareils, connexions...).
+  Future<void> deleteAccount({String? password, Future<void> Function(String uid)? beforeDelete}) =>
+      _guard(() async {
+        final account = currentAccount;
+        if (account == null) return;
+        if (password == null || password.isEmpty) throw AuthFailure.fromCode('password-required');
+        await reauthenticateWithPassword(password);
 
-        if (hasPasswordProvider) {
-          if (password == null || password.isEmpty) throw AuthFailure.fromCode('password-required');
-          await reauthenticateWithPassword(password);
-        } else if (providerIds.contains(googleProviderId)) {
-          final credential = await _googleCredential();
-          if (credential == null) throw AuthFailure.fromCode('cancelled');
-          await user.reauthenticateWithCredential(credential);
-        }
-
-        final doc = _userDoc(user.uid);
-        final backup = (await doc.get()).data();
-        await _deleteStoredFiles(backup);
-        await doc.delete();
-        try {
-          await user.delete();
-        } catch (e) {
-          if (backup != null) await doc.set(backup);
-          rethrow;
-        }
+        if (beforeDelete != null) await beforeDelete(account.uid);
+        final profile = _store.get(AppConstants.usersCollection, account.uid);
+        final card = profile?['studentCard'];
+        await _files.delete(card is Map ? card['imagePath'] as String? : null);
+        await _files.delete(profile?['photoUrl'] as String?);
+        await _store.delete(AppConstants.usersCollection, account.uid);
+        await _store.delete(accountsCollection, account.uid);
+        await signOut();
       });
 
-  /// Supprime (best effort) la photo de carte étudiant et l'avatar du
-  /// compte. Tant que l'utilisateur est connecté, les règles Storage lui
-  /// permettent d'effacer ses propres fichiers ; un échec n'empêche pas la
-  /// suppression du compte.
-  Future<void> _deleteStoredFiles(Map<String, dynamic>? profile) async {
-    if (profile == null) return;
-    final card = profile['studentCard'];
-    final cardPath = card is Map ? card['imagePath'] : null;
-    final photoUrl = profile['photoUrl'];
-    try {
-      final storage = _storage ??= _injectedStorage ?? StorageService();
-      if (cardPath is String && cardPath.isNotEmpty) {
-        try {
-          await storage.deleteByPath(cardPath);
-        } catch (_) {}
-      }
-      if (photoUrl is String && photoUrl.isNotEmpty) {
-        try {
-          await storage.deleteByUrl(photoUrl);
-        } catch (_) {}
-      }
-    } catch (_) {
-      // Storage indisponible : les fichiers resteront orphelins.
-    }
-  }
-
-  static dynamic _jsonSafe(dynamic value) {
-    if (value is Timestamp) return value.toDate().toIso8601String();
+  /// Rend une valeur stockée sérialisable en JSON (dates en ISO 8601).
+  static dynamic jsonSafe(dynamic value) {
     if (value is DateTime) return value.toIso8601String();
-    if (value is Map) return {for (final e in value.entries) e.key.toString(): _jsonSafe(e.value)};
-    if (value is Iterable) return value.map(_jsonSafe).toList();
+    if (value is Map) return {for (final e in value.entries) e.key.toString(): jsonSafe(e.value)};
+    if (value is Iterable) return value.map(jsonSafe).toList();
     return value;
   }
 }

@@ -13,9 +13,8 @@ enum ScanVerdict { markPresent, alreadyPresent, invalid, otherEvent, notRegister
 /// SÉCURITÉ (honnêtement) : le QR n'est PAS signé, ce n'est qu'un
 /// identifiant « CC1|<eventId>|<uid> ». N'importe qui peut fabriquer ce
 /// texte. Ce qui protège le pointage : on vérifie toujours que l'uid est
-/// dans registeredUserIds de l'événement, et les règles Firestore n'acceptent
-/// le pointage que de l'organisateur (ou d'un admin) et pour une personne
-/// inscrite. Un faux QR pour quelqu'un de non inscrit est donc refusé ; un
+/// dans registeredUserIds de l'événement, et seul l'organisateur (ou un
+/// admin) a accès à l'écran de pointage. Un faux QR pour quelqu'un de non inscrit est donc refusé ; un
 /// QR copié d'un inscrit pointerait cet inscrit (comme un billet papier).
 class TicketRules {
   TicketRules._();

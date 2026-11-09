@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/constants/layout.dart';
@@ -346,6 +347,46 @@ class _UserSheetState extends State<_UserSheet> {
         user.disabled ? 'Compte réactivé' : 'Compte désactivé');
   }
 
+  /// Remplace le mot de passe par un mot de passe temporaire, affiché à
+  /// l'admin pour qu'il le transmette (pas d'email sans serveur).
+  Future<void> _resetPassword() async {
+    final user = widget.user;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Réinitialiser le mot de passe ?'),
+        content: Text(
+            "L'ancien mot de passe de ${user.fullName} ne fonctionnera plus. "
+            'Un mot de passe temporaire va être créé.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Annuler')),
+          TextButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('Réinitialiser')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final provider = context.read<AdminUsersProvider>();
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _busy = true);
+    final temporary = await provider.resetPassword(user);
+    if (!mounted) return;
+    setState(() => _busy = false);
+    if (temporary == null) {
+      messenger.showSnackBar(SnackBar(
+          content: Text(provider.error ?? 'Action impossible.')));
+      return;
+    }
+    await showDialog<void>(
+      context: context,
+      builder: (_) =>
+          _TemporaryPasswordDialog(user: user, password: temporary),
+    );
+  }
+
   void _openCard() {
     final provider = context.read<AdminUsersProvider>();
     final navigator = Navigator.of(context);
@@ -429,6 +470,13 @@ class _UserSheetState extends State<_UserSheet> {
                 onPressed: _busy ? null : _toggleDisabled,
               ),
             ],
+            const SizedBox(height: 12),
+            PillButton(
+              label: 'Réinitialiser le mot de passe',
+              style: PillStyle.ghost,
+              icon: Icons.key_rounded,
+              onPressed: _busy ? null : _resetPassword,
+            ),
             if (_hasCard) ...[
               const SizedBox(height: 12),
               PillButton(
@@ -441,6 +489,49 @@ class _UserSheetState extends State<_UserSheet> {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Mot de passe temporaire créé par l'admin, à copier et transmettre à
+/// l'utilisateur.
+class _TemporaryPasswordDialog extends StatelessWidget {
+  final AppUser user;
+  final String password;
+
+  const _TemporaryPasswordDialog({required this.user, required this.password});
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    return AlertDialog(
+      title: const Text('Mot de passe temporaire'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+              'Transmets ce mot de passe à ${user.fullName}. '
+              'Il pourra le changer depuis son profil.',
+              style: text.bodyMedium),
+          const SizedBox(height: 12),
+          SelectableText(password, style: text.titleLarge),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () async {
+            final messenger = ScaffoldMessenger.of(context);
+            await Clipboard.setData(ClipboardData(text: password));
+            messenger.showSnackBar(
+                const SnackBar(content: Text('Mot de passe copié')));
+          },
+          child: const Text('Copier'),
+        ),
+        TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Fermer')),
+      ],
     );
   }
 }

@@ -18,8 +18,8 @@ enum EventSort { date, nearMe }
 /// Règles métier du module Événements (addendum, section 4).
 ///
 /// Fonctions pures, comme EventValidators : tout est passé en paramètre
-/// (y compris « maintenant »), aucune dépendance à Firebase, donc testables.
-/// Les règles Firestore appliquent les mêmes contrôles côté serveur.
+/// (y compris « maintenant »), aucune dépendance à la base, donc testables.
+/// EventProvider les revérifie sur la version enregistrée avant d'écrire.
 class EventRules {
   EventRules._();
 
@@ -30,8 +30,7 @@ class EventRules {
     if (userId == null) return 'Connectez-vous pour vous inscrire.';
     if (event.status == EventStatus.cancelled) return 'Cet événement est annulé.';
     if (!now.isBefore(event.endDate)) return 'Cet événement est terminé.';
-    // Comme dans firestore.rules (request.time < startDate) : les inscriptions
-    // ferment au début de l'événement.
+    // Les inscriptions ferment au début de l'événement.
     if (!now.isBefore(event.startDate)) return "Les inscriptions sont closes : l'événement a commencé.";
     if (event.isUserRegistered(userId)) return 'Vous êtes déjà inscrit.';
     if (event.isFull) return 'Complet : plus aucune place disponible.';

@@ -1,11 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart' hide AuthProvider;
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_storage/firebase_storage.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:provider/provider.dart';
 
@@ -20,40 +15,27 @@ import 'providers/event_provider.dart';
 import 'providers/job_provider.dart';
 import 'providers/theme_provider.dart';
 import 'services/app_prefs.dart';
-import 'services/notification_service.dart';
+import 'services/demo_seed.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/auth/register_screen.dart';
 import 'screens/onboarding/onboarding_screen.dart';
 import 'screens/visitor/visitor_home_screen.dart';
 import 'screens/home/app_shell.dart';
-import 'firebase_options.dart';
-
-/// Lance l'app contre les émulateurs Firebase locaux (mode hors-ligne) :
-/// `flutter run --dart-define=USE_EMULATOR=true`
-const bool _useEmulator = bool.fromEnvironment('USE_EMULATOR');
+import 'screens/security/confirm_device_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('fr_FR');
 
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-
-  if (_useEmulator) {
-    // L'émulateur Android voit la machine hôte via 10.0.2.2.
-    final host = defaultTargetPlatform == TargetPlatform.android ? '10.0.2.2' : 'localhost';
-    await FirebaseAuth.instance.useAuthEmulator(host, 9099);
-    FirebaseFirestore.instance.useFirestoreEmulator(host, 8085);
-    await FirebaseStorage.instance.useStorageEmulator(host, 9199);
-  }
-
-  // Stockage local SQLite (cache, file d'attente hors-ligne, préférences de
-  // connexion) : chargé en mémoire une fois, avant le premier écran (BNF3).
+  // Base SQLite de l'app (comptes, profils, annonces, événements, offres,
+  // préférences) : chargée en mémoire une fois, avant le premier écran. Il
+  // n'y a pas de serveur ; Vente & Don a sa propre base (ArticleDatabase).
   await LocalDatabase.open();
   // Anciens fichiers Hive (versions précédentes de l'app) : leurs données ne
   // sont pas reprises, on libère simplement la place, sans bloquer le démarrage.
   unawaited(LocalDatabase.deleteLegacyHiveFiles());
-
-  await NotificationService().initialize();
+  // Premier lancement : comptes et contenus de démonstration.
+  await DemoSeed().ensureSeeded();
 
   final prefs = await AppPrefs.load();
 
@@ -131,8 +113,9 @@ class _RootRouterState extends State<RootRouter> {
 
   bool _announced = false;
 
-  /// Un compte désactivé est déconnecté d'office : on l'explique une seule
-  /// fois sur l'accueil visiteur, puis on efface le message.
+  /// Un compte désactivé par un admin est déconnecté d'office : on
+  /// l'explique une seule fois sur l'accueil visiteur, puis on efface le
+  /// message.
   void _announceDisabledAccount(AuthProvider auth) {
     if (auth.errorCode != AuthProvider.accountDisabledCode) {
       _announced = false; // a later disable is announced again
@@ -144,6 +127,9 @@ class _RootRouterState extends State<RootRouter> {
     final message = auth.errorMessage;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
+      // Les écrans ouverts par-dessus (profil, administration, dialogues)
+      // appartiennent à la session fermée : retour à l'accueil visiteur.
+      Navigator.of(context).popUntil((route) => route.isFirst);
       if (message != null) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
       }
@@ -170,6 +156,8 @@ class _RootRouterState extends State<RootRouter> {
         }
         return const VisitorHomeScreen();
       case AuthStatus.authenticated:
+        // Double authentification : le code est demandé avant l'accueil.
+        if (auth.twoFactorRequired) return const ConfirmDeviceScreen();
         return const AppShell();
     }
   }

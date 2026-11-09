@@ -19,7 +19,7 @@ subprojects {
     project.evaluationDependsOn(":app")
 }
 
-// Plusieurs plugins (file_picker, connectivity_plus, firebase_auth, geocoding,
+// Plusieurs plugins (file_picker, connectivity_plus, geocoding,
 // flutter_image_compress, jni) compilent encore contre l'API 33/34/35 alors
 // que flutter_plugin_android_lifecycle exige l'API 36 : AGP refuse alors le
 // build (« checkDebugAarMetadata »). On aligne tous les modules Android sur le

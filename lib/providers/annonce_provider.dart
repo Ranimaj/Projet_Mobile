@@ -1,22 +1,25 @@
 import 'package:flutter/foundation.dart';
 import '../core/constants/app_constants.dart';
 import '../models/annonce_model.dart';
-import '../services/firestore_repository.dart';
-import '../services/notification_service.dart';
+import '../services/local_repository.dart';
+import '../services/local_store.dart';
 
 /// Gestion des Annonces (campus) — CRUD + épinglage automatique des
-/// annonces officielles + notifications push ciblées par segment.
+/// annonces officielles. Données stockées sur le téléphone (SQLite).
 class AnnonceProvider extends ChangeNotifier {
-  final _repo = FirestoreRepository<AnnonceModel>(
-    collectionName: AppConstants.annoncesCollection,
-    cacheBoxName: AppConstants.hiveAnnoncesBox,
-    fromMap: AnnonceModel.fromMap,
-    toMap: (a) => a.toMap(),
-  );
-  final _notifications = NotificationService();
+  AnnonceProvider({LocalStore? store})
+      : _repo = LocalRepository<AnnonceModel>(
+          collectionName: AppConstants.annoncesCollection,
+          fromMap: AnnonceModel.fromMap,
+          toMap: (a) => a.toMap(),
+          store: store,
+        );
 
-  bool _isOnline = true;
-  void updateConnectivity(bool online) => _isOnline = online;
+  final LocalRepository<AnnonceModel> _repo;
+
+  /// Sans effet : tout est local, le réseau ne change rien. Conservé pour
+  /// le ChangeNotifierProxyProvider de main.dart.
+  void updateConnectivity(bool online) {}
 
   List<AnnonceModel> _all = [];
   bool isLoading = false;
@@ -41,7 +44,7 @@ class AnnonceProvider extends ChangeNotifier {
   Future<void> load() async {
     isLoading = true;
     notifyListeners();
-    _all = await _repo.fetchAll(isOnline: _isOnline);
+    _all = _repo.fetchAll();
     isLoading = false;
     notifyListeners();
   }
@@ -68,29 +71,18 @@ class AnnonceProvider extends ChangeNotifier {
           )
         : draft;
 
-    final id = await _repo.create(toSave, isOnline: _isOnline);
-
-    if (toSave.isUrgent && _isOnline) {
-      // Diffusion ciblée vers les segments concernés (ou tout le campus).
-      if (toSave.targetMajors.isEmpty) {
-        // notification générale — gérée côté backend/Cloud Function en prod
-      } else {
-        for (final major in toSave.targetMajors) {
-          await _notifications.subscribeToSegment(major, '');
-        }
-      }
-    }
+    final id = await _repo.create(toSave);
     await load();
     return id;
   }
 
   Future<void> pinAnnonce(String id, bool pinned) async {
-    await _repo.update(id, {'isPinned': pinned}, isOnline: _isOnline);
+    await _repo.update(id, {'isPinned': pinned});
     await load();
   }
 
   Future<void> deleteAnnonce(String id) async {
-    await _repo.delete(id, isOnline: _isOnline);
+    await _repo.delete(id);
     await load();
   }
 }

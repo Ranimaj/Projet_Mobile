@@ -12,18 +12,20 @@ import 'package:campusconnect/providers/job_provider.dart';
 import 'package:campusconnect/screens/auth/login_screen.dart';
 import 'package:campusconnect/screens/auth/register_screen.dart';
 import 'package:campusconnect/screens/visitor/visitor_home_screen.dart';
+import 'package:campusconnect/services/auth_service.dart';
+import 'package:campusconnect/services/local_store.dart';
 import 'package:campusconnect/widgets/bottom_action_bar.dart';
 import 'package:campusconnect/widgets/featured_card.dart';
 import 'package:campusconnect/widgets/photo_card.dart';
 import 'package:campusconnect/widgets/pill_button.dart';
 import 'package:campusconnect/widgets/setting_row.dart';
 import 'package:campusconnect/widgets/skeleton_box.dart';
-import 'package:firebase_auth/firebase_auth.dart' hide AuthProvider;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:provider/provider.dart';
 
+import '../helpers/local_db.dart';
 import '../helpers/mocks.dart';
 import '../helpers/pump_themed.dart';
 
@@ -159,7 +161,7 @@ void main() {
     jobs = _MockJobs();
     authService = MockAuthService();
     when(() => authService.authStateChanges)
-        .thenAnswer((_) => const Stream<User?>.empty());
+        .thenAnswer((_) => const Stream<AuthAccount?>.empty());
     auth = AuthProvider(authService: authService);
     stub();
   });
@@ -167,7 +169,7 @@ void main() {
   tearDown(() => auth.dispose());
 
   Future<void> pump(WidgetTester tester,
-      {int students = 2400,
+      {int? students = 2400,
       Size size = const Size(420, 1000),
       Brightness brightness = Brightness.light,
       double textScale = 1,
@@ -195,7 +197,9 @@ void main() {
                 data: MediaQuery.of(context)
                     .copyWith(textScaler: TextScaler.linear(textScale)),
                 child: app!),
-            home: VisitorHomeScreen(studentsCount: () async => students)),
+            home: VisitorHomeScreen(
+                studentsCount:
+                    students == null ? null : () async => students)),
       ),
     );
     // Skeletons shimmer forever: only pump a few frames while loading.
@@ -257,6 +261,20 @@ void main() {
       expect(rich('2400 étudiants'), findsOneWidget);
       expect(rich('2 annonces'), findsOneWidget);
       expect(rich('1 entreprise'), findsOneWidget);
+    });
+
+    testWidgets('by default, counts the accounts stored on the phone',
+        (tester) async {
+      addTearDown(() => tester.runAsync(closeTestDatabase));
+      await tester.runAsync(() async {
+        await openTestDatabase();
+        final store = LocalStore();
+        await store.set('users', 'u1', {'fullName': 'Amel'});
+        await store.set('users', 'u2', {'fullName': 'Sarra'});
+        await store.set('users', 'u3', {'fullName': 'Youssef'});
+      });
+      await pump(tester, students: null);
+      expect(rich('3 étudiants'), findsOneWidget);
     });
 
     testWidgets('singular forms and a placeholder while the count loads',

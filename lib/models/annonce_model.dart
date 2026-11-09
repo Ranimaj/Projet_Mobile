@@ -1,4 +1,5 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import '../services/local_store.dart' show parseDate;
+
 
 /// Modèle "Gestion des Annonces" (campus).
 class AnnonceModel {
@@ -40,9 +41,7 @@ class AnnonceModel {
       category: map['category'] ?? 'Générale',
       isPinned: map['isPinned'] ?? false,
       isUrgent: map['isUrgent'] ?? false,
-      createdAt: (map['createdAt'] is Timestamp)
-          ? (map['createdAt'] as Timestamp).toDate()
-          : DateTime.tryParse(map['createdAt']?.toString() ?? '') ?? DateTime.now(),
+      createdAt: parseDate(map['createdAt']) ?? DateTime.now(),
       commentCount: map['commentCount'] ?? 0,
       targetMajors: List<String>.from(map['targetMajors'] ?? []),
     );
@@ -57,7 +56,7 @@ class AnnonceModel {
       'category': category,
       'isPinned': isPinned,
       'isUrgent': isUrgent,
-      'createdAt': Timestamp.fromDate(createdAt),
+      'createdAt': createdAt,
       'commentCount': commentCount,
       'targetMajors': targetMajors,
     };

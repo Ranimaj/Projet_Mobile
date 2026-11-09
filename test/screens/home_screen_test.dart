@@ -186,11 +186,10 @@ void main() {
   Future<void> pump(WidgetTester tester,
       {DateTime? now,
       AppUser? user,
-      bool emailVerified = true,
       Brightness brightness = Brightness.light,
       double textScale = 1,
       Size size = const Size(420, 1000)}) async {
-    await h.signIn(tester, user: user, emailVerified: emailVerified);
+    await h.signIn(tester, user: user);
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -244,15 +243,15 @@ void main() {
       expect(find.text('Lundi 19 octobre'), findsOneWidget);
     });
 
-    testWidgets('the sync pill reflects the offline queue', (tester) async {
+    testWidgets('the sync pill reflects the connection', (tester) async {
       when(() => h.connectivity.isOnline).thenReturn(false);
-      when(() => h.connectivity.pendingActionsCount).thenReturn(2);
       await pump(tester);
       expect(find.text('Hors ligne'), findsOneWidget);
 
       when(() => h.connectivity.isOnline).thenReturn(true);
       await pump(tester);
-      expect(find.text('2 en attente'), findsOneWidget);
+      expect(find.text('À jour'), findsOneWidget);
+      expect(find.textContaining('en attente'), findsNothing);
     });
 
     testWidgets(
@@ -357,9 +356,9 @@ void main() {
   group('complétion du profil', () {
     testWidgets('shows the percentage, what is missing, and opens the profile',
         (tester) async {
-      // sampleUser : filière, année, compétences OK ; photo et téléphone manquants ; email vérifié → 4/6
+      // sampleUser : filière, année, compétences OK ; photo et téléphone manquants → 3/5
       await pump(tester);
-      expect(find.text('67 %'), findsOneWidget);
+      expect(find.text('60 %'), findsOneWidget);
       expect(find.text('Complète ton profil'), findsOneWidget);
       expect(
           find.text(
@@ -590,7 +589,6 @@ void main() {
     testWidgets('no overflow at 360x640 and text scale $scale, all populated',
         (tester) async {
       when(() => h.connectivity.isOnline).thenReturn(false);
-      when(() => h.connectivity.pendingActionsCount).thenReturn(12);
       stub(
           a: [_article, _gift],
           n: [_official, _noticeOld],

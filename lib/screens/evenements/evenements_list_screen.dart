@@ -377,7 +377,7 @@ class _EvenementsListScreenState extends State<EvenementsListScreen> with Ticker
     );
   }
 
-  /// Échec d'actualisation mais des données en cache : on les montre avec un bandeau.
+  /// Échec d'actualisation mais des données déjà chargées : on les montre avec un bandeau.
   Widget _buildStaleBanner(EventProvider provider) {
     return Container(
       margin: const EdgeInsets.fromLTRB(20, 6, 20, 0),
@@ -386,7 +386,7 @@ class _EvenementsListScreenState extends State<EvenementsListScreen> with Ticker
       child: Row(
         children: [
           const Expanded(
-            child: Text('Données hors-ligne : actualisation impossible.',
+            child: Text('Actualisation impossible : dernières données chargées.',
                 style: TextStyle(fontSize: 12, color: Color(0xFF92400E))),
           ),
           TextButton(onPressed: provider.load, child: const Text('Réessayer')),

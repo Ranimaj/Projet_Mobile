@@ -13,7 +13,8 @@ import '../../widgets/hero_sheet_scaffold.dart';
 import '../../widgets/round_icon_button.dart';
 import 'otp_verification_screen.dart';
 
-/// Inscription étudiante (BF1) — crée le compte Firebase Auth + profil Firestore.
+/// Inscription étudiante (BF1) — crée le compte et le profil sur le
+/// téléphone, puis ouvre la session (pas d'email de vérification).
 /// Si un numéro de téléphone est fourni, enchaîne sur la vérification OTP.
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -64,7 +65,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
 
     TextInput.finishAutofillContext();
-    showAuthSnack(context, 'Compte créé. Vérifie ton email académique.', isError: false);
+    showAuthSnack(context, 'Compte créé. Bienvenue sur CampusConnect !', isError: false);
     final phone = _phoneCtrl.text.trim();
     if (phone.isNotEmpty) {
       Navigator.of(context).pushReplacement(
@@ -82,7 +83,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     return HeroSheetScaffold(
       hero: const AuthHero(
         title: 'Rejoindre CampusConnect',
-        subtitle: 'Utilise ton email académique pour être vérifié',
+        subtitle: 'Inscris-toi avec ton email académique',
         icon: Icons.person_add_alt_1_rounded,
       ),
       heroLeading: Navigator.of(context).canPop()
@@ -124,7 +125,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 const SizedBox(height: 16),
                 AuthTextField(
                   label: 'Téléphone (optionnel)',
-                  helper: 'Pour vérifier ton compte par SMS, juste après l\'inscription.',
+                  helper: 'Pour vérifier ton numéro juste après l\'inscription.',
                   icon: Icons.phone_outlined,
                   controller: _phoneCtrl,
                   keyboardType: TextInputType.phone,

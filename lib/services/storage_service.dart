@@ -1,105 +1,83 @@
 import 'dart:io';
-import 'package:firebase_storage/firebase_storage.dart';
+
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 
 import '../core/utils/auth_failure.dart';
+import 'local_photo_store.dart';
 
-/// Upload de fichiers (images d'articles, CV, posters d'événements, photos de
-/// profil) avec compression automatique — fonctionnalité avancée du module
-/// Vente & Don réutilisée par la Gestion des Utilisateurs.
+/// Fichiers de l'app (photos de profil, cartes étudiant, affiches, CV) :
+/// copiés, compressés pour les images, dans le dossier de l'app sur le
+/// téléphone. Les méthodes renvoient le chemin absolu de la copie ; c'est ce
+/// chemin qui est enregistré dans la base (`photoUrl`, `imagePath`...).
 class StorageService {
-  final FirebaseStorage _storage;
+  StorageService({Future<Directory> Function()? appDir, Future<File> Function(File, int, int)? compress})
+      : _appDir = appDir ?? getApplicationDocumentsDirectory,
+        _compress = compress ?? _defaultCompress;
+
+  final Future<Directory> Function() _appDir;
+  final Future<File> Function(File file, int minSide, int quality) _compress;
   static const _uuid = Uuid();
 
   /// Taille maximale acceptée pour une photo de profil avant compression.
   static const int maxAvatarBytes = 5 * 1024 * 1024;
 
-  StorageService({FirebaseStorage? storage}) : _storage = storage ?? FirebaseStorage.instance;
-
-  /// Compresse une image avant envoi pour économiser bande passante et
-  /// stockage (fonctionnalité avancée "upload multi-images compressées").
-  Future<File> _compressImage(File file, {int minSide = 1080, int quality = 70}) async {
-    final dir = await getTemporaryDirectory();
-    final targetPath = '${dir.path}/${_uuid.v4()}.jpg';
-
-    final result = await FlutterImageCompress.compressAndGetFile(
-      file.absolute.path,
-      targetPath,
-      quality: quality,
-      minWidth: minSide,
-      minHeight: minSide,
-    );
-    return result != null ? File(result.path) : file;
-  }
-
-  Future<String> uploadImage(File file, {required String folder}) async {
-    final compressed = await _compressImage(file);
-    final ref = _storage.ref().child('$folder/${_uuid.v4()}.jpg');
-    final task = await ref.putFile(compressed, SettableMetadata(contentType: 'image/jpeg'));
-    return task.ref.getDownloadURL();
-  }
-
-  /// Envoie [file] (compressé) à [remotePath] et renvoie ce chemin Storage,
-  /// pas une URL : les pièces sensibles (carte étudiant) ne sont lues que par
-  /// leur propriétaire et les admins, qui résolvent l'URL à la demande.
-  Future<String> uploadFile(File file, {required String remotePath}) async {
-    final compressed = await _compressImage(file);
-    await _storage
-        .ref()
-        .child(remotePath)
-        .putFile(compressed, SettableMetadata(contentType: 'image/jpeg'));
-    return remotePath;
-  }
-
-  /// URL de téléchargement d'un fichier à partir de son chemin Storage (les
-  /// cartes étudiant ne sont lisibles que par leur propriétaire et les admins).
-  Future<String> downloadUrl(String path) => _storage.ref(path).getDownloadURL();
-
-  Future<List<String>> uploadImages(List<File> files, {required String folder}) async {
-    final urls = <String>[];
-    for (final file in files) {
-      urls.add(await uploadImage(file, folder: folder));
+  static Future<File> _defaultCompress(File file, int minSide, int quality) async {
+    try {
+      final dir = await getTemporaryDirectory();
+      final result = await FlutterImageCompress.compressAndGetFile(
+        file.absolute.path,
+        '${dir.path}/${_uuid.v4()}.jpg',
+        quality: quality,
+        minWidth: minSide,
+        minHeight: minSide,
+      );
+      return result != null ? File(result.path) : file;
+    } catch (_) {
+      return file; // compression indisponible : on garde l'original
     }
-    return urls;
   }
 
-  /// Photo de profil : rangée sous `avatars/{uid}/` (chemin protégé par les
-  /// règles Storage), compressée en 512 px. Chaque envoi crée un nouveau
-  /// fichier pour que l'URL change et que les caches se rafraîchissent ;
-  /// l'ancienne photo est supprimée par l'appelant via [deleteByUrl].
-  Future<String> uploadAvatar(File file, {required String uid}) async {
+  Future<String> _store(File file, String relativePath) async {
+    final target = File('${(await _appDir()).path}/$relativePath');
+    await target.parent.create(recursive: true);
+    return (await file.copy(target.path)).path;
+  }
+
+  /// Image compressée rangée sous `[folder]/`.
+  Future<String> saveImage(File file, {required String folder, int minSide = 1080, int quality = 70}) async =>
+      _store(await _compress(file, minSide, quality), '$folder/${_uuid.v4()}.jpg');
+
+  Future<List<String>> saveImages(List<File> files, {required String folder}) async =>
+      [for (final f in files) await saveImage(f, folder: folder)];
+
+  /// Photo de profil, 512 px. Un nouveau fichier à chaque envoi ; l'ancien
+  /// est supprimé par l'appelant via [delete].
+  Future<String> saveAvatar(File file, {required String uid}) async {
     if (!await file.exists() || await file.length() > maxAvatarBytes) {
       throw AuthFailure.fromCode('invalid-file');
     }
-    final compressed = await _compressImage(file, minSide: 512, quality: 80);
-    final ref = _storage.ref().child('avatars/$uid/${DateTime.now().millisecondsSinceEpoch}.jpg');
-    final task = await ref.putFile(compressed, SettableMetadata(contentType: 'image/jpeg'));
-    return task.ref.getDownloadURL();
+    return saveImage(file, folder: 'avatars/$uid', minSide: 512, quality: 80);
   }
 
-  /// Upload d'un document (CV, lettre de motivation) — module Stage & Emploi.
-  Future<String> uploadDocument(File file, {required String folder}) async {
-    final ext = file.path.split('.').last;
-    final ref = _storage.ref().child('$folder/${_uuid.v4()}.$ext');
-    final task = await ref.putFile(file);
-    return task.ref.getDownloadURL();
+  /// Image compressée enregistrée exactement à [relativePath].
+  Future<String> saveFile(File file, {required String relativePath}) async =>
+      _store(await _compress(file, 1080, 70), relativePath);
+
+  /// Document (CV, lettre) copié tel quel sous `[folder]/`.
+  Future<String> saveDocument(File file, {required String folder}) {
+    final ext = file.path.contains('.') ? file.path.split('.').last : 'bin';
+    return _store(file, '$folder/${_uuid.v4()}.$ext');
   }
 
-  /// Supprime le fichier Storage à [path] (chemin, pas URL). Best effort :
-  /// un fichier absent ou inaccessible est ignoré.
-  Future<void> deleteByPath(String path) async {
+  /// Supprime le fichier [path] s'il est sur le téléphone. Sans effet pour
+  /// une image embarquée, une URL web ou un fichier absent.
+  Future<void> delete(String? path) async {
+    if (path == null || path.isEmpty || !isLocalImage(path)) return;
     try {
-      await _storage.ref(path).delete();
+      final f = File(path);
+      if (await f.exists()) await f.delete();
     } catch (_) {}
-  }
-
-  Future<void> deleteByUrl(String url) async {
-    try {
-      await _storage.refFromURL(url).delete();
-    } catch (_) {
-      // fichier déjà supprimé, hébergé ailleurs (photo Google) ou inaccessible — on ignore
-    }
   }
 }

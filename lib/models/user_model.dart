@@ -1,7 +1,7 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:equatable/equatable.dart';
 
 import '../core/constants/app_constants.dart';
+import '../services/local_store.dart' show parseDate;
 
 enum UserRole { student, admin, recruiter }
 
@@ -59,9 +59,9 @@ class StudentCard extends Equatable {
     return {
       'status': status.name,
       if (imagePath != null) 'imagePath': imagePath,
-      if (submittedAt != null) 'submittedAt': Timestamp.fromDate(submittedAt!),
+      if (submittedAt != null) 'submittedAt': submittedAt!,
       if (reviewedBy != null) 'reviewedBy': reviewedBy,
-      if (reviewedAt != null) 'reviewedAt': Timestamp.fromDate(reviewedAt!),
+      if (reviewedAt != null) 'reviewedAt': reviewedAt!,
       if (rejectReason != null) 'rejectReason': rejectReason,
     };
   }
@@ -112,6 +112,10 @@ class AppUser {
   final bool disabled; // compte désactivé, admin uniquement
   final StudentCard studentCard;
 
+  /// Signalements confirmés par un admin (baisse le score de confiance).
+  /// Écrit uniquement par un admin — voir `firestore.rules`.
+  final int reportCount;
+
   /// Champs qu'un utilisateur peut modifier lui-même. Tout le reste (rôle,
   /// statut de vérification, notes, email, téléphone) est géré côté serveur
   /// ou par un admin — voir `firestore.rules`.
@@ -147,6 +151,7 @@ class AppUser {
     this.studentId,
     this.disabled = false,
     this.studentCard = StudentCard.none,
+    this.reportCount = 0,
   });
 
   String get initials {
@@ -183,14 +188,11 @@ class AppUser {
       studentCard: StudentCard.fromMap(map['studentCard'] is Map
           ? Map<String, dynamic>.from(map['studentCard'] as Map)
           : null),
+      reportCount: (map['reportCount'] as num?)?.toInt() ?? 0,
     );
   }
 
-  static DateTime? _parseDate(dynamic value) {
-    if (value is Timestamp) return value.toDate();
-    if (value is DateTime) return value;
-    return DateTime.tryParse(value?.toString() ?? '');
-  }
+  static DateTime? _parseDate(dynamic value) => parseDate(value);
 
   Map<String, dynamic> toMap() {
     return {
@@ -204,15 +206,16 @@ class AppUser {
       'phoneNumber': phoneNumber,
       'role': role.name,
       'twoFactorEnabled': twoFactorEnabled,
-      'createdAt': Timestamp.fromDate(createdAt),
+      'createdAt': createdAt,
       'ratingAverage': ratingAverage,
       'ratingCount': ratingCount,
       'skills': skills,
-      if (updatedAt != null) 'updatedAt': Timestamp.fromDate(updatedAt!),
+      if (updatedAt != null) 'updatedAt': updatedAt!,
       'campus': campus,
       'studentId': studentId,
       'disabled': disabled,
       'studentCard': studentCard.toMap(),
+      'reportCount': reportCount,
     };
   }
 
@@ -264,6 +267,7 @@ class AppUser {
       studentId: clearStudentId ? null : (studentId ?? this.studentId),
       disabled: disabled,
       studentCard: studentCard ?? this.studentCard,
+      reportCount: reportCount,
     );
   }
 }

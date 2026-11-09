@@ -23,7 +23,7 @@ class AttendeesScreen extends StatefulWidget {
 }
 
 class _AttendeesScreenState extends State<AttendeesScreen> {
-  late final Stream<({EventModel? event, bool fromCache})> _live;
+  late final Stream<EventModel?> _live;
   final _searchCtrl = TextEditingController();
   String _query = '';
   AttendeeFilter _filter = AttendeeFilter.all;
@@ -35,7 +35,7 @@ class _AttendeesScreenState extends State<AttendeesScreen> {
   @override
   void initState() {
     super.initState();
-    // Même flux en direct que la fiche (events/{id}.snapshots()).
+    // Même flux en direct que la fiche.
     _live = context.read<EventProvider>().watchEvent(widget.event.id);
   }
 
@@ -72,16 +72,11 @@ class _AttendeesScreenState extends State<AttendeesScreen> {
     }
   }
 
-  /// Scan d'un billet : connexion requise ; on lit le QR, on vérifie (bon
+  /// Scan d'un billet : on lit le QR, on vérifie (bon
   /// événement, inscrit, pas déjà pointé, pointage permis), puis on POINTE
   /// présent (jamais l'inverse) et on affiche le résultat.
   Future<void> _scan(EventModel event) async {
     final provider = context.read<EventProvider>();
-    final messenger = ScaffoldMessenger.of(context);
-    if (!provider.isOnline) {
-      messenger.showSnackBar(const SnackBar(content: Text('Connexion requise pour scanner les billets.')));
-      return;
-    }
     final raw = await Navigator.of(context).push<String>(MaterialPageRoute(builder: (_) => const ScanTicketScreen()));
     if (raw == null || !mounted) return; // scanner fermé sans lecture
 
@@ -135,16 +130,15 @@ class _AttendeesScreenState extends State<AttendeesScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<({EventModel? event, bool fromCache})>(
+    return StreamBuilder<EventModel?>(
       stream: _live,
       builder: (context, snapshot) {
         final provider = context.watch<EventProvider>();
-        final data = snapshot.data;
         final known = provider.findById(widget.event.id) ?? widget.event;
-        final deleted = data != null && data.event == null && !data.fromCache;
-        final event = data?.event ?? known;
-        final isLoading = snapshot.connectionState == ConnectionState.waiting && data == null;
-        final isOffline = snapshot.hasError || (data?.fromCache ?? false);
+        final isLoading = snapshot.connectionState == ConnectionState.waiting;
+        // Flux actif sans document : l'événement a été supprimé.
+        final deleted = !isLoading && !snapshot.hasError && snapshot.data == null;
+        final event = snapshot.data ?? known;
         if (!deleted) _ensureNames(event);
 
         return Scaffold(
@@ -170,13 +164,13 @@ class _AttendeesScreenState extends State<AttendeesScreen> {
           ),
           body: deleted
               ? const _Message(icon: Icons.event_busy_outlined, text: "Cet événement n'existe plus.")
-              : _buildBody(provider, event, isLoading: isLoading, isOffline: isOffline),
+              : _buildBody(provider, event, isLoading: isLoading),
         );
       },
     );
   }
 
-  Widget _buildBody(EventProvider provider, EventModel event, {required bool isLoading, required bool isOffline}) {
+  Widget _buildBody(EventProvider provider, EventModel event, {required bool isLoading}) {
     final t = AppTokens.of(context);
     final now = DateTime.now();
     final paidEvent = !EventRules.isFree(event);
@@ -195,7 +189,6 @@ class _AttendeesScreenState extends State<AttendeesScreen> {
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
       children: [
         if (isLoading) const LinearProgressIndicator(minHeight: 2),
-        if (isOffline) const _Note(icon: Icons.wifi_off_rounded, text: 'Hors ligne : dernières données connues'),
         if (readOnlyNote != null) _Note(icon: Icons.lock_outline_rounded, text: readOnlyNote),
         _SummaryCard(stats: stats, paidEvent: paidEvent),
         const SizedBox(height: 16),

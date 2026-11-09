@@ -7,36 +7,9 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 
-/// Une action de la file hors-ligne telle que stockée (forme brute).
-/// [OfflineQueueService] la transforme en `QueuedAction`.
-@immutable
-class QueueRecord {
-  final String id;
-
-  /// Nom de `QueueActionType` : create, update, delete, uploadStudentCard.
-  final String type;
-  final String collection;
-  final String docId;
-  final Map<String, dynamic> payload;
-  final DateTime queuedAt;
-
-  /// Compteur en mémoire (non persisté), incrémenté à chaque modification du
-  /// payload : la synchro sait ainsi si l'action a changé pendant l'envoi.
-  final int revision;
-
-  const QueueRecord({
-    required this.id,
-    required this.type,
-    required this.collection,
-    required this.docId,
-    required this.payload,
-    required this.queuedAt,
-    this.revision = 0,
-  });
-}
-
-/// Stockage local unique de l'app (SQLite) : cache des collections, file
-/// d'attente hors-ligne et petites préférences.
+/// Stockage local unique de l'app (SQLite) : toutes les données (documents
+/// rangés par collection) et petites préférences. Il n'y a pas de serveur :
+/// cette base est la seule source de vérité.
 ///
 /// Tout est chargé en mémoire UNE fois à l'ouverture ([open], dans main()).
 /// Ensuite :
@@ -45,13 +18,14 @@ class QueueRecord {
 ///   enregistre dans SQLite en arrière-plan ; les écritures SQLite passent
 ///   une par une, dans l'ordre des appels.
 ///
-/// Une seule instance partagée ([instance]) : tous les LocalCacheService et
-/// OfflineQueueService de l'app voient les mêmes données.
+/// Une seule instance partagée ([instance]) : tous les [LocalStore] de l'app
+/// voient les mêmes données.
 class LocalDatabase {
   LocalDatabase._(this._db);
 
   static const String fileName = 'campusconnect.db';
-  static const int schemaVersion = 1;
+  /// 1 : + file hors-ligne (abandonnée en 2, plus de serveur).
+  static const int schemaVersion = 2;
 
   /// Marqueur d'une date dans le JSON stocké : `{"$date": "<ISO UTC>"}`.
   static const String dateMarker = r'$date';
@@ -78,7 +52,13 @@ class LocalDatabase {
     final dbPath = path ?? p.join(await dbFactory.getDatabasesPath(), fileName);
     final db = await dbFactory.openDatabase(
       dbPath,
-      options: OpenDatabaseOptions(version: schemaVersion, onCreate: _createSchema),
+      options: OpenDatabaseOptions(
+        version: schemaVersion,
+        onCreate: _createSchema,
+        onUpgrade: (db, from, _) async {
+          if (from < 2) await db.execute('DROP TABLE IF EXISTS offline_queue');
+        },
+      ),
     );
     final store = LocalDatabase._(db);
     await store._loadAll();
@@ -125,18 +105,6 @@ class LocalDatabase {
           PRIMARY KEY (collection, doc_id)
         )''')
       ..execute('''
-        CREATE TABLE offline_queue (
-          id         TEXT PRIMARY KEY,
-          type       TEXT NOT NULL
-                     CHECK (type IN ('create', 'update', 'delete', 'uploadStudentCard')),
-          collection TEXT NOT NULL,
-          doc_id     TEXT NOT NULL,
-          payload    TEXT NOT NULL,
-          queued_at  INTEGER NOT NULL
-        )''')
-      ..execute('CREATE INDEX idx_queue_doc ON offline_queue (collection, doc_id)')
-      ..execute('CREATE INDEX idx_queue_time ON offline_queue (queued_at)')
-      ..execute('''
         CREATE TABLE kv (
           key   TEXT PRIMARY KEY,
           value TEXT NOT NULL
@@ -149,8 +117,6 @@ class LocalDatabase {
   /// collection → id du document → données.
   final Map<String, Map<String, Map<String, dynamic>>> _cache = {};
 
-  /// File hors-ligne, dans l'ordre (queued_at puis ordre d'ajout).
-  final Map<String, QueueRecord> _queue = {};
   final Map<String, String> _kv = {};
 
   /// Dernière écriture SQLite programmée : la suivante l'attend.
@@ -165,21 +131,6 @@ class LocalDatabase {
         debugPrint('LocalDatabase : document de cache illisible ignoré : $e');
       }
     }
-    for (final row in await _db.query('offline_queue', orderBy: 'queued_at, rowid')) {
-      try {
-        final record = QueueRecord(
-          id: row['id'] as String,
-          type: row['type'] as String,
-          collection: row['collection'] as String,
-          docId: row['doc_id'] as String,
-          payload: _decodeMap(row['payload'] as String),
-          queuedAt: DateTime.fromMillisecondsSinceEpoch(row['queued_at'] as int),
-        );
-        _queue[record.id] = record;
-      } catch (e) {
-        debugPrint('LocalDatabase : action hors-ligne illisible ignorée : $e');
-      }
-    }
     for (final row in await _db.query('kv')) {
       _kv[row['key'] as String] = row['value'] as String;
     }
@@ -188,9 +139,19 @@ class LocalDatabase {
   /// Attend que toutes les écritures déjà demandées soient dans SQLite.
   Future<void> flush() => _tail;
 
+  /// Nom de chaque collection modifiée, juste après la mise à jour de la
+  /// mémoire (les lectures voient déjà la nouvelle valeur).
+  final StreamController<String> _changes = StreamController<String>.broadcast(sync: true);
+  Stream<String> get changes => _changes.stream;
+
+  void _changed(String collection) {
+    if (!_changes.isClosed) _changes.add(collection);
+  }
+
   /// Termine les écritures en cours puis ferme la base.
   Future<void> close() async {
     await flush();
+    await _changes.close();
     await _db.close();
     if (identical(_instance, this)) _instance = null;
   }
@@ -251,10 +212,17 @@ class LocalDatabase {
           e.key: _copy(e.value),
       };
 
-  /// Remplace tout le cache de [collection].
+  /// Un document de [collection] (copie), ou null s'il n'existe pas.
+  Map<String, dynamic>? readDocument(String collection, String id) {
+    final doc = _cache[collection]?[id];
+    return doc == null ? null : _copy(doc);
+  }
+
+  /// Remplace tout le contenu de [collection].
   Future<void> replaceCollection(String collection, Map<String, Map<String, dynamic>> documentsById) {
     final encoded = {for (final e in documentsById.entries) e.key: _encodeMap(e.value)};
     _cache[collection] = {for (final e in encoded.entries) e.key: _decodeMap(e.value)};
+    _changed(collection);
     final now = DateTime.now().millisecondsSinceEpoch;
     return _write((db) => db.transaction((txn) async {
           await txn.delete('cache_documents', where: 'collection = ?', whereArgs: [collection]);
@@ -271,6 +239,7 @@ class LocalDatabase {
   Future<void> putDocument(String collection, String id, Map<String, dynamic> data) {
     final json = _encodeMap(data);
     _cache.putIfAbsent(collection, () => {})[id] = _decodeMap(json);
+    _changed(collection);
     final now = DateTime.now().millisecondsSinceEpoch;
     return _write((db) => db.insert(
           'cache_documents',
@@ -279,109 +248,34 @@ class LocalDatabase {
         ));
   }
 
+  /// Ajoute ou remplace plusieurs documents de [collection] en une seule
+  /// transaction SQLite (une seule notification de changement).
+  Future<void> putDocuments(String collection, Map<String, Map<String, dynamic>> documentsById) {
+    if (documentsById.isEmpty) return _tail;
+    final encoded = {for (final e in documentsById.entries) e.key: _encodeMap(e.value)};
+    final docs = _cache.putIfAbsent(collection, () => {});
+    for (final e in encoded.entries) {
+      docs[e.key] = _decodeMap(e.value);
+    }
+    _changed(collection);
+    final now = DateTime.now().millisecondsSinceEpoch;
+    return _write((db) => db.transaction((txn) async {
+          final batch = txn.batch();
+          for (final e in encoded.entries) {
+            batch.insert(
+              'cache_documents',
+              {'collection': collection, 'doc_id': e.key, 'data': e.value, 'updated_at': now},
+              conflictAlgorithm: ConflictAlgorithm.replace,
+            );
+          }
+          await batch.commit(noResult: true);
+        }));
+  }
+
   Future<void> removeDocument(String collection, String id) {
-    _cache[collection]?.remove(id);
+    if (_cache[collection]?.remove(id) != null) _changed(collection);
     return _write((db) =>
         db.delete('cache_documents', where: 'collection = ? AND doc_id = ?', whereArgs: [collection, id]));
-  }
-
-  // ---------------------------------------------------------- File d'attente
-
-  int get queueLength => _queue.length;
-
-  /// Actions en attente, dans l'ordre (payloads copiés).
-  List<QueueRecord> get queuedActions => [for (final r in _queue.values) _copyRecord(r)];
-
-  /// Version actuelle de l'action [id] (copie), ou null si elle n'est plus en file.
-  QueueRecord? queued(String id) {
-    final r = _queue[id];
-    return r == null ? null : _copyRecord(r);
-  }
-
-  static QueueRecord _copyRecord(QueueRecord r) => QueueRecord(
-        id: r.id,
-        type: r.type,
-        collection: r.collection,
-        docId: r.docId,
-        payload: _copy(r.payload),
-        queuedAt: r.queuedAt,
-        revision: r.revision,
-      );
-
-  /// Ajoute une action, en retirant d'abord les actions [replacing], le tout
-  /// dans une seule transaction SQLite. La mémoire est à jour au retour de
-  /// l'appel ; le Future se termine quand SQLite l'est aussi.
-  Future<void> addQueued({
-    required String id,
-    required String type,
-    required String collection,
-    required String docId,
-    required Map<String, dynamic> payload,
-    required DateTime queuedAt,
-    Iterable<String> replacing = const [],
-  }) {
-    final json = _encodeMap(payload);
-    final ms = queuedAt.millisecondsSinceEpoch;
-    final removed = [for (final old in replacing) if (_queue.remove(old) != null) old];
-    _queue[id] = QueueRecord(
-      id: id,
-      type: type,
-      collection: collection,
-      docId: docId,
-      payload: _decodeMap(json),
-      queuedAt: DateTime.fromMillisecondsSinceEpoch(ms),
-    );
-    return _write((db) => db.transaction((txn) async {
-          for (final old in removed) {
-            await txn.delete('offline_queue', where: 'id = ?', whereArgs: [old]);
-          }
-          await txn.insert('offline_queue', {
-            'id': id,
-            'type': type,
-            'collection': collection,
-            'doc_id': docId,
-            'payload': json,
-            'queued_at': ms,
-          });
-        }));
-  }
-
-  /// Remplace le payload de plusieurs actions d'un coup (une transaction).
-  /// Les ids absents de la file sont ignorés.
-  Future<void> updateQueuedPayloads(Map<String, Map<String, dynamic>> payloadById) {
-    final encoded = <String, String>{};
-    for (final e in payloadById.entries) {
-      final current = _queue[e.key];
-      if (current == null) continue;
-      final json = _encodeMap(e.value);
-      encoded[e.key] = json;
-      _queue[e.key] = QueueRecord(
-        id: current.id,
-        type: current.type,
-        collection: current.collection,
-        docId: current.docId,
-        payload: _decodeMap(json),
-        queuedAt: current.queuedAt,
-        revision: current.revision + 1,
-      );
-    }
-    if (encoded.isEmpty) return _tail;
-    // UPDATE (et non REPLACE) : la ligne garde sa place dans l'ordre d'ajout.
-    return _write((db) => db.transaction((txn) async {
-          for (final e in encoded.entries) {
-            await txn.update('offline_queue', {'payload': e.value}, where: 'id = ?', whereArgs: [e.key]);
-          }
-        }));
-  }
-
-  Future<void> removeQueued(Iterable<String> ids) {
-    final removed = [for (final id in ids) if (_queue.remove(id) != null) id];
-    if (removed.isEmpty) return _tail;
-    return _write((db) => db.transaction((txn) async {
-          for (final id in removed) {
-            await txn.delete('offline_queue', where: 'id = ?', whereArgs: [id]);
-          }
-        }));
   }
 
   // ------------------------------------------------------------ Préférences

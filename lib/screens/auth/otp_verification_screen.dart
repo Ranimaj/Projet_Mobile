@@ -13,8 +13,10 @@ import '../../widgets/hero_sheet_scaffold.dart';
 import '../../widgets/pill_button.dart';
 import '../../widgets/round_icon_button.dart';
 
-/// Vérification du numéro de téléphone par code SMS à 6 chiffres.
-/// Le code est envoyé dès l'ouverture de l'écran.
+/// Vérification du numéro de téléphone par code à 6 chiffres.
+/// Le code est généré dès l'ouverture de l'écran. Sans serveur, aucun SMS
+/// n'est réellement envoyé : le code est affiché dans un bandeau
+/// « SMS simulé » ([DemoSmsBanner]).
 class OtpVerificationScreen extends StatefulWidget {
   final String phone;
 
@@ -118,7 +120,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
     final auth = context.watch<AuthProvider>();
     final shownPhone = auth.otpPhone ?? Validators.normalizePhone(widget.phone) ?? widget.phone;
     final canResend = _secondsLeft == 0 && !auth.isLoading;
-    final status = _codeSent ? 'Code envoyé au $shownPhone' : 'Envoi du code au $shownPhone…';
+    final status = _codeSent ? 'Code prêt pour le $shownPhone' : 'Préparation du code pour le $shownPhone…';
 
     final subtitle = widget.allowSkip ? 'Dernière étape. $status' : status;
     final t = AppTokens.of(context);
@@ -147,8 +149,12 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
             AuthCompactNote(subtitle),
             Text('Saisis le code à 6 chiffres', style: textTheme.labelLarge),
             const SizedBox(height: 4),
-            Text('Il arrive par SMS en quelques secondes.', style: textTheme.bodyMedium),
+            Text('Aucun SMS n\'est envoyé : le code s\'affiche ci-dessous.', style: textTheme.bodyMedium),
             const SizedBox(height: 16),
+            if (_codeSent && auth.demoSmsCode != null) ...[
+              DemoSmsBanner(code: auth.demoSmsCode!),
+              const SizedBox(height: 16),
+            ],
             OtpInput(
               controller: _codeCtrl,
               hasError: _wrongCode,
@@ -190,6 +196,42 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
           ],
         ),
       ],
+    );
+  }
+}
+
+/// Bandeau du « SMS simulé » : l'app n'a pas de serveur pour envoyer un vrai
+/// SMS, elle montre donc elle-même le code à saisir.
+class DemoSmsBanner extends StatelessWidget {
+  final String code;
+  const DemoSmsBanner({super.key, required this.code});
+
+  @override
+  Widget build(BuildContext context) {
+    final t = AppTokens.of(context);
+    final textTheme = Theme.of(context).textTheme;
+    return Semantics(
+      liveRegion: true,
+      container: true,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: t.primarySoft,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.sms_rounded, size: 20, color: t.onPrimarySoft),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'SMS simulé : ton code est $code',
+                style: textTheme.bodyMedium?.copyWith(color: t.onPrimarySoft, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

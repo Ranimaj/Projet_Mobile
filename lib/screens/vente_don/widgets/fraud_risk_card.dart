@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_tokens.dart';
+import '../../../core/utils/trust_score.dart';
 import '../../../models/article_model.dart';
 import '../../../services/ai/fraud_detector.dart';
 
@@ -8,7 +9,10 @@ import '../../../services/ai/fraud_detector.dart';
 /// niveau de risque, probabilité et indices trouvés par le modèle embarqué.
 class FraudRiskCard extends StatelessWidget {
   final ArticleModel article;
-  const FraudRiskCard({super.key, required this.article});
+
+  /// Score de confiance du vendeur (pris en compte s'il est chargé).
+  final TrustScore? sellerTrust;
+  const FraudRiskCard({super.key, required this.article, this.sellerTrust});
 
   @override
   Widget build(BuildContext context) {
@@ -17,7 +21,7 @@ class FraudRiskCard extends StatelessWidget {
       builder: (context, snap) {
         final model = snap.data;
         if (model == null) return const SizedBox.shrink();
-        return _Card(report: model.analyzeArticle(article));
+        return _Card(report: model.analyzeArticle(article, sellerTrust: sellerTrust));
       },
     );
   }

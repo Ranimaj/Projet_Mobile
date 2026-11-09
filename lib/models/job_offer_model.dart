@@ -1,4 +1,5 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import '../services/local_store.dart' show parseDate;
+
 
 enum JobType { stage, emploi }
 
@@ -51,14 +52,8 @@ class JobOfferModel {
       ),
       location: map['location'] ?? '',
       requiredSkills: List<String>.from(map['requiredSkills'] ?? []),
-      postedAt: (map['postedAt'] is Timestamp)
-          ? (map['postedAt'] as Timestamp).toDate()
-          : DateTime.tryParse(map['postedAt']?.toString() ?? '') ?? DateTime.now(),
-      deadline: map['deadline'] == null
-          ? null
-          : (map['deadline'] is Timestamp)
-              ? (map['deadline'] as Timestamp).toDate()
-              : DateTime.tryParse(map['deadline'].toString()),
+      postedAt: parseDate(map['postedAt']) ?? DateTime.now(),
+      deadline: parseDate(map['deadline']),
     );
   }
 
@@ -71,8 +66,8 @@ class JobOfferModel {
       'type': type.name,
       'location': location,
       'requiredSkills': requiredSkills,
-      'postedAt': Timestamp.fromDate(postedAt),
-      'deadline': deadline == null ? null : Timestamp.fromDate(deadline!),
+      'postedAt': postedAt,
+      'deadline': deadline,
     };
   }
 }
@@ -118,9 +113,7 @@ class ApplicationModel {
         (s) => s.name == (map['status'] ?? 'sent'),
         orElse: () => ApplicationStatus.sent,
       ),
-      appliedAt: (map['appliedAt'] is Timestamp)
-          ? (map['appliedAt'] as Timestamp).toDate()
-          : DateTime.tryParse(map['appliedAt']?.toString() ?? '') ?? DateTime.now(),
+      appliedAt: parseDate(map['appliedAt']) ?? DateTime.now(),
     );
   }
 
@@ -133,7 +126,7 @@ class ApplicationModel {
       'cvUrl': cvUrl,
       'coverLetter': coverLetter,
       'status': status.name,
-      'appliedAt': Timestamp.fromDate(appliedAt),
+      'appliedAt': appliedAt,
     };
   }
 }

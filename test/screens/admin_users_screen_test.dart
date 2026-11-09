@@ -3,11 +3,12 @@ import 'package:campusconnect/models/user_model.dart';
 import 'package:campusconnect/providers/admin_users_provider.dart';
 import 'package:campusconnect/screens/admin/admin_card_review_screen.dart';
 import 'package:campusconnect/screens/admin/admin_users_screen.dart';
+import 'package:campusconnect/core/utils/auth_failure.dart';
 import 'package:campusconnect/services/admin_user_service.dart';
+import 'package:campusconnect/services/local_store.dart';
 import 'package:campusconnect/widgets/pill_button.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:mocktail/mocktail.dart';
@@ -15,16 +16,17 @@ import 'package:provider/provider.dart';
 
 import '../helpers/mocks.dart';
 import '../helpers/pump_themed.dart';
+import 'admin_memory_store.dart';
 
-Future<void> _seed(FakeFirebaseFirestore db, {bool secondAdmin = false}) async {
+Future<void> _seed(LocalStore db, {bool secondAdmin = false}) async {
   Future<void> add(String id, String name, String role, int day,
       {Map<String, dynamic>? card, bool disabled = false}) {
-    return db.collection('users').doc(id).set({
+    return db.set('users', id, {
       'fullName': name,
       'email': '$id@esprit.tn',
       'role': role,
       'disabled': disabled,
-      'createdAt': Timestamp.fromDate(DateTime(2026, 1, day)),
+      'createdAt': DateTime(2026, 1, day),
       if (card != null) 'studentCard': card,
     });
   }
@@ -33,8 +35,8 @@ Future<void> _seed(FakeFirebaseFirestore db, {bool secondAdmin = false}) async {
   if (secondAdmin) await add('a2', 'Admin Deux', 'admin', 2);
   await add('s1', 'Amel Ben Salah', 'student', 3, card: {
     'status': 'pending',
-    'imagePath': 'student_cards/s1/card.jpg',
-    'submittedAt': Timestamp.fromDate(DateTime(2026, 10, 20)),
+    'imagePath': '/app/student_cards/s1/card.jpg',
+    'submittedAt': DateTime(2026, 10, 20),
   });
   await add('r1', 'Rim Recruteur', 'recruiter', 4, disabled: true);
 }
@@ -42,19 +44,21 @@ Future<void> _seed(FakeFirebaseFirestore db, {bool secondAdmin = false}) async {
 void main() {
   setUpAll(() => initializeDateFormatting('fr_FR'));
 
-  late FakeFirebaseFirestore db;
-  late MockStorageService storage;
+  late LocalStore db;
+  late MockAuthService auth;
   late AdminUsersProvider provider;
+
+  Map<String, dynamic> user(String id) => db.get('users', id)!;
+
+  setUp(() => auth = MockAuthService());
 
   Future<void> pumpScreen(WidgetTester t,
       {Brightness brightness = Brightness.light,
       bool secondAdmin = false,
       StudentCardStatus? initialCardFilter}) async {
-    db = FakeFirebaseFirestore();
-    storage = MockStorageService();
-    when(() => storage.downloadUrl(any())).thenAnswer((_) async => throw Exception('no net'));
+    db = MemoryLocalStore();
     await _seed(db, secondAdmin: secondAdmin);
-    provider = AdminUsersProvider(AdminUserService(db, storage: storage), currentAdminUid: 'a1');
+    provider = AdminUsersProvider(AdminUserService(store: db, auth: auth), currentAdminUid: 'a1');
     addTearDown(provider.dispose);
     t.view.physicalSize = const Size(420, 1000);
     t.view.devicePixelRatio = 1;
@@ -130,7 +134,7 @@ void main() {
     await t.pump();
     await t.tap(find.widgetWithText(PillButton, 'Confirmer'));
     await t.pumpAndSettle();
-    expect((await db.collection('users').doc('s1').get()).data()!['role'], 'recruiter');
+    expect(user('s1')['role'], 'recruiter');
   });
 
   testWidgets('confirm is disabled when the last admin picks another role', (t) async {
@@ -162,7 +166,7 @@ void main() {
     expect(find.text('Désactiver ce compte ?'), findsOneWidget);
     await t.tap(find.text('Annuler'));
     await t.pumpAndSettle();
-    expect((await db.collection('users').doc('s1').get()).data()!['disabled'], false);
+    expect(user('s1')['disabled'], false);
   });
 
   testWidgets('sheet disables (after confirm) then re-enables an account', (t) async {
@@ -173,14 +177,14 @@ void main() {
     await t.pumpAndSettle();
     await t.tap(find.widgetWithText(TextButton, 'Désactiver'));
     await t.pumpAndSettle();
-    expect((await db.collection('users').doc('s1').get()).data()!['disabled'], true);
+    expect(user('s1')['disabled'], true);
 
     await t.tap(find.text('Rim Recruteur'));
     await t.pumpAndSettle();
     expect(find.widgetWithText(PillButton, 'Réactiver le compte'), findsOneWidget);
     await t.tap(find.widgetWithText(PillButton, 'Réactiver le compte'));
     await t.pumpAndSettle();
-    expect((await db.collection('users').doc('r1').get()).data()!['disabled'], false);
+    expect(user('r1')['disabled'], false);
   });
 
   testWidgets('the last enabled admin has no disable button on their own row', (t) async {
@@ -204,6 +208,66 @@ void main() {
     await t.pumpAndSettle();
     expect(find.byType(AdminCardReviewScreen), findsOneWidget);
     expect(find.text('Valider'), findsOneWidget);
+  });
+
+  group('Réinitialiser le mot de passe', () {
+    Future<void> openReset(WidgetTester t) async {
+      await pumpScreen(t);
+      await t.tap(find.text('Amel Ben Salah'));
+      await t.pumpAndSettle();
+      await t.ensureVisible(find.widgetWithText(PillButton, 'Réinitialiser le mot de passe'));
+      await t.tap(find.widgetWithText(PillButton, 'Réinitialiser le mot de passe'));
+      await t.pumpAndSettle();
+      expect(find.text('Réinitialiser le mot de passe ?'), findsOneWidget);
+    }
+
+    testWidgets('cancel resets nothing', (t) async {
+      await openReset(t);
+      await t.tap(find.text('Annuler'));
+      await t.pumpAndSettle();
+      verifyNever(() => auth.resetPasswordByAdmin(any()));
+    });
+
+    testWidgets('confirm shows the temporary password, which can be copied', (t) async {
+      when(() => auth.resetPasswordByAdmin('s1')).thenAnswer((_) async => 'Campus-abcdef42');
+      String? copied;
+      t.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        if (call.method == 'Clipboard.setData') {
+          copied = (call.arguments as Map)['text'] as String?;
+        }
+        return null;
+      });
+      addTearDown(() =>
+          t.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, null));
+
+      await openReset(t);
+      await t.tap(find.widgetWithText(TextButton, 'Réinitialiser'));
+      await t.pumpAndSettle();
+
+      verify(() => auth.resetPasswordByAdmin('s1')).called(1);
+      expect(find.text('Mot de passe temporaire'), findsOneWidget);
+      expect(find.text('Campus-abcdef42'), findsOneWidget);
+      expectNoSmallText(t);
+
+      await t.tap(find.text('Copier'));
+      await t.pumpAndSettle();
+      expect(copied, 'Campus-abcdef42');
+      expect(find.text('Mot de passe copié'), findsOneWidget);
+
+      await t.tap(find.text('Fermer'));
+      await t.pumpAndSettle();
+      expect(find.text('Mot de passe temporaire'), findsNothing);
+    });
+
+    testWidgets('a failure shows an error and no password', (t) async {
+      when(() => auth.resetPasswordByAdmin('s1'))
+          .thenThrow(AuthFailure.fromCode('user-not-found'));
+      await openReset(t);
+      await t.tap(find.widgetWithText(TextButton, 'Réinitialiser'));
+      await t.pumpAndSettle();
+      expect(find.text('Mot de passe temporaire'), findsNothing);
+      expect(find.text('Réinitialisation impossible pour ce compte.'), findsOneWidget);
+    });
   });
 
   for (final brightness in Brightness.values) {

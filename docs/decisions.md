@@ -129,6 +129,32 @@ Sans Cloud Function ni agrégats côté serveur, l'écran de statistiques admin 
 la collection `users` côté client. Acceptable pour un campus de démonstration ; à
 remplacer par des compteurs agrégés si le volume augmente.
 
+## 13. Firebase abandonné : toutes les données en SQLite sur le téléphone
+
+L'équipe a choisi de ne plus utiliser Firebase (Auth, Firestore, Storage, Messaging) :
+l'app n'a plus de serveur et toutes ses données sont dans une base SQLite sur le
+téléphone (`LocalDatabase` + `LocalStore`, voir le README, section 5). Les décisions 8
+(file d'attente des cartes), 10 (notifications), 11 (règle `applications`) et 12
+(statistiques sur le plan Spark) ne s'appliquent plus.
+
+Conséquences assumées :
+
+- **Comptes locaux** : empreinte PBKDF2-SHA256 (20 000 itérations, sel par compte),
+  blocage 5 minutes après 5 échecs. Quelqu'un qui copie la base du téléphone peut
+  tenter de deviner les mots de passe hors ligne ; l'empreinte lente le freine sans
+  l'empêcher.
+- **Ni email ni SMS** : la vérification d'email et la connexion Google disparaissent ;
+  un mot de passe oublié est réinitialisé par un admin ; les codes de vérification du
+  téléphone et de la double authentification sont affichés dans l'app (« SMS simulé »),
+  ce qui n'apporte pas de vraie sécurité supplémentaire, seulement le parcours.
+- **Un téléphone = une base** : rien n'est partagé entre téléphones. « Mes appareils »
+  devient l'historique des connexions de ce téléphone (plus d'alerte de nouvel appareil
+  ni de déconnexion à distance) ; les signalements, le score de confiance et la revue
+  des cartes ne voient que les comptes de ce téléphone.
+- **Données de démonstration** créées au premier lancement (`DemoSeed`), y compris un
+  compte admin au mot de passe connu, dans toutes les versions de l'app.
+- **Pas de notifications push.**
+
 ## Points mineurs différés
 
 **Design system (tâches 1 à 5)**

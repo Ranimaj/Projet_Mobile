@@ -140,7 +140,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final forYou =
         (recommended.isNotEmpty ? recommended : jobs.offers).take(5).toList();
     final completion =
-        user == null ? null : _Completion.of(user, auth.emailVerified);
+        user == null ? null : _Completion.of(user);
     final activity = user == null
         ? const <ChartPoint>[]
         : weeklyActivity(
@@ -205,10 +205,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       onAvatar: _openProfile,
                     ),
                     const SizedBox(height: 12),
-                    _DateLine(
-                        now: now,
-                        online: connectivity.isOnline,
-                        pending: connectivity.pendingActionsCount),
+                    _DateLine(now: now, online: connectivity.isOnline),
                     const SizedBox(height: 16),
                     SearchPill(
                         hint: 'Annonces, objets, stages',
@@ -332,19 +329,18 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-/// Complétion du profil : six éléments, un pourcentage et la liste de ce qui manque.
+/// Complétion du profil : cinq éléments, un pourcentage et la liste de ce qui manque.
 class _Completion {
   final int percent;
   final List<String> missing;
   const _Completion(this.percent, this.missing);
 
-  static _Completion of(AppUser u, bool emailVerified) {
+  static _Completion of(AppUser u) {
     final checks = <(String, bool)>[
       ('ta photo', u.photoUrl != null),
       ('ta filière', (u.major ?? '').isNotEmpty),
       ('ton année', (u.year ?? '').isNotEmpty),
       ('tes compétences', u.skills.isNotEmpty),
-      ('ton email vérifié', emailVerified),
       ('ton téléphone', u.isPhoneVerified),
     ];
     final done = checks.where((c) => c.$2).length;
@@ -442,9 +438,8 @@ class _Header extends StatelessWidget {
 class _DateLine extends StatelessWidget {
   final DateTime now;
   final bool online;
-  final int pending;
   const _DateLine(
-      {required this.now, required this.online, required this.pending});
+      {required this.now, required this.online});
 
   @override
   Widget build(BuildContext context) {
@@ -454,7 +449,7 @@ class _DateLine extends StatelessWidget {
       children: [
         Expanded(
             child: Text(date, style: Theme.of(context).textTheme.bodyMedium)),
-        SyncChip(online: online, pending: pending),
+        SyncChip(online: online, pending: 0),
       ],
     );
   }

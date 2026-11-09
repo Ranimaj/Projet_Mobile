@@ -19,9 +19,23 @@ class _AddAnnonceScreenState extends State<AddAnnonceScreen> {
   final _formKey = GlobalKey<FormState>();
   final _titleCtrl = TextEditingController();
   final _contentCtrl = TextEditingController();
-  String _category = AppConstants.annonceCategories.first;
+  /// Choix de l'utilisateur ; null tant qu'il n'a rien choisi.
+  String? _category;
   bool _isUrgent = false;
   bool _submitting = false;
+
+  /// Seul un admin publie une annonce « Officielle ».
+  static List<String> _categoriesFor(bool isAdmin) =>
+      [for (final c in AppConstants.annonceCategories) if (c != 'Officielle' || isAdmin) c];
+
+  /// La catégorie retenue, toujours parmi celles que l'utilisateur peut choisir.
+  String _selectedCategory(bool isAdmin) {
+    final allowed = _categoriesFor(isAdmin);
+    final chosen = _category;
+    return chosen != null && allowed.contains(chosen) ? chosen : allowed.first;
+  }
+
+  static bool _isAdmin(AuthProvider auth) => auth.currentUser?.role.name == 'admin';
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
@@ -34,7 +48,7 @@ class _AddAnnonceScreenState extends State<AddAnnonceScreen> {
       authorName: auth.currentUser!.fullName,
       title: _titleCtrl.text.trim(),
       content: _contentCtrl.text.trim(),
-      category: _category,
+      category: _selectedCategory(_isAdmin(auth)),
       isUrgent: _isUrgent,
       createdAt: DateTime.now(),
     );
@@ -48,7 +62,7 @@ class _AddAnnonceScreenState extends State<AddAnnonceScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isAdmin = context.watch<AuthProvider>().currentUser?.role.name == 'admin';
+    final isAdmin = _isAdmin(context.watch<AuthProvider>());
 
     return Scaffold(
       appBar: AppBar(title: const Text('Publier une annonce')),
@@ -73,17 +87,19 @@ class _AddAnnonceScreenState extends State<AddAnnonceScreen> {
               ),
               const SizedBox(height: 14),
               DropdownButtonFormField<String>(
-                initialValue: _category,
+                // La clé suit le rôle : si les catégories proposées changent,
+                // le champ repart sur une valeur qui existe dans la liste.
+                key: ValueKey(isAdmin),
+                initialValue: _selectedCategory(isAdmin),
                 decoration: const InputDecoration(labelText: 'Catégorie'),
-                items: AppConstants.annonceCategories
-                    .where((c) => c != 'Officielle' || isAdmin) // seul l'admin publie "Officielle"
-                    .map((c) => DropdownMenuItem(value: c, child: Text(c)))
-                    .toList(),
-                onChanged: (v) => setState(() => _category = v!),
+                items: [
+                  for (final c in _categoriesFor(isAdmin)) DropdownMenuItem(value: c, child: Text(c)),
+                ],
+                onChanged: (v) => setState(() => _category = v),
               ),
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
-                title: const Text('Annonce urgente (notification push)', style: TextStyle(fontSize: 13.5)),
+                title: const Text('Annonce urgente', style: TextStyle(fontSize: 13.5)),
                 value: _isUrgent,
                 onChanged: (v) => setState(() => _isUrgent = v),
               ),

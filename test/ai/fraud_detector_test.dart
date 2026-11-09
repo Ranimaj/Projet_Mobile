@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:campusconnect/core/utils/trust_score.dart';
+import 'package:campusconnect/models/user_model.dart';
 import 'package:campusconnect/services/ai/fraud_detector.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -75,5 +77,50 @@ void main() {
     expect(f['off_app'], 1);
     expect(f['shouting'], 1);
     expect(f['price_far_below'], 0);
+  });
+
+  group('seller trust', () {
+    final now = DateTime(2026, 11, 9);
+    TrustScore trust({bool verified = false, DateTime? since}) => TrustScore.of(
+          AppUser(
+            id: 's',
+            fullName: 'Vendeur',
+            email: 's@esprit.tn',
+            createdAt: since ?? now,
+            isVerifiedStudent: verified,
+            isPhoneVerified: verified,
+            twoFactorEnabled: verified,
+          ),
+          completedSales: verified ? 5 : 0,
+          now: now,
+        );
+    FraudReport analyze(TrustScore? t) => model.analyze(
+          title: 'iPhone 13',
+          description: 'Bon état, chargeur inclus. On se voit au campus.',
+          category: 'Électronique',
+          price: 900,
+          hasPhoto: true,
+          sellerTrust: t,
+        );
+
+    test('a new unverified seller raises the risk and is named as a reason', () {
+      final base = analyze(null);
+      final risky = analyze(trust());
+      expect(risky.probability, greaterThan(base.probability));
+      expect(risky.reasons, contains('Vendeur récent et peu vérifié (score de confiance bas).'));
+    });
+
+    test('a long-time verified seller lowers the risk', () {
+      final base = analyze(null);
+      final trusted = analyze(trust(verified: true, since: DateTime(2024, 1, 1)));
+      expect(trusted.probability, lessThan(base.probability));
+      expect(trusted.reasons, isNot(contains(startsWith('Vendeur récent'))));
+    });
+
+    test('the shift is symmetric around a score of 50', () {
+      expect(sellerTrustShift(0), closeTo(kSellerTrustWeight, 1e-9));
+      expect(sellerTrustShift(50), 0);
+      expect(sellerTrustShift(100), closeTo(-kSellerTrustWeight, 1e-9));
+    });
   });
 }

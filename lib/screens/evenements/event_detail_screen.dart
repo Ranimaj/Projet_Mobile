@@ -1,4 +1,3 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -8,6 +7,7 @@ import '../../models/event_model.dart';
 import '../../models/user_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/event_provider.dart';
+import '../../widgets/app_image.dart';
 import '../../widgets/pill_button.dart';
 import 'add_event_screen.dart';
 import 'attendees_screen.dart';
@@ -38,7 +38,7 @@ class EventDetailScreen extends StatefulWidget {
 }
 
 class _EventDetailScreenState extends State<EventDetailScreen> {
-  late final Stream<({EventModel? event, bool fromCache})> _live;
+  late final Stream<EventModel?> _live;
 
   /// Vrai quand l'écran se ferme volontairement (suppression) : évite de
   /// réagir une 2e fois au document supprimé dans le flux.
@@ -57,23 +57,21 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<({EventModel? event, bool fromCache})>(
+    return StreamBuilder<EventModel?>(
       stream: _live,
       builder: (context, snapshot) {
         // Dernière copie connue (provider, sinon celle reçue) : utilisée
-        // pendant le chargement, en cas d'erreur ou hors-ligne.
+        // pendant le chargement.
         final provider = context.watch<EventProvider>();
         final known = provider.findById(widget.event.id) ?? widget.event;
-        final data = snapshot.data;
+        final waiting = snapshot.connectionState == ConnectionState.waiting;
 
-        if (data != null && data.event == null && !data.fromCache) {
+        // Flux actif sans document : l'événement a été supprimé.
+        if (!waiting && !snapshot.hasError && snapshot.data == null) {
           _onDeleted();
-          return _buildContent(known, isLoading: false, isOffline: false);
+          return _buildContent(known, isLoading: false);
         }
-        final event = data?.event ?? known;
-        final isLoading = snapshot.connectionState == ConnectionState.waiting && data == null;
-        final isOffline = snapshot.hasError || (data?.fromCache ?? false);
-        return _buildContent(event, isLoading: isLoading, isOffline: isOffline);
+        return _buildContent(snapshot.data ?? known, isLoading: waiting);
       },
     );
   }
@@ -94,7 +92,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     });
   }
 
-  Widget _buildContent(EventModel event, {required bool isLoading, required bool isOffline}) {
+  Widget _buildContent(EventModel event, {required bool isLoading}) {
     final auth = context.watch<AuthProvider>();
     final userId = auth.currentUser?.id;
     final isOwner = userId != null && userId == event.organizerId;
@@ -141,10 +139,6 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
                 children: [
                   if (isLoading) ...[
                     const LinearProgressIndicator(minHeight: 2),
-                    const SizedBox(height: 12),
-                  ],
-                  if (isOffline) ...[
-                    const _OfflineNote(),
                     const SizedBox(height: 12),
                   ],
                   Text(event.title, style: Theme.of(context).textTheme.headlineSmall),
@@ -329,12 +323,9 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     final reason = await showDialog<String>(context: context, builder: (_) => const _CancelDialog());
     if (reason == null) return;
     try {
-      final sentOnline = await provider.cancelEvent(event, reason);
-      messenger.showSnackBar(SnackBar(
-        content: Text(sentOnline
-            ? 'Événement annulé. Les inscrits le verront comme annulé.'
-            : 'Annulation enregistrée : envoi au retour du réseau.'),
-      ));
+      await provider.cancelEvent(event, reason);
+      messenger.showSnackBar(
+          const SnackBar(content: Text('Événement annulé. Les inscrits le verront comme annulé.')));
     } on EventActionException catch (e) {
       messenger.showSnackBar(SnackBar(content: Text(e.message)));
     }
@@ -586,11 +577,11 @@ class _Header extends StatelessWidget {
             Semantics(
               image: true,
               label: "Affiche de l'événement ${event.title}",
-              child: CachedNetworkImage(
-                imageUrl: event.posterUrl!,
+              child: AppImage(
+                url: event.posterUrl!,
                 fit: BoxFit.cover,
-                placeholder: (_, __) => fallback,
-                errorWidget: (_, __, ___) => fallback,
+                placeholder: (_) => fallback,
+                error: (_) => fallback,
               ),
             ),
           // Voile sombre SEULEMENT sur une affiche : texte et icônes blancs
@@ -934,32 +925,6 @@ class _CapacityCard extends StatelessWidget {
             ],
           ],
         ),
-      ),
-    );
-  }
-}
-
-/// Petite note quand les données viennent du cache (pas de réseau).
-class _OfflineNote extends StatelessWidget {
-  const _OfflineNote();
-
-  @override
-  Widget build(BuildContext context) {
-    final t = AppTokens.of(context);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(color: const Color(0xFFFFF7ED), borderRadius: BorderRadius.circular(8)),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.wifi_off_rounded, size: 14, color: t.warning),
-          const SizedBox(width: 6),
-          // Passe à la ligne au lieu de déborder (écran étroit, grand texte).
-          const Flexible(
-            child: Text('Hors ligne : dernières données connues',
-                style: TextStyle(fontSize: 12, color: Color(0xFF9A3412))),
-          ),
-        ],
       ),
     );
   }

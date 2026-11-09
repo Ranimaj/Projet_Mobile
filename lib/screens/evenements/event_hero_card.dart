@@ -1,7 +1,7 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../models/event_model.dart';
+import '../../widgets/app_image.dart';
 import 'event_detail_screen.dart';
 import 'itinerary_rules.dart';
 import 'event_rules.dart';
@@ -137,11 +137,11 @@ class EventHeroCard extends StatelessWidget {
     return Semantics(
       image: true,
       label: "Affiche de l'événement ${event.title}",
-      child: CachedNetworkImage(
-        imageUrl: url,
+      child: AppImage(
+        url: url,
         fit: BoxFit.cover,
-        placeholder: (_, __) => gradient,
-        errorWidget: (_, __, ___) => gradient,
+        placeholder: (_) => gradient,
+        error: (_) => gradient,
       ),
     );
   }

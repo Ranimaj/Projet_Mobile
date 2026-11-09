@@ -1,7 +1,6 @@
 import 'package:campusconnect/services/local_photo_store.dart';
 import 'package:campusconnect/core/utils/geo.dart';
 import 'package:campusconnect/models/article_model.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../helpers/articles.dart';
@@ -33,11 +32,11 @@ void main() {
     expect(back.updatedAt, DateTime(2026, 11, 3));
   });
 
-  test('fromMap reads cached ISO dates and missing fields', () {
+  test('fromMap reads ISO dates, stored DateTimes and missing fields', () {
     final a = ArticleModel.fromMap('x', {
       'title': 'Lampe',
       'createdAt': '2026-10-01T10:00:00.000Z',
-      'updatedAt': Timestamp.fromDate(DateTime(2026, 10, 2)),
+      'updatedAt': DateTime(2026, 10, 2),
     });
     expect(a.createdAt, DateTime.parse('2026-10-01T10:00:00.000Z'));
     expect(a.updatedAt, DateTime(2026, 10, 2));

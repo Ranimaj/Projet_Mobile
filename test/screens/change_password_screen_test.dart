@@ -96,7 +96,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
 
-    expect(find.text('Email ou mot de passe incorrect.'), findsOneWidget);
+    expect(find.text('Mot de passe incorrect.'), findsOneWidget);
     expect(find.byType(ChangePasswordScreen), findsOneWidget);
   });
 

@@ -7,7 +7,7 @@ import 'package:campusconnect/widgets/auth/otp_input.dart';
 import 'package:campusconnect/widgets/hero_sheet_scaffold.dart';
 import 'package:campusconnect/widgets/pill_button.dart';
 import 'package:campusconnect/screens/auth/otp_verification_screen.dart';
-import 'package:firebase_auth/firebase_auth.dart' hide AuthProvider;
+import 'package:campusconnect/services/auth_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -22,8 +22,9 @@ void main() {
 
   setUp(() {
     service = MockAuthService();
-    when(() => service.authStateChanges).thenAnswer((_) => const Stream<User?>.empty());
+    when(() => service.authStateChanges).thenAnswer((_) => const Stream<AuthAccount?>.empty());
     when(() => service.sendPhoneOtp(any())).thenAnswer((_) async => '+21620123456');
+    when(() => service.demoSmsCode).thenReturn('482913');
     provider = AuthProvider(authService: service);
   });
 
@@ -38,7 +39,34 @@ void main() {
     await pumpAuthScreen(tester, provider, const OtpVerificationScreen(phone: '20123456'));
 
     verify(() => service.sendPhoneOtp('20123456')).called(1);
-    expect(find.textContaining('Code envoyé au +21620123456'), findsOneWidget);
+    expect(find.textContaining('Code prêt pour le +21620123456'), findsOneWidget);
+  });
+
+  testWidgets('shows the simulated SMS code in a banner once the code is ready', (tester) async {
+    await pumpAuthScreen(tester, provider, const OtpVerificationScreen(phone: '20123456'));
+
+    expect(find.byType(DemoSmsBanner), findsOneWidget);
+    expect(find.text('SMS simulé : ton code est 482913'), findsOneWidget);
+  });
+
+  testWidgets('no simulated SMS banner when the code could not be prepared', (tester) async {
+    when(() => service.sendPhoneOtp(any())).thenThrow(AuthFailure.fromCode('invalid-phone-number'));
+    when(() => service.demoSmsCode).thenReturn(null);
+    await pumpAuthScreen(tester, provider, const OtpVerificationScreen(phone: '12'));
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.byType(DemoSmsBanner), findsNothing);
+    expect(find.text('Numéro de téléphone invalide.'), findsOneWidget);
+  });
+
+  testWidgets('the code shown in the banner is the one checked', (tester) async {
+    when(() => service.verifyPhoneOtp(any())).thenAnswer((_) async {});
+    await pumpAuthScreen(tester, provider, const OtpVerificationScreen(phone: '20123456'));
+
+    await typeCode(tester, provider.demoSmsCode!);
+    await tester.pumpAndSettle();
+
+    verify(() => service.verifyPhoneOtp('482913')).called(1);
   });
 
   testWidgets('auto-verifies when 6 digits are entered and closes on success', (tester) async {
@@ -110,7 +138,7 @@ void main() {
     await pumpAuthScreen(tester, provider, const OtpVerificationScreen(phone: '20123456'));
     await tester.pump(const Duration(milliseconds: 300));
 
-    expect(find.text('Trop de tentatives. Réessayez dans quelques minutes.'), findsOneWidget);
+    expect(find.text('Trop de tentatives. Réessayez dans 5 minutes.'), findsOneWidget);
     final field = tester.widget<TextField>(find.byKey(const Key('otp-field')));
     expect(field.enabled, isFalse);
   });
@@ -174,7 +202,7 @@ void main() {
 
     final field = tester.widget<EditableText>(
         find.descendant(of: find.byKey(const Key('otp-field')), matching: find.byType(EditableText)));
-    expect(find.textContaining('Code envoyé au'), findsOneWidget); // le mock renvoie toujours +21620123456
+    expect(find.textContaining('Code prêt pour le'), findsOneWidget); // le mock renvoie toujours +21620123456
     expect(field.focusNode.hasFocus, isTrue, reason: 'le clavier doit s\'ouvrir sans taper sur les cases');
   });
 

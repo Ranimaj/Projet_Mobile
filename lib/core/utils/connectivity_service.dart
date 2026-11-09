@@ -2,8 +2,7 @@ import 'dart:async';
 import 'package:connectivity_plus/connectivity_plus.dart';
 
 /// Surveille l'état du réseau et expose un flux booléen "en ligne / hors-ligne".
-/// Utilisé par [ConnectivityProvider] pour piloter le bandeau offline
-/// et déclencher la synchronisation de la file d'attente locale.
+/// Utilisé par [ConnectivityProvider] pour le bandeau hors-ligne.
 class ConnectivityService {
   final Connectivity _connectivity = Connectivity();
 

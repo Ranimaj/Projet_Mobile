@@ -1,9 +1,7 @@
 import 'package:campusconnect/models/event_model.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// Tests sans Firebase : on ne touche jamais FirebaseFirestore.instance,
-/// Timestamp est une simple classe de données.
+/// Tests du modèle seul : aucune base n'est ouverte.
 void main() {
   final start = DateTime(2026, 11, 10, 14, 0);
   final end = DateTime(2026, 11, 10, 16, 0);
@@ -84,7 +82,7 @@ void main() {
       'title': 'Ancien',
       'description': 'Document créé avant la v2',
       'category': 'Sport',
-      'startDate': Timestamp.fromDate(start),
+      'startDate': start,
       'location': 'Stade',
       'registeredUserIds': ['a'],
     };
@@ -115,9 +113,8 @@ void main() {
       expect(EventModel.fromMap('x', {...oldDoc, 'status': 'cancelled'}).status, EventStatus.cancelled);
     });
 
-    test('date acceptée sous 4 formes : Timestamp, DateTime, int, String', () {
+    test('date acceptée sous 3 formes : DateTime, int, String', () {
       DateTime parsed(dynamic v) => EventModel.fromMap('x', {...oldDoc, 'startDate': v}).startDate;
-      expect(parsed(Timestamp.fromDate(start)), start);
       expect(parsed(start), start);
       expect(parsed(start.millisecondsSinceEpoch), start);
       expect(parsed(start.toIso8601String()), start);
@@ -161,7 +158,7 @@ void main() {
       expect(copy.createdAt, DateTime(2026, 10, 1));
       expect(copy.updatedAt, DateTime(2026, 10, 2));
       expect(original.toMap()['status'], 'cancelled');
-      expect(original.toMap()['endDate'], isA<Timestamp>());
+      expect(original.toMap()['endDate'], isA<DateTime>());
     });
   });
 
@@ -238,13 +235,13 @@ void main() {
       expect(original.copyWith(title: 'Nouveau').changedFieldsSince(original), {'title': 'Nouveau'});
     });
 
-    test('dates changées → envoyées en Timestamp', () {
+    test('dates changées → envoyées en DateTime', () {
       final later = start.add(const Duration(days: 1));
       final patch = original
           .copyWith(startDate: later, endDate: later.add(const Duration(hours: 2)))
           .changedFieldsSince(original);
       expect(patch.keys, unorderedEquals(['startDate', 'endDate']));
-      expect(patch['startDate'], Timestamp.fromDate(later));
+      expect(patch['startDate'], later);
     });
 
     test('lieu changé et regéocodé → lieu + coordonnées envoyés', () {
