@@ -194,6 +194,56 @@ void main() {
       expect(d.start, DateTime(2026, 12, 12, 15));
     });
 
+    test('plage d\'heures sur sa propre ligne, après ou avant la date', () {
+      final after = _parse(['Titre de test', 'Jeudi 17 décembre 2026', 'de 10h à 12h30']);
+      expect(after.start, DateTime(2026, 12, 17, 10));
+      expect(after.end, DateTime(2026, 12, 17, 12, 30));
+      final before = _parse(['Titre de test', 'De 10h à 12h', 'Jeudi 17 décembre 2026']);
+      expect(before.start, DateTime(2026, 12, 17, 10));
+      expect(before.end, DateTime(2026, 12, 17, 12));
+    });
+
+    test('ligne d\'heure trop éloignée de la date : non associée', () {
+      final d = PosterParser.parse(
+          const PosterOcrResult([
+            PosterOcrLine('TITRE', top: 0, height: 60, block: 0),
+            PosterOcrLine('Jeudi 17 décembre 2026', top: 100, height: 30, block: 1),
+            PosterOcrLine('de 10h à 12h30', top: 200, height: 30, block: 2), // écart 70 > 45
+          ]),
+          posterNow);
+      expect(d.start, isNull);
+      expect(d.dateWithoutTime, DateTime(2026, 12, 17));
+    });
+
+    test('séparateurs de plage : à, a, -, –, —, au, avec ou sans « de »', () {
+      for (final line in [
+        '17/12/2026 de 10h à 12h',
+        '17/12/2026 de 10h a 12h',
+        '17/12/2026 10h-12h',
+        '17/12/2026 10h – 12h',
+        '17/12/2026 10h — 12h',
+        '17/12/2026 10h au 12h',
+        '17/12/2026 de 10 à 12h',
+        '17/12/2026 10:00 - 12:00',
+      ]) {
+        final d = _parse(['Titre de test', line]);
+        expect(d.start, DateTime(2026, 12, 17, 10), reason: line);
+        expect(d.end, DateTime(2026, 12, 17, 12), reason: line);
+      }
+    });
+
+    test('« à 12h30 » après un début illisible n\'est jamais pris pour le début', () {
+      final d = _parse(['Titre de test', 'Jeudi 17 décembre 2026', 'de ??h à 12h30']);
+      expect(d.start, isNull);
+      expect(d.dateWithoutTime, DateTime(2026, 12, 17));
+    });
+
+    test('plage bruitée « de lOh à 12h3O » : corrigée', () {
+      final d = _parse(['Titre de test', 'Jeudi 17 décembre 2026', 'de lOh à 12h3O']);
+      expect(d.start, DateTime(2026, 12, 17, 10));
+      expect(d.end, DateTime(2026, 12, 17, 12, 30));
+    });
+
     test('heure sans date : rien rempli, avertissement', () {
       final d = _parse(['Titre de test', 'Rendez-vous à 15h']);
       expect(d.start, isNull);

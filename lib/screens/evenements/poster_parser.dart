@@ -65,6 +65,10 @@ class PosterParser {
   /// Suite du lieu sur la ligne suivante : 4 mots au plus, et (hors même
   /// paragraphe) un écart ≤ 0,6 × la hauteur de la ligne du lieu.
   static const int placeContinuationMaxWords = 4;
+
+  /// Heure sur la ligne voisine d'une date : écart ≤ 1,5 × la hauteur de la
+  /// ligne de date.
+  static const double timeLineMaxGap = 1.5;
   static const double placeContinuationMaxGap = 0.6;
 
   /// Sigles gardés en majuscules quand un titre tout en capitales est converti.
@@ -146,7 +150,11 @@ class PosterParser {
   static final RegExp _noisyDayBeforeMonth =
       RegExp('(?<![a-z0-9])($_d{1,2})(?=(?:er)?\\s*(?:$_months)(?![a-z]))');
   static final RegExp _noisyYearAfterMonth = RegExp('(?<=(?:$_months)\\.?\\s{1,3})($_d{4})(?![a-z0-9])');
-  static final RegExp _noisyTimeH = RegExp('(?<![a-z0-9])($_d{1,2})(\\s*h\\s*)($_d{2})?(?![a-z0-9])');
+  /// Plage d'heures bruitée (« lOh à 12h3O ») : corrigée si la plage contient
+  /// au moins un vrai chiffre quelque part.
+  static final RegExp _noisyTimeRange = RegExp('(?<![a-z0-9])($_d{1,2})(\\s*h\\s*)($_d{2})?'
+      "(\\s*(?:a|-|au|jusqu'a|jusqu'au)\\s*)($_d{1,2})(\\s*h\\s*)($_d{2})?(?![a-z0-9])");
+  static final RegExp _noisyTimeH =RegExp('(?<![a-z0-9])($_d{1,2})(\\s*h\\s*)($_d{2})?(?![a-z0-9])');
   static final RegExp _noisyTimeColon = RegExp('(?<![a-z0-9])($_d{1,2}):($_d{2})(?![a-z0-9])');
   static final RegExp _digit = RegExp('[0-9]');
 
@@ -159,6 +167,11 @@ class PosterParser {
     f = f.replaceAllMapped(_noisyNumericDate, (m) => _fix(m, [1, 3, 4]));
     f = f.replaceAllMapped(_noisyDayBeforeMonth, (m) => _fix(m, [1]));
     f = f.replaceAllMapped(_noisyYearAfterMonth, (m) => _fix(m, [1]));
+    f = f.replaceAllMapped(_noisyTimeRange, (m) {
+      if (!_digit.hasMatch(m[0]!)) return m[0]!;
+      String d(int g) => m[g] == null ? '' : _digits(m[g]!);
+      return d(1) + m[2]! + d(3) + m[4]! + d(5) + m[6]! + d(7);
+    });
     f = f.replaceAllMapped(_noisyTimeH, (m) {
       // L'heure doit contenir un chiffre ; des minutes sans chiffre ne sont
       // acceptées que sous la forme « OO » (14hOO), pas « 1 hil… ».
@@ -207,7 +220,15 @@ class PosterParser {
 
   static final RegExp _timeH = RegExp(r'(?<![0-9a-z:/.,])(\d{1,2})\s*h(?:eures?)?\s*(\d{2})?(?![0-9a-z])');
   static final RegExp _timeColon = RegExp(r'(?<![0-9a-z:/.,])(\d{1,2}):(\d{2})(?![0-9]|:\d)');
-  static final RegExp _timeConnector = RegExp(r"^\s*(?:a|-|au|jusqu'a|jusqu'au|to)\s*$");
+  /// Plage d'heures. Groupes : 1 « de », 2 heure 1, 3 suffixe de l'heure 1
+  /// (absent = « de 14 à 18h »), 4/5 minutes 1, 6 heure 2, 7/8 minutes 2.
+  static final RegExp _timeRange = RegExp(r'(?<![0-9a-z:/.,])(de\s+)?(\d{1,2})(\s*h(?:eures?)?\s*(\d{2})?|:(\d{2}))?'
+      r"\s*(?:a|-|au|jusqu'a|jusqu'au|to)\s*(\d{1,2})(?:\s*h(?:eures?)?\s*(\d{2})?|:(\d{2}))(?![0-9a-z])");
+
+  /// Juste avant une heure : une heure (même mal lue) suivie de « à » / « - »
+  /// → l'heure qui suit est une fin de plage.
+  static final RegExp _rangeEndPrefix =
+      RegExp(r"(?:^|[\s(])(?=[0-9a-z|?]{0,1}[0-9oil|?])[0-9a-z|?]{1,2}\s*h(?:\s*[0-9a-z|?]{2})?\s*(?:a|-|au|jusqu'a|jusqu'au|to)\s*$");
 
   static final RegExp _deadline = RegExp('(?<![a-z\\-])(?:avant(?![a-z\\-])\\s+(?:le\\s|l\'|\\d|(?:$_days)(?![a-z]))'
       '|date\\s+limite|cloture|delais?(?![a-z])|inscriptions?(?![a-z]))');
@@ -269,8 +290,11 @@ class PosterParser {
           for (final c in l.dates) (line: l, date: c),
     ];
     if (candidates.isNotEmpty) {
+      // Heure de chaque date : sur sa ligne, sinon sur une ligne voisine qui
+      // ne porte qu'une heure (« Jeudi 17 décembre » puis « de 10h à 12h30 »).
+      final timeLines = {for (final c in candidates) c.line.index: _timeLineFor(lines, c.line)};
       candidates.sort((a, b) {
-        final t = (b.line.times.isNotEmpty ? 1 : 0) - (a.line.times.isNotEmpty ? 1 : 0);
+        final t = (timeLines[b.line.index] != null ? 1 : 0) - (timeLines[a.line.index] != null ? 1 : 0);
         if (t != 0) return t;
         final h = b.line.ocr.height.compareTo(a.line.ocr.height);
         if (h != 0) return h;
@@ -278,7 +302,7 @@ class PosterParser {
       });
       final chosen = candidates.first;
       warnings.addAll(chosen.date.warnings);
-      final timeLine = chosen.line.times.isNotEmpty ? chosen.line : _nearestTimeLine(lines, chosen.line.index);
+      final timeLine = timeLines[chosen.line.index];
       final first = chosen.date.start;
       final last = chosen.date.end ?? first;
       if (timeLine == null) {
@@ -289,13 +313,12 @@ class PosterParser {
           warnings.add('Date lue sans heure : ${formatDay(first)}. Choisissez l\'heure avec « Début ».');
         }
       } else {
-        final t = timeLine.times;
-        final range = timeLine.timeRange;
-        final startTime = t.first;
-        var s = DateTime(first.year, first.month, first.day, startTime.$1, startTime.$2);
+        final startTime = timeLine.startTime!;
+        final endTime = timeLine.endTime;
+        final s = DateTime(first.year, first.month, first.day, startTime.$1, startTime.$2);
         DateTime? e;
-        if (range != null) {
-          e = DateTime(last.year, last.month, last.day, range.$1, range.$2);
+        if (endTime != null) {
+          e = DateTime(last.year, last.month, last.day, endTime.$1, endTime.$2);
           // Une seule journée « 22h à 2h » : la fin est le lendemain.
           if (chosen.date.end == null && !e.isAfter(s)) e = e.add(const Duration(days: 1));
         }
@@ -319,7 +342,7 @@ class PosterParser {
           }
         }
       }
-    } else if (lines.any((l) => !l.deadline && l.times.isNotEmpty)) {
+    } else if (lines.any((l) => !l.deadline && l.startTime != null)) {
       warnings.add('Heure lue sans date : choisissez la date avec « Début ».');
     }
 
@@ -481,16 +504,20 @@ class PosterParser {
     );
   }
 
-  /// Ligne la plus proche (sans date, hors date limite) qui porte une heure.
-  static _Line? _nearestTimeLine(List<_Line> lines, int from) {
-    _Line? best;
-    for (final l in lines) {
-      if (l.deadline || l.times.isEmpty || l.dates.isNotEmpty) continue;
-      final d = (l.index - from).abs();
-      final bestD = best == null ? 1 << 30 : (best.index - from).abs();
-      if (d < bestD || (d == bestD && l.index > from)) best = l;
+  /// Ligne qui donne l'heure d'une date : la sienne si elle a une heure de
+  /// début, sinon la ligne voisine (suivante d'abord, puis précédente) qui ne
+  /// porte qu'une heure, à moins de 1,5 × la hauteur de la ligne de date.
+  static _Line? _timeLineFor(List<_Line> lines, _Line dateLine) {
+    if (dateLine.startTime != null) return dateLine;
+    for (final i in [dateLine.index + 1, dateLine.index - 1]) {
+      if (i < 0 || i >= lines.length) continue;
+      final l = lines[i];
+      if (l.deadline || l.dates.isNotEmpty || l.startTime == null) continue;
+      final upper = i > dateLine.index ? dateLine : l;
+      final lower = i > dateLine.index ? l : dateLine;
+      if (lower.ocr.top - upper.ocr.bottom <= timeLineMaxGap * dateLine.ocr.height) return l;
     }
-    return best;
+    return null;
   }
 
   /// Compte rendu lisible (lignes lues puis champs trouvés) pour le journal de
@@ -603,8 +630,17 @@ class _Line {
   final String text;
   late final String f;
   final List<_DateHit> dates = [];
+  /// Toutes les heures lues (y compris une fin isolée).
   final List<(int, int)> times = [];
-  (int, int)? timeRange;
+
+  /// Heures seules utilisables comme début.
+  final List<(int, int)> startTimes = [];
+
+  /// Plage « début → fin » lue sur la ligne.
+  ((int, int), (int, int))? timeRange;
+
+  (int, int)? get startTime => timeRange?.$1 ?? (startTimes.isEmpty ? null : startTimes.first);
+  (int, int)? get endTime => timeRange?.$2;
   bool deadline = false;
   bool free = false;
   double? price;
@@ -679,11 +715,27 @@ class _Line {
       used.add(i);
     }
 
-    // --- Heures (hors zones de date)
-    final found = <(int, int, int, int)>[]; // début, fin, heure, minute
+    // --- Heures (hors zones de date). Les plages d'abord : « de 10h à 12h30 »,
+    //     « 9h00 – 17h00 », « 10h-12h », « de 14 à 18h ».
+    for (final m in PosterParser._timeRange.allMatches(f)) {
+      if (blank[m.start]) continue;
+      if (m[3] == null && m[1] == null) continue; // « 14 - 18h » sans « de » : trop ambigu
+      final h1 = int.parse(m[2]!), m1 = int.parse(m[4] ?? m[5] ?? '0');
+      final h2 = int.parse(m[6]!), m2 = int.parse(m[7] ?? m[8] ?? '0');
+      if (h1 > 23 || m1 > 59 || h2 > 23 || m2 > 59) continue;
+      timeRange = ((h1, m1), (h2, m2));
+      times.addAll([(h1, m1), (h2, m2)]);
+      mark(m.start, m.end);
+      break;
+    }
+
+    // Puis les heures seules. « à 12h30 » placé juste après une heure mal lue
+    // (« de lOh à 12h30 ») est une FIN : jamais pris pour le début.
+    final found = <(int, int, int, bool)>[]; // position, heure, minute, fin seulement
     void addTime(Match m, int h, int min) {
       if (blank[m.start]) return;
-      found.add((m.start, m.end, h, min));
+      final endOnly = PosterParser._rangeEndPrefix.hasMatch(f.substring(0, m.start));
+      found.add((m.start, h, min, endOnly));
       mark(m.start, m.end);
     }
 
@@ -699,10 +751,8 @@ class _Line {
     }
     found.sort((a, b) => a.$1.compareTo(b.$1));
     for (final t in found) {
-      times.add((t.$3, t.$4));
-    }
-    if (found.length >= 2 && PosterParser._timeConnector.hasMatch(f.substring(found[0].$2, found[1].$1))) {
-      timeRange = (found[1].$3, found[1].$4);
+      times.add((t.$2, t.$3));
+      if (!t.$4) startTimes.add((t.$2, t.$3));
     }
 
     // --- Prix
