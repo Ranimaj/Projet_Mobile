@@ -9,6 +9,7 @@ import 'package:campusconnect/providers/event_provider.dart';
 import 'package:campusconnect/screens/evenements/add_event_screen.dart';
 import 'package:campusconnect/screens/evenements/category_classifier.dart';
 import 'package:campusconnect/screens/evenements/event_actor.dart';
+import 'package:campusconnect/screens/evenements/photon_service.dart';
 import 'package:campusconnect/screens/evenements/poster_ocr.dart';
 import 'package:campusconnect/screens/evenements/poster_parser.dart';
 import 'package:campusconnect/screens/evenements/poster_scan_sheets.dart';
@@ -30,6 +31,12 @@ class _FakeReader implements PosterTextReader {
   _FakeReader(this.result);
   @override
   Future<PosterOcrResult> read(File image) async => result;
+}
+
+/// Photon factice : aucune suggestion (le lieu reste « non localisé »).
+class _NoPlaces extends PhotonService {
+  @override
+  Future<PhotonResponse> search(String query) async => const PhotonSuccess([]);
 }
 
 /// Le scanner ne fait que préremplir : à l'enregistrement, le parcours normal
@@ -88,6 +95,7 @@ void main() {
                 builder: (_) => AddEventScreen(
                   loadClassifier: () => SynchronousFuture<CategoryClassifier?>(null),
                   posterTextReader: _FakeReader(ocr ?? poster),
+                  photonService: _NoPlaces(), // le lieu lu lance une recherche : jamais de réseau ici
                   pickScanImage: (_) async => XFile.fromData(Uint8List.fromList([0xFF, 0xD8, 0xFF]),
                       name: 'affiche.jpg', path: '/tmp/affiche.jpg'),
                 ),

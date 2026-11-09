@@ -50,12 +50,17 @@ class AddEventScreen extends StatefulWidget {
   @visibleForTesting
   final Future<XFile?> Function(ImageSource source)? pickScanImage;
 
+  /// Suggestions de lieu (par défaut : Photon). Remplaçable dans les tests.
+  @visibleForTesting
+  final PhotonService? photonService;
+
   const AddEventScreen({
     super.key,
     this.existing,
     this.loadClassifier,
     this.posterTextReader,
     this.pickScanImage,
+    this.photonService,
   });
 
   @override
@@ -112,7 +117,7 @@ class _AddEventScreenState extends State<AddEventScreen> {
 
   // --- Lieu : suggestions Photon pendant la saisie (BF9.1) ---
   /// Une instance PAR formulaire : au plus 1 requête toutes les 500 ms.
-  final _photon = PhotonService();
+  late final PhotonService _photon = widget.photonService ?? PhotonService();
   Timer? _placeDebounce;
 
   /// Compteur de requêtes : une réponse qui arrive après une recherche plus
@@ -553,7 +558,14 @@ class _AddEventScreenState extends State<AddEventScreen> {
       }
       if (f.contains(PosterField.end) && d.end != null) _end = d.end!;
     });
-    _closePlaceList();
+    // Lieu lu : même recherche Photon que pendant la saisie, pour proposer la
+    // liste habituelle. Rien n'est choisi d'office : la position n'est posée
+    // que si l'utilisateur touche une suggestion (_selectPlace).
+    if (f.contains(PosterField.place) && d.place != null) {
+      _schedulePlaceSearch(d.place!);
+    } else {
+      _closePlaceList();
+    }
     _startFieldKey.currentState?.didChange(_start);
     _endFieldKey.currentState?.didChange(_end);
 
@@ -669,6 +681,12 @@ class _AddEventScreenState extends State<AddEventScreen> {
         _placeLabel = null;
       }
     });
+    _schedulePlaceSearch(text);
+  }
+
+  /// Recherche Photon après une pause de 500 ms, à partir de 3 caractères
+  /// (mêmes règles pour la saisie et pour un lieu lu sur une affiche).
+  void _schedulePlaceSearch(String text) {
     _placeDebounce?.cancel();
     final query = text.trim();
     if (query.length < 3) {

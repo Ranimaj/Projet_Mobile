@@ -3,9 +3,11 @@ import 'dart:io';
 
 import 'package:campusconnect/core/theme/app_theme.dart';
 import 'package:campusconnect/models/event_model.dart';
+import 'package:campusconnect/providers/event_provider.dart';
 import 'package:campusconnect/screens/evenements/add_event_screen.dart';
 import 'package:campusconnect/screens/evenements/category_classifier.dart';
 import 'package:campusconnect/screens/evenements/event_categories.dart';
+import 'package:campusconnect/screens/evenements/photon_service.dart';
 import 'package:campusconnect/screens/evenements/poster_ocr.dart';
 import 'package:campusconnect/screens/evenements/poster_parser.dart';
 import 'package:campusconnect/screens/evenements/poster_scan_sheets.dart';
@@ -15,6 +17,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:provider/provider.dart';
+
+import 'poster_fixtures.dart';
 
 /// Faux lecteur : renvoie des lignes fixées (ou lève une erreur), sans ML Kit.
 class FakePosterTextReader implements PosterTextReader {
@@ -29,6 +34,19 @@ class FakePosterTextReader implements PosterTextReader {
     calls++;
     if (error != null) throw error!;
     return result!;
+  }
+}
+
+/// Photon factice : renvoie la réponse fixée et note les recherches.
+class FakePhotonService extends PhotonService {
+  final PhotonResponse response;
+  final List<String> queries = [];
+  FakePhotonService([this.response = const PhotonSuccess([])]);
+
+  @override
+  Future<PhotonResponse> search(String query) async {
+    queries.add(query);
+    return response;
   }
 }
 
@@ -80,11 +98,16 @@ void main() {
     double width = 420,
     double textScale = 1.0,
     bool dark = false,
+    PhotonService? photon,
   }) async {
     tester.view.physicalSize = Size(width, 1400);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    await tester.pumpWidget(MaterialApp(
+    // EventProvider : la recherche de lieu lit l'état du réseau ; Photon
+    // factice : aucun appel réseau dans les tests.
+    await tester.pumpWidget(ChangeNotifierProvider<EventProvider>(
+      create: (_) => EventProvider(),
+      child: MaterialApp(
       theme: dark ? AppTheme.dark : AppTheme.light,
       builder: (context, child) => MediaQuery(
         data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(textScale)),
@@ -95,8 +118,9 @@ void main() {
         loadClassifier: () => SynchronousFuture(classifier),
         posterTextReader: reader ?? FakePosterTextReader(_sportPoster),
         pickScanImage: pick ?? (_) async => _image(),
+        photonService: photon ?? FakePhotonService(),
       ),
-    ));
+    )));
     await tester.pump();
   }
 
@@ -346,6 +370,101 @@ void main() {
       await tester.tap(inSheet('Fermer'));
       await tester.pumpAndSettle();
       expect(sheet, findsNothing);
+    });
+  });
+
+  group('lieu lu : suggestions Photon après « Appliquer »', () {
+    const stadium = PlaceSuggestion(
+        name: 'Stade ESPRIT', label: 'Stade ESPRIT, Ariana', secondary: 'Ariana, Tunisie', latitude: 36.9, longitude: 10.19);
+    const other = PlaceSuggestion(
+        name: 'Stade olympique', label: 'Stade olympique, Radès', secondary: 'Radès, Tunisie', latitude: 36.75, longitude: 10.27);
+    final hint = find.textContaining('Choisissez une suggestion');
+
+    Future<void> scanApplyAndWait(WidgetTester tester) async {
+      await scanFromGallery(tester);
+      await turnPosterOff(tester);
+      await apply(tester);
+      await tester.pump(const Duration(milliseconds: 600)); // pause de 500 ms, comme à la saisie
+      await tester.pump();
+    }
+
+    testWidgets('la liste habituelle apparaît, rien n\'est choisi d\'office', (tester) async {
+      final photon = FakePhotonService(const PhotonSuccess([stadium, other]));
+      await pump(tester, photon: photon);
+      await scanApplyAndWait(tester);
+      expect(photon.queries, ["Stade de l'ESPRIT, Ghazala"]);
+      expect(find.text('Stade ESPRIT'), findsOneWidget);
+      expect(find.text('Stade olympique'), findsOneWidget);
+      expect(textOf(tester, placeField), "Stade de l'ESPRIT, Ghazala"); // texte lu gardé
+      expect(hint, findsOneWidget); // pas encore localisé
+      expect(find.text('Lieu localisé'), findsNothing);
+    });
+
+    testWidgets('toucher une suggestion localise le lieu (carte et itinéraire)', (tester) async {
+      await pump(tester, photon: FakePhotonService(const PhotonSuccess([stadium])));
+      await scanApplyAndWait(tester);
+      await tester.ensureVisible(find.text('Stade ESPRIT'));
+      await tester.tap(find.text('Stade ESPRIT'));
+      await tester.pump();
+      expect(textOf(tester, placeField), 'Stade ESPRIT, Ariana');
+      expect(find.text('Lieu localisé'), findsWidgets);
+      expect(hint, findsNothing);
+    });
+
+    testWidgets('aucun résultat : texte gardé, non localisé, formulaire utilisable', (tester) async {
+      await pump(tester, photon: FakePhotonService(const PhotonSuccess([])));
+      await scanApplyAndWait(tester);
+      expect(find.textContaining('Aucun lieu trouvé'), findsOneWidget);
+      expect(hint, findsOneWidget);
+      expect(textOf(tester, titleField), 'Tournoi de football inter-classes');
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('échec du service : pas de liste, pas d\'erreur, formulaire utilisable', (tester) async {
+      await pump(tester,
+          photon: FakePhotonService(const PhotonFailure(PhotonError.noConnection, 'Pas de connexion')));
+      await scanApplyAndWait(tester);
+      expect(find.textContaining('Aucun lieu trouvé'), findsNothing);
+      expect(hint, findsOneWidget);
+      expect(textOf(tester, placeField), "Stade de l'ESPRIT, Ghazala");
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('lieu non coché dans la feuille : aucune recherche', (tester) async {
+      final photon = FakePhotonService(const PhotonSuccess([stadium]));
+      await pump(tester, photon: photon);
+      await scanFromGallery(tester);
+      await tester.tap(find.widgetWithText(CheckboxListTile, 'Lieu'));
+      await tester.pump();
+      await turnPosterOff(tester);
+      await apply(tester);
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(photon.queries, isEmpty);
+      expect(find.text('Stade ESPRIT'), findsNothing);
+    });
+
+    // Affiches synthétiques, dates avancées pour rester dans le futur.
+    PosterOcrResult moved(PosterFixture fx, String dateLine) => PosterOcrResult([
+          for (final l in fx.lines)
+            RegExp(r'\d{4}').hasMatch(l.text) ? PosterOcrLine(dateLine, top: l.top, height: l.height, block: l.block) : l,
+        ]);
+
+    testWidgets('affiche synthétique « atelier » : recherche de son lieu, description composée', (tester) async {
+      final photon = FakePhotonService(const PhotonSuccess([stadium]));
+      await pump(tester,
+          photon: photon, reader: FakePosterTextReader(moved(syntheticPosterFixtures[0], '$_dayText · 15h')));
+      await scanApplyAndWait(tester);
+      expect(photon.queries, ['Garage du foyer, bloc D']);
+      expect(textOf(tester, descField), startsWith('Atelier réparation de vélos · '));
+    });
+
+    testWidgets('affiche synthétique « concert » (sans lieu) : aucune recherche, prix rempli', (tester) async {
+      final photon = FakePhotonService(const PhotonSuccess([stadium]));
+      await pump(tester, photon: photon, reader: FakePosterTextReader(moved(syntheticPosterFixtures[1], _dayText)));
+      await scanApplyAndWait(tester);
+      expect(photon.queries, isEmpty);
+      expect(textOf(tester, priceField), '15');
+      expect(textOf(tester, descField), endsWith(' · 15 TND'));
     });
   });
 
