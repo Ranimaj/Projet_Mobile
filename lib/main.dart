@@ -148,6 +148,9 @@ class _RootRouterState extends State<RootRouter> {
     final message = auth.errorMessage;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
+      // Les écrans ouverts par-dessus (profil, Mes appareils, dialogues)
+      // appartiennent à la session fermée : retour à l'accueil visiteur.
+      Navigator.of(context).popUntil((route) => route.isFirst);
       if (message != null) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
       }

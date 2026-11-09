@@ -30,8 +30,7 @@ class _DevicesScreenState extends State<DevicesScreen> {
   late final DeviceSessionService? _service = _auth.deviceSessions;
   late final String? _uid = _auth.currentUser?.id;
   late final Future<DeviceInfo>? _me = _service?.currentDevice();
-  late final Stream<List<DeviceSession>>? _devices =
-      _uid == null ? null : _service?.watchDevices(_uid);
+  late final Stream<List<DeviceSession>>? _devices = _uid == null ? null : _service?.watchDevices(_uid);
   late final Stream<List<LoginRecord>>? _logins = _uid == null ? null : _service?.watchLogins(_uid);
 
   Future<void> _act(Future<void> Function() action, String done) async {
@@ -63,15 +62,16 @@ class _DevicesScreenState extends State<DevicesScreen> {
   }
 
   Future<void> _revoke(DeviceSession d) async {
-    if (!await _confirm('Déconnecter ${d.name} ?',
-        'La session sera fermée sur cet appareil dès qu\'il sera en ligne.', 'Déconnecter')) {
+    if (!await _confirm('Déconnecter ${d.name} ?', 'La session sera fermée sur cet appareil dès qu\'il sera en ligne.',
+        'Déconnecter')) {
       return;
     }
     await _act(() => _service!.revoke(_uid!, d.id), '${d.name} sera déconnecté.');
   }
 
   Future<void> _revokeOthers() async {
-    if (!await _confirm('Déconnecter les autres appareils ?',
+    if (!await _confirm(
+        'Déconnecter les autres appareils ?',
         'Toutes les sessions sauf celle-ci seront fermées. Si tu penses que ton compte est piraté, '
             'change aussi ton mot de passe.',
         'Tout déconnecter')) {
@@ -93,78 +93,84 @@ class _DevicesScreenState extends State<DevicesScreen> {
     }
     return Scaffold(
       appBar: AppBar(title: const Text('Mes appareils')),
+      // L'historique est écouté ici, une seule fois : plus bas, sa position
+      // dans la liste change avec les appareils, et le StreamBuilder serait
+      // recréé (réabonnement au même flux Firestore → historique vide).
       body: FutureBuilder<DeviceInfo>(
         future: _me,
-        builder: (context, me) => StreamBuilder<List<DeviceSession>>(
-          stream: devices,
-          builder: (context, snap) {
-            if (snap.hasError) {
-              return const Center(child: Text('Impossible de charger tes appareils.'));
-            }
-            if (!snap.hasData) return const Center(child: CircularProgressIndicator());
-            final myId = me.data?.id;
-            final all = snap.data!;
-            final active = [
-              ...all.where((d) => d.id == myId),
-              ...all.where((d) => d.id != myId && d.isActive),
-            ];
-            final past = all.where((d) => d.id != myId && !d.isActive).toList();
-            final othersActive = active.any((d) => d.id != myId);
-            return ListView(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
-              children: [
-                SettingGroup(
-                  title: 'Connectés',
-                  children: [
-                    for (final d in active)
-                      _DeviceTile(
-                        device: d,
-                        isThisDevice: d.id == myId,
-                        onRevoke: () => _revoke(d),
-                        onApprove: () => _act(() => service.setTrusted(_uid!, d.id, true), '${d.name} est approuvé.'),
-                        onUntrust: () =>
-                            _act(() => service.setTrusted(_uid!, d.id, false), '${d.name} n\'est plus de confiance.'),
-                        onAcknowledge: () => _act(() => service.acknowledge(_uid!, d.id), 'Merci, c\'est noté.'),
-                      ),
-                  ],
-                ),
-                if (othersActive) ...[
-                  const SizedBox(height: 12),
-                  OutlinedButton.icon(
-                    key: const Key('revoke-others'),
-                    onPressed: _revokeOthers,
-                    icon: const Icon(Icons.logout_rounded),
-                    label: const Text('Déconnecter tous les autres appareils'),
-                  ),
-                ],
-                if (past.isNotEmpty) ...[
-                  const SizedBox(height: 20),
+        builder: (context, me) => StreamBuilder<List<LoginRecord>>(
+          stream: _logins,
+          builder: (context, logins) => StreamBuilder<List<DeviceSession>>(
+            stream: devices,
+            builder: (context, snap) {
+              if (snap.hasError) {
+                return const Center(child: Text('Impossible de charger tes appareils.'));
+              }
+              if (!snap.hasData) return const Center(child: CircularProgressIndicator());
+              final myId = me.data?.id;
+              final all = snap.data!;
+              final active = [
+                ...all.where((d) => d.id == myId),
+                ...all.where((d) => d.id != myId && d.isActive),
+              ];
+              final past = all.where((d) => d.id != myId && !d.isActive).toList();
+              final othersActive = active.any((d) => d.id != myId);
+              return ListView(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+                children: [
                   SettingGroup(
-                    title: 'Déconnectés',
+                    title: 'Connectés',
                     children: [
-                      for (final d in past)
-                        SettingRow(
-                          icon: deviceIcon(d.platform),
-                          title: d.name,
-                          subtitle: [
-                            if (d.location != null) d.location!,
-                            'Dernière connexion le ${FrDates.shortDateTime(d.lastLoginAt)}',
-                          ].join(' · '),
-                          trailing: StatusChip(
-                            label: d.revoked ? 'Fermée à distance' : 'Déconnecté',
-                            style: StatusChipStyle.neutral,
-                          ),
+                      for (final d in active)
+                        _DeviceTile(
+                          device: d,
+                          isThisDevice: d.id == myId,
+                          onRevoke: () => _revoke(d),
+                          onApprove: () => _act(() => service.setTrusted(_uid!, d.id, true), '${d.name} est approuvé.'),
+                          onUntrust: () =>
+                              _act(() => service.setTrusted(_uid!, d.id, false), '${d.name} n\'est plus de confiance.'),
+                          onAcknowledge: () => _act(() => service.acknowledge(_uid!, d.id), 'Merci, c\'est noté.'),
                         ),
                     ],
                   ),
+                  if (othersActive) ...[
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                      key: const Key('revoke-others'),
+                      onPressed: _revokeOthers,
+                      icon: const Icon(Icons.logout_rounded),
+                      label: const Text('Déconnecter tous les autres appareils'),
+                    ),
+                  ],
+                  if (past.isNotEmpty) ...[
+                    const SizedBox(height: 20),
+                    SettingGroup(
+                      title: 'Déconnectés',
+                      children: [
+                        for (final d in past)
+                          SettingRow(
+                            icon: deviceIcon(d.platform),
+                            title: d.name,
+                            subtitle: [
+                              if (d.location != null) d.location!,
+                              'Dernière connexion le ${FrDates.shortDateTime(d.lastLoginAt)}',
+                            ].join(' · '),
+                            trailing: StatusChip(
+                              label: d.revoked ? 'Fermée à distance' : 'Déconnecté',
+                              style: StatusChipStyle.neutral,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
+                  const SizedBox(height: 20),
+                  Text('Historique des connexions', style: text.titleSmall),
+                  const SizedBox(height: 8),
+                  _LoginHistory(logins: logins.data ?? const []),
                 ],
-                const SizedBox(height: 20),
-                Text('Historique des connexions', style: text.titleSmall),
-                const SizedBox(height: 8),
-                _LoginHistory(stream: _logins!),
-              ],
-            );
-          },
+              );
+            },
+          ),
         ),
       ),
     );
@@ -204,7 +210,9 @@ class _DeviceTile extends StatelessWidget {
       title: d.name,
       subtitle: [
         if (d.location != null) d.location!,
-        isThisDevice ? 'Connecté depuis le ${FrDates.shortDateTime(d.lastLoginAt)}' : 'Connexion le ${FrDates.shortDateTime(d.lastLoginAt)}',
+        isThisDevice
+            ? 'Connecté depuis le ${FrDates.shortDateTime(d.lastLoginAt)}'
+            : 'Connexion le ${FrDates.shortDateTime(d.lastLoginAt)}',
       ].join(' · '),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
@@ -235,36 +243,30 @@ class _DeviceTile extends StatelessWidget {
 }
 
 class _LoginHistory extends StatelessWidget {
-  final Stream<List<LoginRecord>> stream;
-  const _LoginHistory({required this.stream});
+  final List<LoginRecord> logins;
+  const _LoginHistory({required this.logins});
 
   @override
   Widget build(BuildContext context) {
     final t = AppTokens.of(context);
     final text = Theme.of(context).textTheme;
-    return StreamBuilder<List<LoginRecord>>(
-      stream: stream,
-      builder: (context, snap) {
-        final logins = snap.data ?? const [];
-        if (logins.isEmpty) {
-          return Text('Aucune connexion enregistrée.', style: text.bodyMedium?.copyWith(color: t.textSecondary));
-        }
-        return Column(
-          children: [
-            for (final l in logins)
-              ListTile(
-                key: Key('login-${l.id}'),
-                contentPadding: EdgeInsets.zero,
-                visualDensity: VisualDensity.compact,
-                leading: Icon(l.newDevice ? Icons.fiber_new_rounded : Icons.login_rounded,
-                    color: l.newDevice ? t.warning : t.textSecondary),
-                title: Text(l.deviceName),
-                subtitle: Text([FrDates.shortDateTime(l.at), if (l.location != null) l.location!].join(' · '),
-                    style: text.bodyMedium?.copyWith(color: t.textSecondary)),
-              ),
-          ],
-        );
-      },
+    if (logins.isEmpty) {
+      return Text('Aucune connexion enregistrée.', style: text.bodyMedium?.copyWith(color: t.textSecondary));
+    }
+    return Column(
+      children: [
+        for (final l in logins)
+          ListTile(
+            key: Key('login-${l.id}'),
+            contentPadding: EdgeInsets.zero,
+            visualDensity: VisualDensity.compact,
+            leading: Icon(l.newDevice ? Icons.fiber_new_rounded : Icons.login_rounded,
+                color: l.newDevice ? t.warning : t.textSecondary),
+            title: Text(l.deviceName),
+            subtitle: Text([FrDates.shortDateTime(l.at), if (l.location != null) l.location!].join(' · '),
+                style: text.bodyMedium?.copyWith(color: t.textSecondary)),
+          ),
+      ],
     );
   }
 }

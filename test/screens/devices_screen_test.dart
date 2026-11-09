@@ -89,6 +89,13 @@ void main() {
     expect(doc!['revoked'], isTrue);
     expect(find.text('Fermée à distance'), findsOneWidget);
     expect(find.byKey(const Key('revoke-others')), findsNothing);
+    // La liste a changé de forme : l'historique doit rester affiché.
+    await tester.scrollUntilVisible(find.text('Historique des connexions'), 200);
+    expect(find.text('Aucune connexion enregistrée.'), findsNothing);
+    expect(
+        find.byWidgetPredicate(
+            (w) => w.key is ValueKey<String> && (w.key! as ValueKey<String>).value.startsWith('login-')),
+        findsNWidgets(2));
   });
 
   testWidgets('a new device triggers the alert; "Non" revokes it', (tester) async {

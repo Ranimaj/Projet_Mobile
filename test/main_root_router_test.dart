@@ -113,6 +113,35 @@ void main() {
     expect(find.byType(SnackBar), findsNothing);
   });
 
+  testWidgets('a session closed from another device pops the screens left on top',
+      (t) async {
+    final service = MockAuthService();
+    when(() => service.authStateChanges).thenAnswer((_) => const Stream.empty());
+    final auth = AuthProvider(authService: service);
+    addTearDown(auth.dispose);
+    await auth.continueAsVisitor();
+    await pumpRouter(t, {'onboarding_seen': true}, realAuth: auth);
+
+    // Un écran de la session (ex. « Mes appareils ») reste ouvert par-dessus.
+    Navigator.of(t.element(find.byType(VisitorHomeScreen))).push(
+        MaterialPageRoute<void>(
+            builder: (_) => const Scaffold(body: Text('Mes appareils'))));
+    await t.pumpAndSettle();
+    expect(find.text('Mes appareils'), findsOneWidget);
+
+    auth
+      ..errorCode = AuthProvider.sessionRevokedCode
+      ..errorMessage = 'Ta session a été fermée depuis un autre appareil.';
+    await auth.continueAsVisitor();
+    await t.pump();
+    await t.pumpAndSettle();
+
+    expect(find.text('Mes appareils'), findsNothing);
+    expect(find.byType(VisitorHomeScreen), findsOneWidget);
+    expect(find.text('Ta session a été fermée depuis un autre appareil.'),
+        findsOneWidget);
+  });
+
   testWidgets('rebuilds before and after the clear show a single snack (real clearError)',
       (t) async {
     final service = MockAuthService();
