@@ -355,7 +355,7 @@ class _EventDetailScreenState extends State<EventDetailScreen> {
     if (!confirmed) return;
     _leaving = true; // le flux va signaler la suppression : on ne veut pas fermer deux fois
     try {
-      await provider.deleteEvent(event, isAdmin: isAdmin);
+      await provider.deleteEvent(event); // rôle vérifié par le provider
       messenger.showSnackBar(const SnackBar(content: Text('Événement supprimé.')));
       navigator.pop();
     } on EventHasRegistrantsException catch (e) {

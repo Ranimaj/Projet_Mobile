@@ -294,6 +294,62 @@ void main() {
     });
   });
 
+  group('annulation', () {
+    test('par quelqu\'un d\'autre : refusée ; par l\'admin : acceptée', () async {
+      await seed(draft(registered: ['u1']));
+      await signIn('u1');
+      expect(() => provider.cancelEvent(draft(), 'Je ne viens plus'), refused("Seul l'organisateur"));
+      expect(stored('e1').status, EventStatus.active);
+      await signIn('chef', admin: true);
+      await provider.cancelEvent(draft(), 'Salle fermée par la direction');
+      expect(stored('e1').status, EventStatus.cancelled);
+      expect(stored('e1').registeredUserIds, ['u1']);
+    });
+
+    test('motif de 5 à 200 caractères', () async {
+      await seed(draft());
+      expect(() => provider.cancelEvent(draft(), 'Pluie'.substring(0, 4)), refused('Motif'));
+      expect(() => provider.cancelEvent(draft(), 'x' * 201), refused('Motif'));
+      await provider.cancelEvent(draft(), 'Pluie');
+      expect(stored('e1').cancelReason, 'Pluie');
+    });
+
+    test('terminé, déjà annulé ou visiteur : refusée', () async {
+      final past = draft(id: 'fini', start: DateTime.now().subtract(const Duration(hours: 5)));
+      await seed(past);
+      expect(() => provider.cancelEvent(past, 'Trop tard pour annuler'), refused('terminé'));
+      await seed(draft(id: 'x', status: EventStatus.cancelled));
+      expect(() => provider.cancelEvent(draft(id: 'x'), 'Deuxième annulation'), refused('déjà annulé'));
+      await seed(draft());
+      await signOut();
+      expect(() => provider.cancelEvent(draft(), 'Annulation anonyme'), refused('Connectez-vous'));
+    });
+  });
+
+  group('suppression', () {
+    test('par quelqu\'un d\'autre que l\'organisateur, même sans inscrit : refusée', () async {
+      await seed(draft());
+      await signIn('etudiant');
+      expect(() => provider.deleteEvent(draft()), refused("Seul l'organisateur"));
+      expect(store.exists(col, 'e1'), isTrue);
+    });
+
+    test('organisateur avec inscrits : refusée (proposer l\'annulation) ; admin : acceptée', () async {
+      await seed(draft(registered: ['u1']));
+      expect(() => provider.deleteEvent(draft()), throwsA(isA<EventHasRegistrantsException>()));
+      await signIn('chef', admin: true);
+      await provider.deleteEvent(draft());
+      expect(store.exists(col, 'e1'), isFalse);
+    });
+
+    test('visiteur : refusée', () async {
+      await seed(draft());
+      await signOut();
+      expect(() => provider.deleteEvent(draft()), refused('Connectez-vous'));
+      expect(store.exists(col, 'e1'), isTrue);
+    });
+  });
+
   group('modification', () {
     test('par quelqu\'un d\'autre que l\'organisateur : refusée', () async {
       await seed(draft());

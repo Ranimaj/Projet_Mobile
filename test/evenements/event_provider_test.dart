@@ -163,18 +163,19 @@ void main() {
       await store.merge(col, 'e1', {
         'registeredUserIds': ['u1']
       }); // inscrit entre-temps
-      expect(() => provider.deleteEvent(event(), isAdmin: false), throwsA(isA<EventHasRegistrantsException>()));
+      expect(() => provider.deleteEvent(event()), throwsA(isA<EventHasRegistrantsException>()));
       expect(store.exists(col, 'e1'), isTrue);
     });
 
     test('organisateur sans inscrit, ou admin : supprimé', () async {
       await seed(event());
-      await provider.deleteEvent(event(), isAdmin: false);
+      await provider.deleteEvent(event());
       expect(store.exists(col, 'e1'), isFalse);
       expect(provider.findById('e1'), isNull);
 
       await seed(event(id: 'e2', registered: ['u1']));
-      await provider.deleteEvent(event(id: 'e2', registered: ['u1']), isAdmin: true);
+      actingAs = const EventActor('admin', isAdmin: true); // l'admin agit
+      await provider.deleteEvent(event(id: 'e2', registered: ['u1']));
       expect(store.exists(col, 'e2'), isFalse);
     });
   });

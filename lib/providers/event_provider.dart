@@ -368,11 +368,13 @@ class EventProvider extends ChangeNotifier {
     }
   }
 
-  /// Annulation (règle 6) : motif de 5 à 200 caractères ; les inscriptions
-  /// sont conservées.
+  /// Annulation (règle 6) : organisateur ou admin ; ni déjà annulé ni
+  /// terminé ; motif de 5 à 200 caractères ; les inscriptions sont conservées.
   Future<void> cancelEvent(EventModel event, String reason) async {
+    final actor = _requireActor('annuler un événement');
     final now = DateTime.now();
     final current = _readStored(event.id);
+    _requireManager(actor, current, 'annuler cet événement');
     final blocked = EventRules.cancelBlocked(current, now) ?? EventValidators.cancelReason(reason);
     if (blocked != null) throw EventActionException(blocked);
 
@@ -387,13 +389,17 @@ class EventProvider extends ChangeNotifier {
 
   // ------------------------------------------------------------ Suppression
 
-  /// Suppression (règle 7) : refusée à l'organisateur si des personnes sont
-  /// inscrites ([EventHasRegistrantsException] → l'écran propose d'annuler) ;
-  /// l'admin peut toujours supprimer. L'affiche est supprimée du téléphone.
-  Future<void> deleteEvent(EventModel event, {required bool isAdmin}) async {
+  /// Suppression (règle 7) : organisateur ou admin seulement ; refusée à
+  /// l'organisateur si des personnes sont inscrites
+  /// ([EventHasRegistrantsException] → l'écran propose d'annuler) ; l'admin
+  /// peut toujours supprimer. Le rôle vient de la session, pas de l'écran.
+  /// L'affiche est supprimée du téléphone.
+  Future<void> deleteEvent(EventModel event) async {
+    final actor = _requireActor('supprimer un événement');
     final data = _store.get(_collection, event.id);
     final current = data == null ? (findById(event.id) ?? event) : EventModel.fromMap(event.id, data);
-    final blocked = EventRules.deleteBlocked(current, isAdmin: isAdmin);
+    _requireManager(actor, current, 'supprimer cet événement');
+    final blocked = EventRules.deleteBlocked(current, isAdmin: actor.isAdmin);
     if (blocked != null) throw EventHasRegistrantsException(blocked);
 
     try {
