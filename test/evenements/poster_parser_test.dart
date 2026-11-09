@@ -53,6 +53,32 @@ void main() {
     });
   });
 
+  group('observé sur émulateur (lecture réelle, champs sur plusieurs lignes)', () {
+    for (final fx in observedPosterFixtures) {
+      test(fx.file, () {
+        final d = PosterParser.parse(fx.ocr, posterNow);
+        expect(d.title, fx.title);
+        expect(d.start, fx.start);
+        expect(d.end, fx.end);
+        expect(d.place, fx.place);
+        expect(d.priceTnd, fx.price);
+        expect(d.isFree, fx.free);
+        expect(d.description, fx.description);
+      });
+    }
+
+    test('affiche 2 observée : les lignes du titre ne vont pas dans la description', () {
+      final d = PosterParser.parse(observedPosterFixtures[0].ocr, posterNow);
+      expect(d.description ?? '', isNot(contains('INTELLIGENCE')));
+    });
+
+    test('affiche 3 observée : « ESPRIT » complète le lieu, pas la description', () {
+      final d = PosterParser.parse(observedPosterFixtures[1].ocr, posterNow);
+      expect(d.description, isNot(contains('ESPRIT\n')));
+      expect(d.description!.startsWith('Rencontrez'), isTrue);
+    });
+  });
+
   group('mois', () {
     test('noms complets (avec et sans accent)', () {
       const names = [

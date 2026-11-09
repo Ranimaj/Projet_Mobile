@@ -36,6 +36,76 @@ class PosterFixture {
   PosterOcrResult get ocr => PosterOcrResult(lines);
 }
 
+/// Observé sur émulateur : le DÉCOUPAGE en lignes que la lecture réelle (ML
+/// Kit) a produit — un champ réparti sur plusieurs lignes, la date et l'heure
+/// sur deux lignes, « ESPRIT » seul après le lieu, « ASSEMBLEE » sans accent.
+/// Les hauteurs et écarts sont ESTIMÉS (pas encore de journal [PosterScan]) :
+/// cadres plus hauts quand une majuscule porte un accent, 6 à 10 px d'écart
+/// dans un paragraphe, 30 à 100 px entre paragraphes. À remplacer par les
+/// valeurs du journal dès qu'il est disponible.
+///
+/// L'accent perdu par la lecture (« ASSEMBLEE ») n'est pas corrigé : c'est
+/// une limite de la lecture, le résultat attendu la garde.
+final List<PosterFixture> observedPosterFixtures = [
+  PosterFixture(
+    file: 'affiche_2_conference.jpg (observé)',
+    lines: [
+      _l('CONFÉRENCE :', 212, 58, 0),
+      _l("L'INTELLIGENCE", 280, 50, 0),
+      _l('ARTIFICIELLE AU', 340, 47, 0),
+      _l('SERVICE DE', 397, 46, 0),
+      _l("L'INGÉNIEUR", 452, 61, 1),
+      _l('Jeudi 17 décembre 2026', 560, 30, 2),
+      _l('de 10h à 12h30', 598, 29, 2),
+      _l('Lieu : Amphi B, bloc A – ESPRIT', 660, 27, 3),
+      _l('Gratuit · Ouvert à tous les étudiants', 712, 25, 4),
+    ],
+    title: "Conférence : l'intelligence artificielle au service de l'ingénieur",
+    start: DateTime(2026, 12, 17, 10),
+    end: DateTime(2026, 12, 17, 12, 30),
+    place: 'Amphi B, bloc A – ESPRIT',
+    free: true,
+    category: 'Conférence',
+  ),
+  PosterFixture(
+    file: 'affiche_3_carriere.jpg (observé)',
+    lines: [
+      _l('FORUM ESPRIT', 150, 62, 0),
+      _l('ENTREPRISES 2026', 222, 60, 0),
+      _l('Du 8 au 9 décembre 2026 · 9h00 – 17h00', 330, 30, 1),
+      _l('Lieu : Hall principal, campus', 390, 28, 2),
+      _l('ESPRIT', 424, 27, 2),
+      _l('Rencontrez des recruteurs, déposez votre CV', 490, 25, 3),
+      _l('et décrochez un stage PFE', 521, 25, 3),
+      _l('GRATUIT', 600, 34, 4),
+    ],
+    title: 'Forum ESPRIT entreprises 2026',
+    start: DateTime(2026, 12, 8, 9),
+    end: DateTime(2026, 12, 9, 17),
+    place: 'Hall principal, campus ESPRIT',
+    free: true,
+    description: 'Rencontrez des recruteurs, déposez votre CV et décrochez un stage PFE',
+    category: 'Carrière',
+  ),
+  PosterFixture(
+    file: 'affiche_5_difficile.jpg (observé)',
+    lines: [
+      _l('ASSEMBLEE', 120, 44, 0),
+      _l('GÉNÉRALE DU', 172, 55, 0),
+      _l('CLUB ROBOTIQUE', 234, 46, 0),
+      _l('Mardi 15 déc. à 18h', 330, 30, 1),
+      _l('Salle des clubs, bloc C', 385, 27, 2),
+      _l('Élection du nouveau bureau', 440, 26, 3),
+      _l('Inscription avant le 10 décembre', 520, 20, 4),
+    ],
+    title: 'Assemblee générale du club robotique',
+    start: DateTime(2026, 12, 15, 18),
+    place: 'Salle des clubs, bloc C',
+    description: 'Élection du nouveau bureau',
+    category: 'Vie associative',
+  ),
+];
+
 PosterOcrLine _l(String text, double top, double height, [int block = 0]) =>
     PosterOcrLine(text, top: top, height: height, block: block);
 

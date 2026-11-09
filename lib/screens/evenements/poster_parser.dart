@@ -477,16 +477,23 @@ class PosterParser {
     final maxBottom = lines.map((l) => l.ocr.bottom).reduce((a, b) => a > b ? a : b);
     final band = (maxBottom - minTop) * 0.10;
     final useBands = lines.length >= 3 && band > 0;
-    final described = <String>[];
+    // Une phrase coupée sur deux lignes du même paragraphe est recollée avec
+    // une espace ; deux paragraphes différents restent sur deux lignes.
+    final described = StringBuffer();
+    _Line? previous;
     for (final l in lines) {
       if (titleLines.contains(l.index) || l.place || l.deadline || l.pureInfo || !l.hasWords) continue;
       if (l.ocr.height < 0.6 * median) continue;
       if (useBands && (l.ocr.center < minTop + band || l.ocr.center > maxBottom - band)) continue;
-      described.add(_clean(l.text));
+      if (previous != null) {
+        described.write(previous.index == l.index - 1 && previous.ocr.block == l.ocr.block ? ' ' : '\n');
+      }
+      described.write(_clean(l.text));
+      previous = l;
     }
     String? description;
     if (described.isNotEmpty) {
-      final text = truncateAtWord(described.join('\n'), EventValidators.descriptionMax);
+      final text = truncateAtWord(described.toString(), EventValidators.descriptionMax);
       if (EventValidators.description(text) == null) description = text;
     }
 
