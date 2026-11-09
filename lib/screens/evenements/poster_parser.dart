@@ -58,6 +58,10 @@ class PosterParser {
 
   static const String latinOnlyWarning = 'Seul le texte en caractères latins est lu.';
 
+  /// Une ligne voisine rejoint le titre si sa hauteur atteint ce ratio de
+  /// celle de la ligne la plus grande.
+  static const double titleMinRatio = 0.6;
+
   /// Sigles gardés en majuscules quand un titre tout en capitales est converti.
   static const Set<String> acronyms = {
     'ESPRIT', 'PFE', 'IA', 'AI', 'CV', 'IEEE', 'ACM', 'GDG', 'BDE', 'RH', 'IT', 'UX', 'UI', 'IOT', 'TN', //
@@ -362,24 +366,32 @@ class PosterParser {
       lines[i].place = true;
     }
 
-    // 5. Titre : la plus grande ligne « libre », avec ses voisines de même taille.
+    // 5. Titre : la plus grande ligne « libre » (l'ancre), étendue vers le haut
+    //    et vers le bas dans l'ordre de lecture tant que la ligne voisine est
+    //    libre, assez grande (≥ 60 % de l'ancre : une majuscule accentuée
+    //    agrandit le cadre d'une ligne, pas d'une autre) et proche (même
+    //    paragraphe, ou écart ≤ la hauteur de la plus grande des deux lignes).
+    //    Un nombre seul (« 2026 » sur sa propre ligne) peut compléter le titre.
     final titleLines = <int>{};
     String? title;
     final free = [for (final l in lines) if (l.isTitleCandidate) l];
     if (free.isNotEmpty) {
-      var best = free.first;
+      var anchor = free.first;
       for (final l in free) {
-        if (l.ocr.height > best.ocr.height) best = l;
+        if (l.ocr.height > anchor.ocr.height) anchor = l;
       }
-      bool similar(_Line l) =>
-          l.isTitleCandidate &&
-          (l.ocr.height - best.ocr.height).abs() <= 0.2 * best.ocr.height;
-      bool close(_Line a, _Line b) => (b.ocr.top - a.ocr.bottom).abs() <= best.ocr.height;
-      var from = best.index, to = best.index;
-      while (from - 1 >= 0 && similar(lines[from - 1]) && close(lines[from - 1], lines[from])) {
+      // Un nombre seul n'est pas candidat : on le borne aussi par le haut
+      // (une grande date décorative n'entre pas dans un titre plus petit).
+      bool joins(_Line l) =>
+          (l.isTitleCandidate || (l.isLoneNumber && l.ocr.height <= 1.2 * anchor.ocr.height)) &&
+          l.ocr.height >= titleMinRatio * anchor.ocr.height;
+      bool close(_Line a, _Line b) =>
+          a.ocr.block == b.ocr.block || b.ocr.top - a.ocr.bottom <= (a.ocr.height > b.ocr.height ? a.ocr.height : b.ocr.height);
+      var from = anchor.index, to = anchor.index;
+      while (from - 1 >= 0 && joins(lines[from - 1]) && close(lines[from - 1], lines[from])) {
         from--;
       }
-      while (to + 1 < lines.length && similar(lines[to + 1]) && close(lines[to], lines[to + 1])) {
+      while (to + 1 < lines.length && joins(lines[to + 1]) && close(lines[to], lines[to + 1])) {
         to++;
       }
       final raw = _clean([for (var i = from; i <= to; i++) lines[i].text].join(' '));
@@ -394,8 +406,11 @@ class PosterParser {
     }
 
     // 6. Description : les autres lignes avec du texte, sauf petites lignes et
-    //    bandeaux / pieds de page (10 % du haut et du bas du texte).
-    final heights = [for (final l in lines) l.ocr.height]..sort();
+    //    bandeaux / pieds de page (10 % du haut et du bas du texte). La
+    //    médiane des hauteurs ignore les lignes du titre (un titre sur 5 lignes
+    //    la tirerait vers le haut et ferait passer le texte courant pour petit).
+    final bodyLines = [for (final l in lines) if (!titleLines.contains(l.index)) l];
+    final heights = [for (final l in bodyLines.isEmpty ? lines : bodyLines) l.ocr.height]..sort();
     final median = heights.length.isOdd
         ? heights[heights.length ~/ 2]
         : (heights[heights.length ~/ 2 - 1] + heights[heights.length ~/ 2]) / 2;
@@ -566,8 +581,14 @@ class _Line {
     f = PosterParser.fixOcrDigits(PosterParser.fold(text));
   }
 
-  bool get isTitleCandidate =>
-      !place && !deadline && dates.isEmpty && times.isEmpty && !free && price == null && !hasPriceOrLabel && hasWords;
+  /// La ligne porte une information reconnue (date, heure, lieu, prix…).
+  bool get classified =>
+      place || deadline || dates.isNotEmpty || times.isNotEmpty || free || price != null || hasPriceOrLabel;
+
+  bool get isTitleCandidate => !classified && hasWords;
+
+  /// « 2026 » seul sur sa ligne : une année seule n'est jamais une date.
+  bool get isLoneNumber => !classified && RegExp(r'^\d{1,4}$').hasMatch(text.trim());
 
   void analyse(DateTime today) {
     final blank = List<bool>.filled(f.length, false);

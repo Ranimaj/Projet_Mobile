@@ -8,13 +8,15 @@ import 'poster_fixtures.dart';
 PosterOcrLine _l(String text, {double top = 0, double height = 28}) =>
     PosterOcrLine(text, top: top, height: height);
 
-/// Analyse des lignes empilées (40 px d'écart), « maintenant » = 9/11/2026 11:00.
+/// Analyse des lignes empilées (12 px d'écart, un paragraphe par ligne),
+/// « maintenant » = 9/11/2026 11:00.
 PosterDraft _parse(List<Object> lines, {DateTime? now}) {
   var top = 0.0;
   final ocr = <PosterOcrLine>[];
-  for (final l in lines) {
+  for (var i = 0; i < lines.length; i++) {
+    final l = lines[i];
     final line = l is PosterOcrLine ? l : _l(l as String);
-    ocr.add(PosterOcrLine(line.text, top: top, height: line.height));
+    ocr.add(PosterOcrLine(line.text, top: top, height: line.height, block: i));
     top += line.height + 12;
   }
   return PosterParser.parse(PosterOcrResult(ocr), now ?? posterNow);
@@ -384,6 +386,53 @@ void main() {
       expect(PosterParser.sentenceCase('HACKATHON IA ET IOT À ESPRIT'), 'Hackathon IA et IOT à ESPRIT');
       expect(PosterParser.sentenceCase('ATELIER CV & PFE'), 'Atelier CV & PFE');
       expect(PosterParser.sentenceCase('WORKSHOP 3D ET IEEE'), 'Workshop 3D et IEEE');
+    });
+
+    test('ligne plus petite AU-DESSUS de l\'ancre (majuscule accentuée plus haute) : reprise', () {
+      final d = PosterParser.parse(
+          const PosterOcrResult([
+            PosterOcrLine('ASSEMBLEE', top: 120, height: 44, block: 0),
+            PosterOcrLine('GÉNÉRALE DU', top: 172, height: 55, block: 0),
+            PosterOcrLine('CLUB ROBOTIQUE', top: 234, height: 46, block: 0),
+            PosterOcrLine('Mardi 15 déc. à 18h', top: 330, height: 30, block: 1),
+          ]),
+          posterNow);
+      expect(d.title, 'Assemblee générale du club robotique');
+    });
+
+    test('hauteurs un peu différentes (58, 50, 47, 46, 61) : les 5 lignes forment le titre', () {
+      final d = PosterParser.parse(
+          const PosterOcrResult([
+            PosterOcrLine('CONFÉRENCE :', top: 212, height: 58, block: 0),
+            PosterOcrLine("L'INTELLIGENCE", top: 280, height: 50, block: 0),
+            PosterOcrLine('ARTIFICIELLE AU', top: 340, height: 47, block: 0),
+            PosterOcrLine('SERVICE DE', top: 397, height: 46, block: 0),
+            PosterOcrLine("L'INGÉNIEUR", top: 452, height: 61, block: 1),
+            PosterOcrLine('Une rencontre avec des chercheurs du domaine', top: 560, height: 26, block: 2),
+            PosterOcrLine('Club organisateur', top: 700, height: 20, block: 3),
+          ]),
+          posterNow);
+      expect(d.title, "Conférence : l'intelligence artificielle au service de l'ingénieur");
+      expect(d.description, 'Une rencontre avec des chercheurs du domaine');
+    });
+
+    test('une année dans la ligne du titre reste dans le titre (pas une date)', () {
+      expect(_parse([_l('FORUM ESPRIT', height: 62), _l('ENTREPRISES 2026', height: 60)]).title,
+          'Forum ESPRIT entreprises 2026');
+      expect(_parse([_l('FORUM ESPRIT ENTREPRISES', height: 62), _l('2026', height: 58)]).title,
+          'Forum ESPRIT entreprises 2026');
+    });
+
+    test('bandeau et pied de page petits, ou ligne éloignée d\'un autre paragraphe : hors titre', () {
+      final d = PosterParser.parse(
+          const PosterOcrResult([
+            PosterOcrLine('ESPRIT · VIE DE CAMPUS', top: 40, height: 14, block: 0),
+            PosterOcrLine('NUIT DU CODE', top: 70, height: 64, block: 1),
+            PosterOcrLine('ÉDITION SPÉCIALE', top: 300, height: 60, block: 2), // 166 px plus bas
+            PosterOcrLine('Club Info ESPRIT', top: 760, height: 14, block: 3),
+          ]),
+          posterNow);
+      expect(d.title, 'Nuit du code');
     });
 
     test('un titre en minuscules et majuscules reste tel quel', () {
