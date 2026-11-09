@@ -10,6 +10,7 @@ import 'package:campusconnect/screens/evenements/add_event_screen.dart';
 import 'package:campusconnect/screens/evenements/category_classifier.dart';
 import 'package:campusconnect/screens/evenements/event_actor.dart';
 import 'package:campusconnect/screens/evenements/poster_ocr.dart';
+import 'package:campusconnect/screens/evenements/poster_parser.dart';
 import 'package:campusconnect/screens/evenements/poster_scan_sheets.dart';
 import 'package:campusconnect/services/local_store.dart';
 import 'package:flutter/foundation.dart';
@@ -21,6 +22,7 @@ import 'package:provider/provider.dart';
 
 import '../helpers/authenticated.dart';
 import '../helpers/local_db.dart';
+import 'poster_fixtures.dart';
 
 /// Faux lecteur : renvoie des lignes fixées, sans ML Kit.
 class _FakeReader implements PosterTextReader {
@@ -64,7 +66,7 @@ void main() {
 
   /// Ouvre le formulaire (poussé sur une page, pour que l'enregistrement
   /// puisse le refermer), scanne l'affiche, applique sans garder l'image.
-  Future<void> scanAndApply(WidgetTester tester, EventProvider events) async {
+  Future<void> scanAndApply(WidgetTester tester, EventProvider events, {PosterOcrResult? ocr}) async {
     tester.view.physicalSize = const Size(420, 1600);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -85,7 +87,7 @@ void main() {
               onPressed: () => Navigator.of(context).push(MaterialPageRoute(
                 builder: (_) => AddEventScreen(
                   loadClassifier: () => SynchronousFuture<CategoryClassifier?>(null),
-                  posterTextReader: _FakeReader(poster),
+                  posterTextReader: _FakeReader(ocr ?? poster),
                   pickScanImage: (_) async => XFile.fromData(Uint8List.fromList([0xFF, 0xD8, 0xFF]),
                       name: 'affiche.jpg', path: '/tmp/affiche.jpg'),
                 ),
@@ -142,6 +144,28 @@ void main() {
     expect(e.startDate, DateTime(day.year, day.month, day.day, 14, 30));
     expect(e.endDate, e.startDate.add(EventModel.defaultDuration));
     expect(e.price, isNull); // entrée libre
+    expect(find.textContaining('Événement créé !'), findsOneWidget);
+  });
+
+  testWidgets('affiche 4 (aucun texte courant) : description composée, « Créer » sans rien taper', (tester) async {
+    // Lignes de l'affiche 4 de référence ; seule la date est avancée (dans
+    // 30 jours) pour que le test ne périme pas.
+    final fx = posterFixtures[3];
+    final lines = [
+      for (final line in fx.lines)
+        line.text.contains('/') ? PosterOcrLine('$dayText à 19h30', top: line.top, height: line.height, block: line.block) : line,
+    ];
+    final events = EventProvider(store: store, actor: () => const EventActor('uid-1'));
+    await scanAndApply(tester, events, ocr: PosterOcrResult(lines));
+    await submit(tester);
+
+    final saved = store.all(AppConstants.eventsCollection);
+    expect(saved, hasLength(1));
+    final e = EventModel.fromMap(saved.single.id, saved.single.data);
+    final start = DateTime(day.year, day.month, day.day, 19, 30);
+    expect(e.startDate, start);
+    expect(e.price, 5);
+    expect(e.description, "Soirée cinéma en plein air · ${PosterParser.formatWhen(start)} · Cour de l'école · 5 TND");
     expect(find.textContaining('Événement créé !'), findsOneWidget);
   });
 

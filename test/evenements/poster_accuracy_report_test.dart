@@ -61,6 +61,8 @@ void main() {
 
   test('rapport de précision des règles (lignes propres et lignes observées sur émulateur)', () {
     final clean = table('1. Lignes propres (5 affiches de référence, texte idéal)', posterFixtures);
+    final synthetic = table(
+        '3. Affiches synthétiques (sans lien avec les 5 affiches : règles générales)', syntheticPosterFixtures);
     final observed = table(
         '2. Observé sur émulateur (découpage en lignes et accent perdu observés ; hauteurs et écarts estimés)',
         observedPosterFixtures);
@@ -72,12 +74,15 @@ void main() {
       ..writeln("elles ne mesurent pas la lecture d'une nouvelle photo (flou, reflets, polices).")
       ..writeln()
       ..writeln(clean.$1)
-      ..writeln(observed.$1);
+      ..writeln(observed.$1)
+      ..writeln(synthetic.$1);
     // ignore: avoid_print
     print(out);
 
     expect(clean.$2.values.every((v) => v == posterFixtures.length), isTrue, reason: 'régression :\n$out');
     expect(observed.$2.values.every((v) => v == observedPosterFixtures.length), isTrue,
+        reason: 'régression :\n$out');
+    expect(synthetic.$2.values.every((v) => v == syntheticPosterFixtures.length), isTrue,
         reason: 'régression :\n$out');
   });
 }

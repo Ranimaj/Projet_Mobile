@@ -14,10 +14,14 @@ class PosterFixture {
   final String title;
   final DateTime start;
   final DateTime? end;
-  final String place;
+  final String? place;
   final double? price;
   final bool free;
   final String? description;
+
+  /// La description attendue est composée des champs lus (aucune ligne de
+  /// texte courant sur l'affiche).
+  final bool descriptionComposed;
   final String category;
 
   const PosterFixture({
@@ -26,10 +30,11 @@ class PosterFixture {
     required this.title,
     required this.start,
     this.end,
-    required this.place,
+    this.place,
     this.price,
     this.free = false,
     this.description,
+    this.descriptionComposed = false,
     required this.category,
   });
 
@@ -65,6 +70,9 @@ final List<PosterFixture> observedPosterFixtures = [
     end: DateTime(2026, 12, 17, 12, 30),
     place: 'Amphi B, bloc A – ESPRIT',
     free: true,
+    description: "Conférence : l'intelligence artificielle au service de l'ingénieur · "
+        'Jeudi 17 décembre 2026 de 10h à 12h30 · Amphi B, bloc A – ESPRIT · Gratuit',
+    descriptionComposed: true,
     category: 'Conférence',
   ),
   PosterFixture(
@@ -143,6 +151,10 @@ final List<PosterFixture> posterFixtures = [
     end: DateTime(2026, 12, 17, 12, 30),
     place: 'Amphi B, bloc A – ESPRIT',
     free: true,
+    // Seule ligne de texte courant dans la bande du bas : description composée.
+    description: "Conférence : l'intelligence artificielle au service de l'ingénieur · "
+        'Jeudi 17 décembre 2026 de 10h à 12h30 · Amphi B, bloc A – ESPRIT · Gratuit',
+    descriptionComposed: true,
     category: 'Conférence',
   ),
   PosterFixture(
@@ -174,6 +186,8 @@ final List<PosterFixture> posterFixtures = [
     start: DateTime(2026, 12, 18, 19, 30),
     place: "Cour de l'école",
     price: 5,
+    description: "Soirée cinéma en plein air · Vendredi 18 décembre 2026 à 19h30 · Cour de l'école · 5 TND",
+    descriptionComposed: true,
     category: 'Culture',
   ),
   PosterFixture(
@@ -190,5 +204,46 @@ final List<PosterFixture> posterFixtures = [
     place: 'Salle des clubs, bloc C',
     description: 'Élection du nouveau bureau',
     category: 'Vie associative',
+  ),
+];
+
+/// Affiches SYNTHÉTIQUES, sans lien avec les 5 affiches de référence : elles
+/// vérifient que les règles sont générales. Hauteurs et écarts du même ordre
+/// que ceux relevés dans le journal [PosterScan] de l'émulateur.
+final List<PosterFixture> syntheticPosterFixtures = [
+  // Atelier : titre, date et lieu seulement (aucun texte courant, aucun prix).
+  PosterFixture(
+    file: 'synthetique_atelier.jpg',
+    lines: [
+      _l('ATELIER RÉPARATION', 300, 80, 0),
+      _l('DE VÉLOS', 400, 78, 0),
+      _l('Mercredi 13 janvier 2027 · 15h', 640, 48, 1),
+      _l('Lieu : Garage du foyer, bloc D', 740, 44, 2),
+    ],
+    title: 'Atelier réparation de vélos',
+    start: DateTime(2027, 1, 13, 15),
+    place: 'Garage du foyer, bloc D',
+    description: 'Atelier réparation de vélos · Mercredi 13 janvier 2027 à 15h · Garage du foyer, bloc D',
+    descriptionComposed: true,
+    category: 'Vie associative',
+  ),
+  // Concert : prix, plage horaire, pas de lieu ; une mention en pied de page.
+  PosterFixture(
+    file: 'synthetique_concert.jpg',
+    lines: [
+      _l('CONCERT JAZZ', 320, 86, 0),
+      _l('ET SOUL', 420, 84, 0),
+      _l('Samedi 6 février 2027', 660, 50, 1),
+      _l('20h30 – 23h00', 720, 46, 1),
+      _l('Entrée : 15 DT', 840, 46, 2),
+      _l('Organisé par le club musique', 1390, 30, 3),
+    ],
+    title: 'Concert jazz et soul',
+    start: DateTime(2027, 2, 6, 20, 30),
+    end: DateTime(2027, 2, 6, 23),
+    price: 15,
+    description: 'Concert jazz et soul · Samedi 6 février 2027 de 20h30 à 23h · 15 TND',
+    descriptionComposed: true,
+    category: 'Culture',
   ),
 ];

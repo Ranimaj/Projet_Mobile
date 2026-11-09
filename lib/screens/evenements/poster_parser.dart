@@ -20,9 +20,14 @@ class PosterDraft {
   /// Le texte lu est surtout dans un autre alphabet (arabe…), ignoré.
   final bool mostlyNonLatin;
 
+  /// [description] n'a pas été lue sur l'affiche : elle est composée
+  /// uniquement des champs reconnus (titre, date, lieu, prix).
+  final bool descriptionGenerated;
+
   const PosterDraft({
     this.title,
     this.description,
+    this.descriptionGenerated = false,
     this.start,
     this.end,
     this.dateWithoutTime,
@@ -91,6 +96,58 @@ class PosterParser {
   /// « samedi 12 décembre 2026 à 14:00 ».
   static String formatDateTime(DateTime d) =>
       '${formatDay(d)} à ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+
+  /// Heure à la française : « 14h », « 19h30 ».
+  static String formatHour(DateTime d) => d.minute == 0 ? '${d.hour}h' : '${d.hour}h${d.minute.toString().padLeft(2, '0')}';
+
+  static String _capitalized(String s) => s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
+
+  /// Quand a lieu l'événement, en toutes lettres :
+  /// « Vendredi 18 décembre 2026 à 19h30 » ;
+  /// « Jeudi 17 décembre 2026 de 10h à 12h30 » (même jour) ;
+  /// « Du mardi 8 décembre 2026 à 9h au mercredi 9 décembre 2026 à 17h ».
+  static String formatWhen(DateTime start, [DateTime? end]) {
+    if (end == null) return '${_capitalized(formatDay(start))} à ${formatHour(start)}';
+    final sameDay = start.year == end.year && start.month == end.month && start.day == end.day;
+    if (sameDay) return '${_capitalized(formatDay(start))} de ${formatHour(start)} à ${formatHour(end)}';
+    return 'Du ${formatDay(start)} à ${formatHour(start)} au ${formatDay(end)} à ${formatHour(end)}';
+  }
+
+  /// « Gratuit », « 5 TND » ou « 12,50 TND ».
+  static String priceLabel({required bool isFree, double? price}) {
+    if (isFree || price == null) return 'Gratuit';
+    final text = price == price.roundToDouble() ? price.toStringAsFixed(0) : price.toStringAsFixed(2).replaceAll('.', ',');
+    return '$text TND';
+  }
+
+  /// Séparateur des morceaux d'une description (lignes distinctes, ou champs
+  /// d'une description composée).
+  static const String descriptionSeparator = ' · ';
+
+  /// Description de secours quand l'affiche n'a aucune ligne de texte
+  /// courant : composée UNIQUEMENT des champs reconnus (titre, date, lieu,
+  /// prix), dans cet ordre, sans aucun autre mot. Il faut le titre et au
+  /// moins un autre champ, et un texte accepté par le formulaire ; sinon null.
+  static String? composeDescription({
+    String? title,
+    DateTime? start,
+    DateTime? end,
+    DateTime? dateWithoutTime,
+    String? place,
+    bool isFree = false,
+    double? price,
+  }) {
+    if (title == null) return null;
+    final parts = [
+      title,
+      if (start != null) formatWhen(start, end) else if (dateWithoutTime != null) _capitalized(formatDay(dateWithoutTime)),
+      if (place != null) place,
+      if (isFree || price != null) priceLabel(isFree: isFree, price: price),
+    ];
+    if (parts.length < 2) return null;
+    final text = parts.join(descriptionSeparator);
+    return EventValidators.description(text) == null ? text : null;
+  }
 
   // ------------------------------------------------- Normalisation du texte
 
@@ -253,6 +310,9 @@ class PosterParser {
   static final RegExp _anyLetter = RegExp(r'\p{L}', unicode: true);
   static final RegExp _latinLetter = RegExp(r'[A-Za-z\u00C0-\u024F]');
   static final RegExp _spaces = RegExp(r'[ \t\u00A0\u202F]+');
+
+  /// Ponctuation qui termine une phrase (ou une \u00E9tiquette) en fin de ligne.
+  static final RegExp _sentenceEnd = RegExp(r'[.!?\u2026:;]$');
 
   // --------------------------------------------------------------- Analyse
 
@@ -477,8 +537,10 @@ class PosterParser {
     final maxBottom = lines.map((l) => l.ocr.bottom).reduce((a, b) => a > b ? a : b);
     final band = (maxBottom - minTop) * 0.10;
     final useBands = lines.length >= 3 && band > 0;
-    // Une phrase coupée sur deux lignes du même paragraphe est recollée avec
-    // une espace ; deux paragraphes différents restent sur deux lignes.
+    // Morceaux distincts : joints par « · ». Exception : une phrase que la
+    // lecture a coupée en deux lignes du même paragraphe (la ligne d'avant ne
+    // finit pas par une ponctuation de fin) est recollée avec une espace,
+    // sinon « déposez votre · CV » couperait la phrase en deux.
     final described = StringBuffer();
     _Line? previous;
     for (final l in lines) {
@@ -486,20 +548,39 @@ class PosterParser {
       if (l.ocr.height < 0.6 * median) continue;
       if (useBands && (l.ocr.center < minTop + band || l.ocr.center > maxBottom - band)) continue;
       if (previous != null) {
-        described.write(previous.index == l.index - 1 && previous.ocr.block == l.ocr.block ? ' ' : '\n');
+        final wrapped = previous.index == l.index - 1 &&
+            previous.ocr.block == l.ocr.block &&
+            !_sentenceEnd.hasMatch(previous.text.trim());
+        described.write(wrapped ? ' ' : descriptionSeparator);
       }
       described.write(_clean(l.text));
       previous = l;
     }
     String? description;
+    var generated = false;
     if (described.isNotEmpty) {
       final text = truncateAtWord(described.toString(), EventValidators.descriptionMax);
       if (EventValidators.description(text) == null) description = text;
+    }
+    // Aucune ligne de texte courant (ni rien d'utilisable) : description
+    // composée des seuls champs reconnus, pour ne pas bloquer le formulaire.
+    if (description == null && described.isEmpty) {
+      description = composeDescription(
+        title: title,
+        start: start,
+        end: end,
+        dateWithoutTime: dateOnly,
+        place: place,
+        isFree: isFree,
+        price: price,
+      );
+      generated = description != null;
     }
 
     return PosterDraft(
       title: title,
       description: description,
+      descriptionGenerated: generated,
       start: start,
       end: end,
       dateWithoutTime: dateOnly,
@@ -546,7 +627,8 @@ class PosterParser {
       ..add(f('date sans heure', d.dateWithoutTime != null, d.dateWithoutTime))
       ..add(f('lieu', d.placeFound, d.place))
       ..add(f('prix', d.priceFound, d.isFree ? 'gratuit' : d.priceTnd))
-      ..add(f('description', d.descriptionFound, d.description?.replaceAll('\n', ' ⏎ ')));
+      ..add(f(d.descriptionGenerated ? 'description (composée)' : 'description', d.descriptionFound,
+          d.description?.replaceAll('\n', ' ⏎ ')));
     for (final w in d.warnings) {
       out.add('[PosterScan] avertissement: $w');
     }

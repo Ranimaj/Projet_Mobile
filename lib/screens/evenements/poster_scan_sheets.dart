@@ -100,15 +100,15 @@ class PosterFormState {
 }
 
 /// « 5 TND », « 12,50 TND » ou « Gratuit ».
-String posterPriceLabel(PosterDraft d) {
-  if (d.isFree) return 'Gratuit';
-  final p = d.priceTnd!;
-  final text = p == p.roundToDouble() ? p.toStringAsFixed(0) : p.toStringAsFixed(2).replaceAll('.', ',');
-  return '$text TND';
-}
+String posterPriceLabel(PosterDraft d) => PosterParser.priceLabel(isFree: d.isFree, price: d.priceTnd);
+
+/// Libellé de la ligne quand la description est composée des infos lues.
+const String posterComposedDescriptionLabel = 'Description (composée à partir des infos lues)';
 
 /// Lignes de la feuille de vérification (règle pure, testée à part).
-/// La description n'est proposée que si celle du formulaire est vide.
+/// Une description LUE n'est proposée que si celle du formulaire est vide ;
+/// une description COMPOSÉE est toujours montrée, décochée et marquée
+/// « remplacerait » si l'utilisateur en a déjà saisi une.
 List<PosterReviewRow> posterReviewRows(PosterDraft d, PosterFormState form) {
   const notRead = 'Non lu';
   return [
@@ -149,7 +149,15 @@ List<PosterReviewRow> posterReviewRows(PosterDraft d, PosterFormState form) {
       selectable: d.priceFound,
       wouldReplace: d.priceFound && form.priceFilled,
     ),
-    if (!form.descriptionFilled)
+    if (d.descriptionGenerated)
+      PosterReviewRow(
+        field: PosterField.description,
+        label: posterComposedDescriptionLabel,
+        value: d.description!,
+        selectable: true,
+        wouldReplace: form.descriptionFilled,
+      )
+    else if (!form.descriptionFilled)
       PosterReviewRow(
         field: PosterField.description,
         label: 'Description',

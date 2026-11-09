@@ -273,6 +273,38 @@ void main() {
       expect(inSheet('Description'), findsNothing);
     });
 
+    group('description composée (affiche sans texte courant)', () {
+      final when = DateTime(_day.year, _day.month, _day.day, 18);
+      PosterOcrResult infoOnly() => PosterOcrResult([
+            _l('NUIT DES JEUX', 300, 84),
+            _l('$_dayText à 18h', 500, 46),
+            _l('Lieu : Foyer, bloc B', 600, 44),
+          ]);
+      final composed = "Nuit des jeux · ${PosterParser.formatWhen(when)} · Foyer, bloc B";
+
+      testWidgets('ligne « composée à partir des infos lues », cochée, remplit le champ', (tester) async {
+        await pump(tester, reader: FakePosterTextReader(infoOnly()));
+        await scanFromGallery(tester);
+        expect(inSheet(posterComposedDescriptionLabel), findsOneWidget);
+        expect(checked(tester, posterComposedDescriptionLabel), isTrue);
+        expect(inSheet(composed), findsOneWidget);
+        await turnPosterOff(tester);
+        await apply(tester);
+        expect(textOf(tester, descField), composed);
+      });
+
+      testWidgets('description déjà saisie : décochée et « remplacerait », gardée sans case cochée', (tester) async {
+        await pump(tester, reader: FakePosterTextReader(infoOnly()));
+        await tester.enterText(descField, 'Ma propre description');
+        await scanFromGallery(tester);
+        expect(checked(tester, posterComposedDescriptionLabel), isFalse);
+        expect(find.text('remplacerait la valeur actuelle'), findsOneWidget);
+        await turnPosterOff(tester);
+        await apply(tester);
+        expect(textOf(tester, descField), 'Ma propre description');
+      });
+    });
+
     testWidgets('date passée : avertissement, début inchangé', (tester) async {
       final past = DateTime.now().subtract(const Duration(days: 3));
       final text = '${past.day}/${past.month}/${past.year} à 10h';

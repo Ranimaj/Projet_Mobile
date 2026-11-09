@@ -1,3 +1,4 @@
+import 'package:campusconnect/screens/evenements/event_validators.dart';
 import 'package:campusconnect/screens/evenements/poster_ocr.dart';
 import 'package:campusconnect/screens/evenements/poster_parser.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -37,6 +38,7 @@ void main() {
         expect(d.priceTnd, fx.price);
         expect(d.isFree, fx.free);
         expect(d.description, fx.description);
+        expect(d.descriptionGenerated, fx.descriptionComposed);
       });
     }
 
@@ -64,6 +66,7 @@ void main() {
         expect(d.priceTnd, fx.price);
         expect(d.isFree, fx.free);
         expect(d.description, fx.description);
+        expect(d.descriptionGenerated, fx.descriptionComposed);
       });
     }
 
@@ -601,7 +604,116 @@ void main() {
     });
   });
 
+  group('affiches synthétiques (sans lien avec les 5 affiches de référence)', () {
+    for (final fx in syntheticPosterFixtures) {
+      test(fx.file, () {
+        final d = PosterParser.parse(fx.ocr, posterNow);
+        expect(d.title, fx.title);
+        expect(d.start, fx.start);
+        expect(d.end, fx.end);
+        expect(d.place, fx.place);
+        expect(d.priceTnd, fx.price);
+        expect(d.isFree, fx.free);
+        expect(d.description, fx.description);
+        expect(d.descriptionGenerated, fx.descriptionComposed);
+        expect(EventValidators.description(d.description), isNull);
+      });
+    }
+  });
+
+  group('description composée (aucun texte courant sur l\'affiche)', () {
+    /// Mots de la description qui ne viennent d'aucun champ reconnu.
+    Set<String> foreignWords(PosterDraft d) {
+      final allowed = <String>{
+        ...?d.title?.split(' '),
+        ...?d.place?.split(' '),
+        if (d.start != null) ...PosterParser.formatWhen(d.start!, d.end).split(' '),
+        if (d.priceFound) ...PosterParser.priceLabel(isFree: d.isFree, price: d.priceTnd).split(' '),
+        '·',
+      };
+      return d.description!.split(' ').where((w) => !allowed.contains(w)).toSet();
+    }
+
+    test('affiche 4 : titre · date · lieu · prix, rien d\'autre, accepté par le formulaire', () {
+      final d = PosterParser.parse(posterFixtures[3].ocr, posterNow);
+      expect(d.descriptionGenerated, isTrue);
+      expect(d.description, [d.title, PosterParser.formatWhen(d.start!), d.place, '5 TND'].join(' · '));
+      expect(d.description!.length, lessThanOrEqualTo(EventValidators.descriptionMax));
+      expect(EventValidators.description(d.description), isNull);
+      expect(foreignWords(d), isEmpty);
+    });
+
+    test('les affiches synthétiques n\'ajoutent aucun mot étranger aux champs lus', () {
+      for (final fx in syntheticPosterFixtures) {
+        expect(foreignWords(PosterParser.parse(fx.ocr, posterNow)), isEmpty, reason: fx.file);
+      }
+    });
+
+    test('jamais si l\'affiche a de vraies lignes de description', () {
+      for (final fx in [posterFixtures[0], posterFixtures[2], posterFixtures[4]]) {
+        final d = PosterParser.parse(fx.ocr, posterNow);
+        expect(d.descriptionGenerated, isFalse, reason: fx.file);
+        expect(d.description, fx.description, reason: fx.file);
+      }
+      // Une vraie ligne trop courte pour le formulaire : pas de description
+      // composée non plus (on ne remplace pas du texte lu).
+      final short = PosterParser.parse(
+          const PosterOcrResult([
+            PosterOcrLine('GRAND TITRE', top: 100, height: 70, block: 0),
+            PosterOcrLine('Lieu : Amphi B', top: 300, height: 40, block: 1),
+            PosterOcrLine('Venez !', top: 400, height: 40, block: 2), // écart de paragraphe
+            PosterOcrLine('Club organisateur', top: 900, height: 30, block: 3),
+          ]),
+          posterNow);
+      expect(short.place, 'Amphi B');
+      expect(short.description, isNull);
+      expect(short.descriptionGenerated, isFalse);
+    });
+
+    test('titre seul, ou champs sans titre : pas de description composée', () {
+      final onlyTitle = _parse([_l('GRANDE SOIRÉE DES CLUBS', height: 60)]);
+      expect(onlyTitle.title, isNotNull);
+      expect(onlyTitle.description, isNull);
+      final noTitle = _parse(['Samedi 12 décembre 2026 à 14h', 'Lieu : Amphi B', 'Gratuit']);
+      expect(noTitle.title, isNull);
+      expect(noTitle.description, isNull);
+    });
+
+    test('gratuit ou payant, plage sur un ou deux jours, date sans heure', () {
+      expect(
+          PosterParser.composeDescription(title: 'Tournoi', place: 'Stade', isFree: true), 'Tournoi · Stade · Gratuit');
+      expect(PosterParser.composeDescription(title: 'Gala', price: 12.5), 'Gala · 12,50 TND');
+      expect(
+          PosterParser.composeDescription(
+              title: 'Forum', start: DateTime(2027, 3, 2, 9), end: DateTime(2027, 3, 3, 17, 30)),
+          'Forum · Du mardi 2 mars 2027 à 9h au mercredi 3 mars 2027 à 17h30');
+      expect(PosterParser.composeDescription(title: 'Kermesse', dateWithoutTime: DateTime(2027, 5, 8)),
+          'Kermesse · Samedi 8 mai 2027');
+      expect(PosterParser.composeDescription(title: 'Gala'), isNull); // titre seul
+      expect(PosterParser.composeDescription(title: 'A', price: 1), isNull); // « A · 1 TND » : moins de 10 caractères
+    });
+  });
+
   group('description', () {
+    test('phrase coupée sur deux lignes du même paragraphe : recollée avec une espace', () {
+      final d = PosterParser.parse(
+          const PosterOcrResult([
+            PosterOcrLine('GRAND TITRE', top: 100, height: 70, block: 0),
+            PosterOcrLine('Venez découvrir les métiers du numérique', top: 300, height: 40, block: 1),
+            PosterOcrLine('avec les anciens de l\'école', top: 350, height: 40, block: 1),
+            PosterOcrLine('Ateliers pratiques.', top: 450, height: 40, block: 2),
+            PosterOcrLine('Inscription sur place.', top: 500, height: 40, block: 2),
+            PosterOcrLine('Questions et échanges', top: 550, height: 40, block: 2),
+            PosterOcrLine('Club organisateur', top: 900, height: 30, block: 3),
+          ]),
+          posterNow);
+      // Même paragraphe sans ponctuation finale : espace ; sinon « · ».
+      expect(
+          d.description,
+          "Venez découvrir les métiers du numérique avec les anciens de l'école · Ateliers pratiques. · "
+          'Questions et échanges');
+    });
+
     test('sans titre, lieu, date limite ni lignes d\'infos pures', () {
       final d = _parse([
         _l('GRAND TITRE', height: 60),
@@ -623,7 +735,8 @@ void main() {
         'Ambiance conviviale garantie',
         'Club organisateur',
       ]);
-      expect(d.description, 'Une soirée de jeux de société\nAmbiance conviviale garantie');
+      // Deux morceaux distincts (paragraphes séparés) : joints par « · ».
+      expect(d.description, 'Une soirée de jeux de société · Ambiance conviviale garantie');
     });
 
     test('bandeau du haut et pied de page (10 % du texte) exclus, même de taille normale', () {
@@ -683,7 +796,8 @@ void main() {
     expect(report[1], '[PosterScan] #0 bloc=0 top=100 h=56 écart=- « SOIRÉE CINÉMA EN PLEIN AIR »');
     expect(report[2], '[PosterScan] #1 bloc=1 top=190 h=28 écart=34 « Vendredi 18/12/2026 à 19h30 »');
     expect(report, contains('[PosterScan] prix: trouvé → 5.0'));
-    expect(report, contains('[PosterScan] description: non trouvé'));
+    expect(report, contains("[PosterScan] description (composée): trouvé → Soirée cinéma en plein air · "
+        "Vendredi 18 décembre 2026 à 19h30 · Cour de l'école · 5 TND"));
   });
 
   test('formats d\'affichage', () {
