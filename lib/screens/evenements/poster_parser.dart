@@ -62,6 +62,11 @@ class PosterParser {
   /// celle de la ligne la plus grande.
   static const double titleMinRatio = 0.6;
 
+  /// Suite du lieu sur la ligne suivante : 4 mots au plus, et (hors même
+  /// paragraphe) un écart ≤ 0,6 × la hauteur de la ligne du lieu.
+  static const int placeContinuationMaxWords = 4;
+  static const double placeContinuationMaxGap = 0.6;
+
   /// Sigles gardés en majuscules quand un titre tout en capitales est converti.
   static const Set<String> acronyms = {
     'ESPRIT', 'PFE', 'IA', 'AI', 'CV', 'IEEE', 'ACM', 'GDG', 'BDE', 'RH', 'IT', 'UX', 'UI', 'IOT', 'TN', //
@@ -339,15 +344,18 @@ class PosterParser {
     //    commence par salle, amphi, bloc… (pas la plus grande : ce serait le titre).
     final placeLines = <int>{};
     String? place;
+    var placeRaw = ''; // texte brut du lieu (virgule finale gardée pour la suite)
     final maxHeight = lines.map((l) => l.ocr.height).reduce((a, b) => a > b ? a : b);
     for (final l in lines) {
       final m = _placeLabel.firstMatch(l.f);
       if (m == null || l.deadline) continue;
-      var text = _clean(l.text.substring(m.end));
+      placeRaw = l.text.substring(m.end);
+      var text = _clean(placeRaw);
       placeLines.add(l.index);
       if (text.isEmpty && l.index + 1 < lines.length) {
         placeLines.add(l.index + 1);
-        text = _clean(lines[l.index + 1].text);
+        placeRaw = lines[l.index + 1].text;
+        text = _clean(placeRaw);
       }
       place = _fitPlace(text);
       if (place != null) break;
@@ -355,6 +363,7 @@ class PosterParser {
     if (place == null) {
       for (final l in lines) {
         if (l.deadline || !_placeKeyword.hasMatch(l.f) || l.ocr.height >= maxHeight) continue;
+        placeRaw = l.text;
         place = _fitPlace(_clean(l.text));
         if (place != null) {
           placeLines.add(l.index);
@@ -403,6 +412,33 @@ class PosterParser {
           titleLines.add(i);
         }
       }
+    }
+
+    // 5b. Suite du lieu : « Lieu : Hall principal, campus » puis « ESPRIT ».
+    //     Une ligne suivante est ajoutée si elle est dans le même paragraphe,
+    //     ou de hauteur voisine (± 20 %) et très proche (écart ≤ 0,6 × la
+    //     hauteur de ligne) ; libre (ni date, ni prix…, ni titre) ; courte
+    //     (4 mots au plus) ; et si le lieu complet reste dans la limite.
+    if (place != null && placeLines.isNotEmpty) {
+      var last = lines[placeLines.reduce((a, b) => a > b ? a : b)];
+      var text = place;
+      var raw = placeRaw;
+      for (var q = last.index + 1; q < lines.length; q++) {
+        final next = lines[q];
+        if (titleLines.contains(q) || next.classified || !(next.hasWords || next.isLoneNumber)) break;
+        if (next.text.trim().split(RegExp(r'\s+')).length > placeContinuationMaxWords) break;
+        final sameBlock = next.ocr.block == last.ocr.block;
+        final similar = (next.ocr.height - last.ocr.height).abs() <= 0.2 * last.ocr.height;
+        final tight = next.ocr.top - last.ocr.bottom <= placeContinuationMaxGap * last.ocr.height;
+        if (!sameBlock && !(similar && tight)) break;
+        final combined = _clean('$raw ${next.text}');
+        if (EventValidators.location(combined) != null) break;
+        text = combined;
+        raw = '$raw ${next.text}';
+        next.place = true;
+        last = next;
+      }
+      place = text;
     }
 
     // 6. Description : les autres lignes avec du texte, sauf petites lignes et

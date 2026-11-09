@@ -308,6 +308,69 @@ void main() {
           'Salle polyvalente, bloc E');
     });
 
+    group('suite du lieu sur la ligne suivante', () {
+      PosterDraft parseLines(List<PosterOcrLine> l) => PosterParser.parse(PosterOcrResult(l), posterNow);
+      const title = PosterOcrLine('FORUM ESPRIT', top: 100, height: 62, block: 0);
+
+      test('même paragraphe : « Hall principal, campus » + « ESPRIT »', () {
+        final d = parseLines(const [
+          title,
+          PosterOcrLine('Lieu : Hall principal, campus', top: 390, height: 28, block: 2),
+          PosterOcrLine('ESPRIT', top: 424, height: 27, block: 2),
+          PosterOcrLine('Rencontrez des recruteurs et des anciens', top: 490, height: 25, block: 3),
+          PosterOcrLine('Club organisateur', top: 700, height: 20, block: 4),
+        ]);
+        expect(d.place, 'Hall principal, campus ESPRIT');
+        expect(d.description, 'Rencontrez des recruteurs et des anciens');
+      });
+
+      test('autre paragraphe mais très proche et de même taille : ajouté', () {
+        final d = parseLines(const [
+          title,
+          PosterOcrLine('Salle des clubs,', top: 300, height: 27, block: 1),
+          PosterOcrLine('bloc C', top: 333, height: 26, block: 2), // écart 6
+        ]);
+        expect(d.place, 'Salle des clubs, bloc C');
+      });
+
+      test('écart de paragraphe normal : jamais fusionné (affiche 5)', () {
+        final d = parseLines(const [
+          title,
+          PosterOcrLine('Salle des clubs, bloc C', top: 385, height: 27, block: 2),
+          PosterOcrLine('Élection du nouveau bureau', top: 440, height: 26, block: 3), // écart 28
+        ]);
+        expect(d.place, 'Salle des clubs, bloc C');
+      });
+
+      test('ligne d\'infos après le lieu (affiche 1) : séparée', () {
+        final d = parseLines(const [
+          title,
+          PosterOcrLine("Lieu : Stade de l'ESPRIT, Ghazala", top: 310, height: 26, block: 3),
+          PosterOcrLine('Équipes de 7 joueurs · Entrée libre', top: 342, height: 25, block: 3),
+        ]);
+        expect(d.place, "Stade de l'ESPRIT, Ghazala");
+        expect(d.isFree, isTrue);
+      });
+
+      test('plus de 4 mots ou lieu trop long : pas ajouté', () {
+        expect(
+            parseLines(const [
+              title,
+              PosterOcrLine('Lieu : Amphi B', top: 300, height: 27, block: 1),
+              PosterOcrLine('venez nombreux avec vos amis', top: 330, height: 27, block: 1),
+            ]).place,
+            'Amphi B');
+        final long = 'Lieu : ${List.filled(24, 'mot').join(' ')}'; // 98 caractères après « Lieu : »
+        expect(
+            parseLines([
+              title,
+              PosterOcrLine(long, top: 300, height: 27, block: 1),
+              const PosterOcrLine('ESPRIT', top: 330, height: 27, block: 1),
+            ]).place!.endsWith('mot'),
+            isTrue);
+      });
+    });
+
     test('« Cours de yoga » n\'est pas un lieu (mot entier)', () {
       expect(_parse([_l('Titre', height: 50), 'Cours de yoga pour tous']).place, isNull);
     });
