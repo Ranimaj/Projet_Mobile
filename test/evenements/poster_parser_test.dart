@@ -442,6 +442,22 @@ void main() {
       }
     });
 
+    test('mot seul sur sa ligne (Gratuit, GRATUIT, Gratuite, Free, Entrée libre) ou dans une phrase', () {
+      for (final line in ['Gratuit', 'GRATUIT', 'Gratuite', 'Free', 'Entrée libre', 'ENTRÉE LIBRE']) {
+        final d = PosterParser.parse(
+            PosterOcrResult([
+              const PosterOcrLine('FORUM ESPRIT', top: 150, height: 62, block: 0),
+              const PosterOcrLine('Lieu : Hall principal', top: 390, height: 28, block: 1),
+              // Seul, en bas de l'affiche (zone du pied de page) : compte quand même.
+              PosterOcrLine(line, top: 600, height: 34, block: 2),
+            ]),
+            posterNow);
+        expect(d.isFree, isTrue, reason: line);
+        expect(d.title, 'Forum ESPRIT', reason: line);
+      }
+      expect(_parse(['Titre de test', 'Concert en plein air, entrée libre pour tous']).isFree, isTrue);
+    });
+
     test('formats de prix', () {
       for (final (line, value) in [
         ('Prix : 10 DT', 10.0),
