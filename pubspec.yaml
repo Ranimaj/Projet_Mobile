@@ -58,6 +58,9 @@ dependencies:
   google_mlkit_image_labeling: '>=0.14.0 <2.0.0' # reconnaissance d'objets sur le téléphone
   device_info_plus: ^12.4.0
 
+  # --- Événements : « Scanner une affiche » ---
+  google_mlkit_text_recognition: ^1.0.1 # lecture du texte sur le téléphone (alphabet latin, modèle embarqué)
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
