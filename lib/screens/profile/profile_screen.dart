@@ -36,6 +36,8 @@ import '../admin/admin_analytics_screen.dart';
 import '../admin/admin_users_screen.dart';
 import '../debug/design_gallery_screen.dart';
 import '../auth/otp_verification_screen.dart';
+import '../../services/ai/user_assistant.dart';
+import 'assistant_screen.dart';
 import 'change_password_screen.dart';
 import 'edit_profile_screen.dart';
 import 'student_card_screen.dart';
@@ -310,6 +312,19 @@ class ProfileScreen extends StatelessWidget {
         ],
         SettingGroup(
           children: [
+            SettingRow(
+              key: const Key('open-assistant'),
+              icon: Icons.smart_toy_rounded,
+              title: 'Assistant CampusConnect',
+              subtitle: 'Une question sur ton compte ? Demande-moi',
+              onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => AssistantScreen(
+                  onProfileAction: (a) => a == AssistantAction.verifyPhone
+                      ? _verifyPhone(context, user)
+                      : _exportData(context),
+                ),
+              )),
+            ),
             SettingRow(
               icon: Icons.badge_rounded,
               title: 'Carte étudiant',
