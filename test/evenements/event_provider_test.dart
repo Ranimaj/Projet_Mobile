@@ -87,6 +87,7 @@ void main() {
     });
 
     test('fonctionne hors-ligne : la connexion ne bloque rien', () async {
+      actingAs = const EventActor('u1');
       provider.updateConnectivity(false);
       await seed(event());
       expect(await provider.toggleRegistrationWithResult(event(), 'u1'), isTrue);
@@ -179,6 +180,9 @@ void main() {
   });
 
   group('inscription', () {
+    // Chacun ne s'inscrit que lui-même : on agit au nom de « u1 ».
+    setUp(() => actingAs = const EventActor('u1'));
+
     test('inscription puis désinscription', () async {
       await seed(event());
       expect(await provider.toggleRegistrationWithResult(event(), 'u1'), isTrue);
@@ -190,7 +194,7 @@ void main() {
     test('dernière place : la 2e personne voit l’événement complet', () async {
       await seed(event(capacity: 1));
       // Deux comptes en même temps, chacun avec sa copie locale (périmée).
-      final other = EventProvider(store: store);
+      final other = EventProvider(store: store, actor: () => const EventActor('u2'));
       await other.load();
       final results = await Future.wait([
         provider.toggleRegistrationWithResult(event(capacity: 1), 'u1').then((r) => '$r', onError: (_) => 'refus'),
@@ -202,7 +206,7 @@ void main() {
 
     test('inscriptions simultanées sans capacité : aucune perdue', () async {
       await seed(event());
-      final other = EventProvider(store: store);
+      final other = EventProvider(store: store, actor: () => const EventActor('u2'));
       await other.load();
       await Future.wait([
         provider.toggleRegistrationWithResult(event(), 'u1'),

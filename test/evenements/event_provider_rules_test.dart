@@ -203,6 +203,97 @@ void main() {
     });
   });
 
+  group('inscription', () {
+    test('on ne s\'inscrit que soi-même (même l\'organisateur)', () async {
+      await seed(draft());
+      await signIn('u1');
+      expect(() => provider.toggleRegistrationWithResult(draft(), 'u2'), refused('que vous-même'));
+      await signIn('org');
+      expect(() => provider.toggleRegistrationWithResult(draft(), 'u1'), refused('que vous-même'));
+      expect(stored('e1').registeredUserIds, isEmpty);
+    });
+
+    test('ni désinscrire quelqu\'un d\'autre', () async {
+      await seed(draft(registered: ['u2']));
+      await signIn('u1');
+      expect(() => provider.toggleRegistrationWithResult(draft(), 'u2'), refused('que vous-même'));
+      expect(stored('e1').registeredUserIds, ['u2']);
+    });
+
+    test('visiteur : refusé, même avec un uid fourni par l\'écran', () async {
+      await seed(draft());
+      await signOut();
+      expect(() => provider.toggleRegistrationWithResult(draft(), 'u1'), refused('Connectez-vous'));
+      expect(() => provider.toggleRegistrationWithResult(draft(), null), refused('Connectez-vous'));
+    });
+
+    test('annulé, terminé, commencé, déjà inscrit, complet : refusé', () async {
+      await signIn('u1');
+      final cases = {
+        'annulé': draft(id: 'a', status: EventStatus.cancelled),
+        'terminé': draft(id: 't', start: DateTime.now().subtract(const Duration(hours: 4))),
+        'commencé': draft(id: 'c', start: DateTime.now().subtract(const Duration(minutes: 10))),
+        'complet': draft(id: 'p', capacity: 1, registered: ['u9']),
+      };
+      for (final e in cases.entries) {
+        await seed(e.value);
+        await expectLater(provider.toggleRegistrationWithResult(e.value, 'u1'), refused(), reason: e.key);
+        expect(stored(e.value.id).registeredUserIds, isNot(contains('u1')), reason: e.key);
+      }
+    });
+
+    test('désinscription refusée après le début ou si annulé', () async {
+      await signIn('u1');
+      final started = draft(id: 's', start: DateTime.now().subtract(const Duration(minutes: 10)), registered: ['u1']);
+      await seed(started);
+      expect(() => provider.toggleRegistrationWithResult(started, 'u1'), refused('commencé'));
+      final cancelled = draft(id: 'x', status: EventStatus.cancelled, registered: ['u1']);
+      await seed(cancelled);
+      expect(() => provider.toggleRegistrationWithResult(cancelled, 'u1'), refused('annulé'));
+    });
+
+    test('dernière place, deux inscriptions simultanées : une seule réussit', () async {
+      await seed(draft(capacity: 1));
+      final p1 = EventProvider(store: store, actor: () => const EventActor('u1'));
+      final p2 = EventProvider(store: store, actor: () => const EventActor('u2'));
+      // Lancées ensemble, sans attendre la première.
+      final outcomes = await Future.wait([
+        p1.toggleRegistrationWithResult(draft(capacity: 1), 'u1').then((r) => 'ok:$r', onError: (Object e) => 'refus'),
+        p2.toggleRegistrationWithResult(draft(capacity: 1), 'u2').then((r) => 'ok:$r', onError: (Object e) => 'refus'),
+      ]);
+      expect(outcomes.where((o) => o == 'ok:true'), hasLength(1));
+      expect(outcomes.where((o) => o == 'refus'), hasLength(1));
+      expect(stored('e1').registeredUserIds, hasLength(1));
+    });
+
+    test('10 inscriptions simultanées pour 3 places : exactement 3 inscrits, aucun surbooking', () async {
+      await seed(draft(capacity: 3));
+      final outcomes = await Future.wait([
+        for (var i = 0; i < 10; i++)
+          EventProvider(store: store, actor: () => EventActor('u$i'))
+              .toggleRegistrationWithResult(draft(capacity: 3), 'u$i')
+              .then((r) => r == true, onError: (Object e) => false),
+      ]);
+      expect(outcomes.where((ok) => ok), hasLength(3));
+      expect(stored('e1').registeredUserIds, hasLength(3));
+      expect(stored('e1').registeredUserIds.toSet(), hasLength(3));
+    });
+
+    test('même personne depuis deux écrans en même temps : inscrite une seule fois', () async {
+      await seed(draft());
+      final a = EventProvider(store: store, actor: () => const EventActor('u1'));
+      final b = EventProvider(store: store, actor: () => const EventActor('u1'));
+      final outcomes = await Future.wait([
+        a.toggleRegistrationWithResult(draft(), 'u1').then((r) => '$r', onError: (Object e) => 'refus'),
+        b.toggleRegistrationWithResult(draft(), 'u1').then((r) => '$r', onError: (Object e) => 'refus'),
+      ]);
+      // Bascule : la seconde voit déjà l'inscription enregistrée et désinscrit
+      // (comme avant). Jamais deux « u1 » dans la liste.
+      expect(outcomes, ['true', 'false']);
+      expect(stored('e1').registeredUserIds, isEmpty);
+    });
+  });
+
   group('modification', () {
     test('par quelqu\'un d\'autre que l\'organisateur : refusée', () async {
       await seed(draft());

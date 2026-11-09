@@ -484,8 +484,19 @@ class EventProvider extends ChangeNotifier {
   /// Une désinscription retire aussi l'uid des présents / payés.
   /// Renvoie true si l'utilisateur est maintenant inscrit, false s'il est
   /// désinscrit, null si le tap est ignoré (écriture déjà en cours).
+  ///
+  /// Chacun n'inscrit ou ne désinscrit que lui-même : [userId] doit être la
+  /// personne de la session (organisateur et admin compris, comme l'ancien
+  /// serveur).
   Future<bool?> toggleRegistrationWithResult(EventModel event, String? userId) async {
     if (_busyEventIds.contains(event.id)) return null; // double tap ignoré
+    if (userId != null) {
+      final actor = _actor;
+      if (actor == null) throw const EventActionException('Connectez-vous pour vous inscrire.');
+      if (actor.uid != userId) {
+        throw const EventActionException('Vous ne pouvez inscrire ou désinscrire que vous-même.');
+      }
+    }
 
     final current = _readStored(event.id);
     final register = userId == null || !current.isUserRegistered(userId);
