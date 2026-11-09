@@ -13,7 +13,7 @@ import 'package:campusconnect/providers/auth_provider.dart';
 import 'package:campusconnect/screens/auth/forgot_password_screen.dart';
 import 'package:campusconnect/screens/auth/login_screen.dart';
 import 'package:campusconnect/screens/auth/register_screen.dart';
-import 'package:firebase_auth/firebase_auth.dart' hide AuthProvider;
+import 'package:campusconnect/services/auth_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -24,7 +24,7 @@ import '../helpers/mocks.dart';
 import '../helpers/pump_app.dart';
 import '../helpers/pump_themed.dart';
 
-class _FakeCredential extends Mock implements UserCredential {}
+const _account = AuthAccount(uid: 'uid-1', email: 'amel@esprit.tn');
 
 void main() {
   late MockAuthService service;
@@ -32,7 +32,7 @@ void main() {
 
   setUp(() {
     service = MockAuthService();
-    when(() => service.authStateChanges).thenAnswer((_) => const Stream<User?>.empty());
+    when(() => service.authStateChanges).thenAnswer((_) => const Stream<AuthAccount?>.empty());
     provider = AuthProvider(authService: service);
   });
 
@@ -62,7 +62,7 @@ void main() {
   });
 
   testWidgets('logs in and closes the auth screens on success', (tester) async {
-    when(() => service.signInWithEmail(any(), any())).thenAnswer((_) async => _FakeCredential());
+    when(() => service.signInWithEmail(any(), any())).thenAnswer((_) async => _account);
     await pumpAuthScreen(tester, provider, const LoginScreen());
 
     await enterField(tester, 0, 'amel@esprit.tn');
@@ -91,7 +91,7 @@ void main() {
   });
 
   testWidgets('shows a spinner and blocks resubmission while loading', (tester) async {
-    final gate = Completer<UserCredential>();
+    final gate = Completer<AuthAccount>();
     when(() => service.signInWithEmail(any(), any())).thenAnswer((_) => gate.future);
     await pumpAuthScreen(tester, provider, const LoginScreen());
 
@@ -105,7 +105,7 @@ void main() {
     await tester.pump();
     verify(() => service.signInWithEmail(any(), any())).called(1);
 
-    gate.complete(_FakeCredential());
+    gate.complete(_account);
     await tester.pumpAndSettle();
   });
 
@@ -129,7 +129,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(ForgotPasswordScreen), findsOneWidget);
-    expect(find.widgetWithText(TextFormField, 'amel@esprit.tn'), findsOneWidget);
+    expect(find.textContaining('amel@esprit.tn', findRichText: true), findsOneWidget);
   });
 
   testWidgets('"Créer un compte" opens the registration screen', (tester) async {
@@ -177,7 +177,7 @@ void main() {
   group('remember me', () {
     testWidgets('prefills the remembered email and stores it again after login', (tester) async {
       final prefs = FakeLoginPrefs(remembered: 'amel@esprit.tn');
-      when(() => service.signInWithEmail(any(), any())).thenAnswer((_) async => _FakeCredential());
+      when(() => service.signInWithEmail(any(), any())).thenAnswer((_) async => _account);
       await pumpAuthScreen(tester, provider, LoginScreen(prefs: prefs));
 
       expect(find.widgetWithText(TextFormField, 'amel@esprit.tn'), findsOneWidget);
@@ -193,7 +193,7 @@ void main() {
 
     testWidgets('unticking the box forgets the email', (tester) async {
       final prefs = FakeLoginPrefs(remembered: 'amel@esprit.tn');
-      when(() => service.signInWithEmail(any(), any())).thenAnswer((_) async => _FakeCredential());
+      when(() => service.signInWithEmail(any(), any())).thenAnswer((_) async => _account);
       await pumpAuthScreen(tester, provider, LoginScreen(prefs: prefs));
 
       await tapText(tester, 'Se souvenir de moi');
@@ -246,26 +246,6 @@ void main() {
   });
 
   group('error actions', () {
-    testWidgets('a network error offers to retry', (tester) async {
-      when(() => service.signInWithEmail(any(), any()))
-          .thenThrow(AuthFailure.fromCode('network-request-failed'));
-      await pumpAuthScreen(tester, provider, const LoginScreen());
-
-      await enterField(tester, 0, 'amel@esprit.tn');
-      await enterField(tester, 1, 'secret123');
-      await tapText(tester, 'Se connecter');
-      await tester.pumpAndSettle();
-      expect(find.text('Pas de connexion réseau.'), findsOneWidget);
-
-      // Le réseau revient : « Réessayer » relance la même connexion.
-      when(() => service.signInWithEmail(any(), any())).thenAnswer((_) async => _FakeCredential());
-      await tapText(tester, 'Réessayer');
-      await tester.pumpAndSettle();
-
-      verify(() => service.signInWithEmail('amel@esprit.tn', 'secret123')).called(2);
-      expect(find.byType(LoginScreen), findsNothing);
-    });
-
     testWidgets('too many attempts offers a password reset', (tester) async {
       when(() => service.signInWithEmail(any(), any())).thenThrow(AuthFailure.fromCode('too-many-requests'));
       await pumpAuthScreen(tester, provider, const LoginScreen());
@@ -279,7 +259,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(ForgotPasswordScreen), findsOneWidget);
-      expect(find.widgetWithText(TextFormField, 'amel@esprit.tn'), findsOneWidget);
+      expect(find.textContaining('amel@esprit.tn', findRichText: true), findsOneWidget);
     });
 
     testWidgets('a wrong password offers no extra action', (tester) async {
@@ -291,21 +271,15 @@ void main() {
       await tapText(tester, 'Se connecter');
       await tester.pumpAndSettle();
 
-      expect(find.text('Réessayer'), findsNothing);
       expect(find.text('Réinitialiser le mot de passe'), findsNothing);
     });
   });
 
-  testWidgets('a cancelled Google sign-in shows no error', (tester) async {
-    when(() => service.signInWithGoogle()).thenAnswer((_) async => null);
+  testWidgets('there is no Google sign-in any more', (tester) async {
     await pumpAuthScreen(tester, provider, const LoginScreen());
 
-    await tester.ensureVisible(find.byTooltip('Continuer avec Google'));
-    await tester.tap(find.byTooltip('Continuer avec Google'));
-    await tester.pumpAndSettle();
-
-    expect(find.byType(SnackBar), findsNothing);
-    expect(find.byType(LoginScreen), findsOneWidget);
+    expect(find.byTooltip('Continuer avec Google'), findsNothing);
+    expect(find.text('G'), findsNothing);
   });
 
   group('inline error banner', () {
@@ -356,7 +330,8 @@ void main() {
       expect(find.byType(AuthHero), findsOneWidget);
       expect(find.byType(AuthTextField), findsNWidgets(2));
       expect(find.widgetWithText(PillButton, 'Se connecter'), findsOneWidget);
-      expect(find.byType(SocialIconRow), findsOneWidget);
+      // Sans biométrie disponible, pas de rangée « Ou connectez-vous avec ».
+      expect(find.byType(SocialIconRow), findsNothing);
       expect(find.byType(AutofillGroup), findsOneWidget);
 
       expect(find.text('Bon retour'), findsOneWidget);
@@ -364,8 +339,7 @@ void main() {
       expect(find.byIcon(Icons.lock_open_rounded), findsOneWidget);
       expect(find.text('Email académique'), findsOneWidget);
       expect(find.text('Mot de passe'), findsOneWidget);
-      expect(find.text('Ou connectez-vous avec'), findsOneWidget);
-      expect(find.byTooltip('Continuer avec Google'), findsOneWidget);
+      expect(find.text('Ou connectez-vous avec'), findsNothing);
       // Reached from a pushed route: the hero carries a back button.
       expect(find.byTooltip('Retour'), findsOneWidget);
     });
@@ -441,7 +415,7 @@ void main() {
       when(() => service.hasRestorableSession).thenReturn(true);
       await pumpAuthScreen(tester, provider, LoginScreen(appPrefs: appPrefs));
 
-      expect(find.byTooltip('Continuer avec Google'), findsOneWidget);
+      expect(find.byType(SocialIconRow), findsNothing);
       expect(find.byTooltip('Déverrouiller par biométrie'), findsNothing);
     });
 
@@ -453,7 +427,7 @@ void main() {
       await pumpAuthScreen(tester, provider, const LoginScreen(),
           wrap: (app) => Provider<AppPrefs>.value(value: appPrefs, child: app));
 
-      expect(find.byTooltip('Continuer avec Google'), findsOneWidget);
+      expect(find.byType(SocialIconRow), findsNothing);
       expect(find.byTooltip('Déverrouiller par biométrie'), findsNothing);
     });
 
@@ -481,6 +455,7 @@ void main() {
       await pumpAuthScreen(tester, provider, const LoginScreen(),
           wrap: (app) => Provider<AppPrefs>.value(value: appPrefs, child: app));
 
+      expect(find.text('Ou connectez-vous avec'), findsOneWidget);
       expect(find.byTooltip('Déverrouiller par biométrie'), findsOneWidget);
     });
 
@@ -492,7 +467,7 @@ void main() {
     }
 
     testWidgets('keyboard "next" on the email focuses the password; "done" submits', (tester) async {
-      when(() => service.signInWithEmail(any(), any())).thenAnswer((_) async => _FakeCredential());
+      when(() => service.signInWithEmail(any(), any())).thenAnswer((_) async => _account);
       await pumpAuthScreen(tester, provider, const LoginScreen());
 
       await tester.tap(find.byType(TextFormField).first);
@@ -522,9 +497,11 @@ void main() {
       expect(fields[1].obscureText, isTrue);
     });
 
-    testWidgets('the Google button is disabled while a login is in flight', (tester) async {
-      final gate = Completer<UserCredential>();
+    testWidgets('the biometric button is disabled while a login is in flight', (tester) async {
+      final gate = Completer<AuthAccount>();
       when(() => service.signInWithEmail(any(), any())).thenAnswer((_) => gate.future);
+      when(() => service.canUseBiometrics()).thenAnswer((_) async => true);
+      when(() => service.hasRestorableSession).thenReturn(true);
       await pumpAuthScreen(tester, provider, const LoginScreen());
 
       await enterField(tester, 0, 'amel@esprit.tn');
@@ -532,11 +509,12 @@ void main() {
       await tapText(tester, 'Se connecter');
       await tester.pump();
 
-      await tester.tap(find.byTooltip('Continuer avec Google'));
+      await tester.ensureVisible(find.byTooltip('Déverrouiller par biométrie'));
+      await tester.tap(find.byTooltip('Déverrouiller par biométrie'));
       await tester.pump();
-      verifyNever(() => service.signInWithGoogle());
+      verifyNever(() => service.authenticateWithBiometrics());
 
-      gate.complete(_FakeCredential());
+      gate.complete(_account);
       await tester.pumpAndSettle();
     });
   });

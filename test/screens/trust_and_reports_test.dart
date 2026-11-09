@@ -1,3 +1,4 @@
+import 'package:campusconnect/core/utils/local_database.dart';
 import 'package:campusconnect/models/article_model.dart';
 import 'package:campusconnect/models/job_offer_model.dart';
 import 'package:campusconnect/models/user_model.dart';
@@ -5,9 +6,10 @@ import 'package:campusconnect/screens/admin/admin_reports_screen.dart';
 import 'package:campusconnect/screens/stages_emploi/job_detail_screen.dart';
 import 'package:campusconnect/screens/vente_don/article_detail_screen.dart';
 import 'package:campusconnect/services/ai/fraud_detector.dart';
+import 'package:campusconnect/services/local_store.dart';
 import 'package:campusconnect/services/report_service.dart';
 import 'package:campusconnect/widgets/report_user_sheet.dart';
-import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
+import 'package:campusconnect/widgets/trust_badge.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
@@ -15,7 +17,20 @@ import 'package:intl/date_symbol_data_local.dart';
 import '../helpers/articles.dart';
 import '../helpers/authenticated.dart';
 import '../helpers/fraud.dart';
+import '../helpers/local_db.dart';
 import '../helpers/market.dart';
+
+/// Appuie sur [finder] en vrai asynchrone et attend les écritures SQLite
+/// qui en découlent : sous l'horloge factice des testWidgets, elles ne se
+/// termineraient jamais.
+Future<void> tapAndSave(WidgetTester tester, Finder finder) async {
+  await tester.runAsync(() async {
+    await tester.tap(finder);
+    await LocalDatabase.instance.flush();
+    await Future<void>.delayed(Duration.zero);
+  });
+  await tester.pumpAndSettle();
+}
 
 void main() {
   late AuthHarness h;
@@ -35,8 +50,14 @@ void main() {
     FraudModel.cached = loadFraudModel();
     return initializeDateFormatting('fr_FR');
   });
-  setUp(() => h = AuthHarness());
-  tearDown(() => h.dispose());
+  setUp(() async {
+    await openTestDatabase();
+    h = AuthHarness();
+  });
+  tearDown(() async {
+    await h.dispose();
+    await closeTestDatabase();
+  });
 
   testWidgets('the seller card shows the trust badge, counting finished sales', (tester) async {
     await h.signIn(tester);
@@ -54,6 +75,14 @@ void main() {
     expect(find.text('9/15'), findsOneWidget);
   });
 
+  test('loadPublicUser reads the profile from the local store', () async {
+    await LocalStore().set('users', seller.id, seller.toMap());
+    final loaded = await loadPublicUser(seller.id);
+    expect(loaded?.fullName, 'Sami Trabelsi');
+    expect(loaded?.twoFactorEnabled, isTrue);
+    expect(await loadPublicUser('nobody'), isNull);
+  });
+
   testWidgets('no badge when the seller profile cannot be loaded', (tester) async {
     await h.signIn(tester);
     await pumpMarket(tester, h, marketProvider(FakeArticleRepo([bike])),
@@ -64,8 +93,8 @@ void main() {
   });
 
   testWidgets('the report sheet sends a report once', (tester) async {
-    final db = FakeFirebaseFirestore();
-    final service = ReportService(db);
+    final store = LocalStore();
+    final service = ReportService(store: store);
     await h.signIn(tester);
     await h.pump(
       tester,
@@ -86,21 +115,18 @@ void main() {
     await tester.tap(find.byKey(const Key('report-reason-scam')));
     await tester.enterText(find.byKey(const Key('report-details')), 'Demande un paiement D17.');
     await tester.pump();
-    await tester.tap(find.byKey(const Key('report-send')));
-    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
-    await tester.pumpAndSettle();
+    await tapAndSave(tester, find.byKey(const Key('report-send')));
     expect(find.text('Signaler Sami'), findsNothing);
-    final doc = await tester.runAsync(() => db.collection('reports').doc('uid-1_seller-1').get());
+    final doc = store.get('reports', 'uid-1_seller-1');
     expect(doc!['reason'], 'scam');
+    expect(doc['details'], 'Demande un paiement D17.');
 
     // Une seconde fois : refus expliqué, la feuille reste ouverte.
     await tester.tap(find.text('signaler'));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('report-reason-other')));
     await tester.pump();
-    await tester.tap(find.byKey(const Key('report-send')));
-    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
-    await tester.pumpAndSettle();
+    await tapAndSave(tester, find.byKey(const Key('report-send')));
     expect(find.textContaining('déjà signalé'), findsOneWidget);
   });
 
@@ -127,10 +153,10 @@ void main() {
   });
 
   testWidgets('admins confirm or dismiss reports', (tester) async {
-    final db = FakeFirebaseFirestore();
-    final service = ReportService(db);
+    final store = LocalStore();
+    final service = ReportService(store: store);
     await tester.runAsync(() async {
-      await db.collection('users').doc('seller-1').set({'fullName': 'Sami', 'reportCount': 0});
+      await store.set('users', 'seller-1', {'fullName': 'Sami', 'reportCount': 0});
       for (final reporter in ['amel', 'chris']) {
         await service.submit(
             reporterId: reporter,
@@ -146,15 +172,11 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Sami'), findsNWidgets(2));
 
-    await tester.tap(find.byKey(const Key('confirm-amel_seller-1')));
-    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('dismiss-chris_seller-1')));
-    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
-    await tester.pumpAndSettle();
+    await tapAndSave(tester, find.byKey(const Key('confirm-amel_seller-1')));
+    await tapAndSave(tester, find.byKey(const Key('dismiss-chris_seller-1')));
 
     expect(find.text('Aucun signalement'), findsOneWidget);
-    final user = await tester.runAsync(() => db.collection('users').doc('seller-1').get());
-    expect(user!['reportCount'], 1);
+    expect(store.get('users', 'seller-1')!['reportCount'], 1);
+    expect(store.get('reports', 'chris_seller-1')!['status'], 'dismissed');
   });
 }

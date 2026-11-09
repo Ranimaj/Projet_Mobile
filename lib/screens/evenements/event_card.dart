@@ -1,8 +1,8 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../core/theme/app_tokens.dart';
 import '../../models/event_model.dart';
+import '../../widgets/app_image.dart';
 import 'event_detail_screen.dart';
 import 'itinerary_rules.dart';
 import 'event_style.dart';
@@ -167,13 +167,13 @@ class _PosterThumbnail extends StatelessWidget {
       label: "Affiche de l'événement $title",
       child: ClipRRect(
         borderRadius: BorderRadius.circular(10),
-        child: CachedNetworkImage(
-          imageUrl: url,
+        child: AppImage(
+          url: url,
           width: 56,
           height: 56,
           fit: BoxFit.cover,
-          placeholder: (_, __) => fallback,
-          errorWidget: (_, __, ___) => fallback,
+          placeholder: (_) => fallback,
+          error: (_) => fallback,
         ),
       ),
     );

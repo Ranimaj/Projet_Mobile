@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -21,7 +20,6 @@ import '../../providers/job_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../services/admin_user_service.dart';
 import '../../services/app_prefs.dart';
-import '../../services/storage_service.dart';
 import '../../widgets/auth/auth_feedback.dart';
 import '../../widgets/auth/auth_text_field.dart';
 import '../../widgets/hero_sheet_scaffold.dart';
@@ -72,8 +70,7 @@ class ProfileScreen extends StatelessWidget {
     Navigator.of(context).push(MaterialPageRoute<void>(
       builder: (_) => ChangeNotifierProvider(
         create: (_) => AdminUsersProvider(
-          AdminUserService(FirebaseFirestore.instance,
-              storage: StorageService()),
+          AdminUserService(),
           currentAdminUid: admin.id,
         ),
         child: screen,
@@ -281,15 +278,6 @@ class ProfileScreen extends StatelessWidget {
                   completedSales: completedSalesOf(context, user.id)),
               own: true,
             ),
-            auth.emailVerified
-                ? const StatusChip(
-                    label: 'Email vérifié',
-                    style: StatusChipStyle.success,
-                    icon: Icons.mark_email_read_rounded)
-                : const StatusChip(
-                    label: 'Email à vérifier',
-                    style: StatusChipStyle.warning,
-                    icon: Icons.mark_email_unread_outlined),
             if (user.isPhoneVerified)
               const StatusChip(
                   label: 'Téléphone vérifié',
@@ -315,10 +303,6 @@ class ProfileScreen extends StatelessWidget {
         ),
         const SizedBox(height: 16),
         const OfflineBanner(),
-        if (!auth.emailVerified) ...[
-          const _EmailVerificationBanner(),
-          const SizedBox(height: 16),
-        ],
         SettingGroup(
           children: [
             SettingRow(
@@ -337,10 +321,7 @@ class ProfileScreen extends StatelessWidget {
             SettingRow(
               icon: Icons.badge_rounded,
               title: 'Carte étudiant',
-              subtitle: auth.pendingCardQueued &&
-                      user.studentCard.status == StudentCardStatus.pending
-                  ? 'En attente de connexion'
-                  : _cardSubtitle(user),
+              subtitle: _cardSubtitle(user),
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const StudentCardScreen()),
               ),
@@ -369,13 +350,12 @@ class ProfileScreen extends StatelessWidget {
               subtitle: 'Photo, nom, filière, compétences',
               onTap: () => _edit(context),
             ),
-            if (auth.hasPasswordProvider)
-              SettingRow(
-                icon: Icons.lock_reset_rounded,
-                title: 'Changer le mot de passe',
-                onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => const ChangePasswordScreen())),
-              ),
+            SettingRow(
+              icon: Icons.lock_reset_rounded,
+              title: 'Changer le mot de passe',
+              onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => const ChangePasswordScreen())),
+            ),
             SettingRow(
               icon: Icons.phone_iphone_rounded,
               title: 'Numéro de téléphone',
@@ -421,7 +401,7 @@ class ProfileScreen extends StatelessWidget {
             SettingRow(
               icon: Icons.shield_rounded,
               title: 'Authentification à deux facteurs',
-              subtitle: 'Code SMS demandé sur tout nouvel appareil',
+              subtitle: 'Code demandé à chaque connexion par mot de passe',
               trailing: Switch.adaptive(
                 key: const Key('two-factor-switch'),
                 value: user.twoFactorEnabled,
@@ -444,7 +424,7 @@ class ProfileScreen extends StatelessWidget {
               key: const Key('open-devices'),
               icon: Icons.devices_rounded,
               title: 'Mes appareils',
-              subtitle: 'Sessions ouvertes et historique des connexions',
+              subtitle: 'Historique des connexions sur ce téléphone',
               onTap: () => Navigator.of(context).push(MaterialPageRoute(
                   builder: (_) => const DevicesScreen())),
             ),
@@ -454,9 +434,7 @@ class ProfileScreen extends StatelessWidget {
                     ? Icons.wifi_rounded
                     : Icons.wifi_off_rounded,
                 title: 'Mode hors-ligne',
-                subtitle: connectivity.pendingActionsCount > 0
-                    ? '${connectivity.pendingActionsCount} action(s) en attente'
-                    : 'Tes actions sont synchronisées automatiquement',
+                subtitle: 'Tes données sont enregistrées sur ce téléphone',
                 trailing: StatusChip(
                   label: connectivity.isOnline ? 'En ligne' : 'Actif',
                   style: connectivity.isOnline
@@ -615,152 +593,6 @@ class _BiometricSwitchState extends State<_BiometricSwitch> {
   }
 }
 
-// --- Bandeau email non vérifié ------------------------------------------------
-
-class _EmailVerificationBanner extends StatefulWidget {
-  const _EmailVerificationBanner();
-
-  @override
-  State<_EmailVerificationBanner> createState() =>
-      _EmailVerificationBannerState();
-}
-
-class _EmailVerificationBannerState extends State<_EmailVerificationBanner>
-    with WidgetsBindingObserver {
-  Timer? _ticker;
-  Timer? _autoCheck;
-
-  /// Intervalle de re-vérification silencieuse tant que l'email n'est pas
-  /// confirmé : l'utilisateur clique sur le lien dans sa boîte mail et le
-  /// badge se met à jour tout seul, sans revenir appuyer sur « J'ai vérifié ».
-  static const Duration autoCheckEvery = Duration(seconds: 10);
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addObserver(this);
-    _syncTicker();
-    _autoCheck = Timer.periodic(autoCheckEvery, (_) => _silentCheck());
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    _ticker?.cancel();
-    _autoCheck?.cancel();
-    super.dispose();
-  }
-
-  /// Retour dans l'app (après être allé cliquer sur le lien) : on revérifie.
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) _silentCheck();
-  }
-
-  Future<void> _silentCheck() async {
-    if (!mounted) return;
-    final auth = context.read<AuthProvider>();
-    if (auth.isLoading || auth.emailVerified) return;
-    await auth.refreshEmailVerification(silent: true);
-  }
-
-  /// Rafraîchit le compte à rebours tant qu'un délai de renvoi est en cours.
-  void _syncTicker() {
-    final auth = context.read<AuthProvider>();
-    if (auth.canResendVerification) {
-      _ticker?.cancel();
-      _ticker = null;
-    } else {
-      _ticker ??= Timer.periodic(const Duration(seconds: 1), (_) {
-        if (!mounted) return;
-        setState(() {});
-        if (context.read<AuthProvider>().canResendVerification) _syncTicker();
-      });
-    }
-  }
-
-  Future<void> _resend() async {
-    final auth = context.read<AuthProvider>();
-    final ok = await auth.resendVerificationEmail();
-    if (!mounted) return;
-    showAuthSnack(
-      context,
-      ok
-          ? 'Email de vérification renvoyé.'
-          : (auth.errorMessage ?? 'Envoi impossible.'),
-      isError: !ok,
-    );
-    _syncTicker();
-  }
-
-  Future<void> _check() async {
-    final auth = context.read<AuthProvider>();
-    final verified = await auth.refreshEmailVerification();
-    if (!mounted) return;
-    if (!verified) {
-      showAuthSnack(
-          context,
-          auth.errorMessage ??
-              'Email toujours non vérifié. Clique sur le lien reçu.');
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final auth = context.watch<AuthProvider>();
-    final t = AppTokens.of(context);
-    final text = Theme.of(context).textTheme;
-    final left = auth.verificationCooldownLeft.inSeconds;
-    final action = TextButton.styleFrom(minimumSize: const Size(48, 48));
-
-    return Container(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 6),
-      decoration: BoxDecoration(
-        color: t.warningSoft,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.mark_email_unread_outlined,
-                  size: 18, color: t.warning),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text('Email non vérifié',
-                    style: text.titleSmall!.copyWith(color: t.warning)),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Clique sur le lien reçu par email : ce bandeau disparaîtra tout seul.',
-            style: text.bodyMedium!.copyWith(color: t.textPrimary),
-          ),
-          // Wrap plutôt que Row : avec le compte à rebours, les deux boutons
-          // ne tiennent pas toujours sur une ligne en petite largeur.
-          Wrap(
-            alignment: WrapAlignment.end,
-            children: [
-              TextButton(
-                style: action,
-                onPressed: auth.isLoading || left > 0 ? null : _resend,
-                child: Text(left > 0 ? 'Renvoyer ($left s)' : 'Renvoyer'),
-              ),
-              TextButton(
-                style: action,
-                onPressed: auth.isLoading ? null : _check,
-                child: const Text('J\'ai vérifié'),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 // --- Dialogues -------------------------------------------------------------------
 
 class _PhoneDialog extends StatefulWidget {
@@ -844,10 +676,8 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
 
   Future<void> _confirm() async {
     final auth = context.read<AuthProvider>();
-    if (auth.hasPasswordProvider && !_formKey.currentState!.validate()) return;
-    final ok = await auth.deleteAccount(
-      password: auth.hasPasswordProvider ? _passwordCtrl.text : null,
-    );
+    if (!_formKey.currentState!.validate()) return;
+    final ok = await auth.deleteAccount(password: _passwordCtrl.text);
     if (!mounted) return;
     if (ok) {
       // Ferme le dialogue ET l'écran profil (route empilée au-dessus de la
@@ -874,20 +704,18 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
               'Cette action est irréversible : ton profil, tes annonces et tes candidatures seront supprimés.',
               style: Theme.of(context).textTheme.bodyMedium,
             ),
-            if (auth.hasPasswordProvider) ...[
-              const SizedBox(height: 14),
-              AuthTextField(
-                label: 'Confirme avec ton mot de passe',
-                hint: '••••••••',
-                icon: Icons.lock_outline_rounded,
-                controller: _passwordCtrl,
-                isPassword: true,
-                autofocus: true,
-                textInputAction: TextInputAction.done,
-                validator: Validators.loginPassword,
-                onSubmitted: (_) => _confirm(),
-              ),
-            ],
+            const SizedBox(height: 14),
+            AuthTextField(
+              label: 'Confirme avec ton mot de passe',
+              hint: '••••••••',
+              icon: Icons.lock_outline_rounded,
+              controller: _passwordCtrl,
+              isPassword: true,
+              autofocus: true,
+              textInputAction: TextInputAction.done,
+              validator: Validators.loginPassword,
+              onSubmitted: (_) => _confirm(),
+            ),
             if (_error != null) ...[
               const SizedBox(height: 10),
               Text(_error!,

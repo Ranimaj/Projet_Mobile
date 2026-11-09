@@ -1,16 +1,15 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:uuid/uuid.dart';
 
+import '../core/utils/local_database.dart';
 import '../models/device_session.dart';
+import 'local_store.dart';
 
-/// Ce que l'app sait de l'appareil courant.
+/// Ce que l'app sait de ce téléphone.
 class DeviceInfo {
   final String id;
   final String name;
@@ -18,117 +17,96 @@ class DeviceInfo {
   const DeviceInfo({required this.id, required this.name, required this.platform});
 }
 
-/// Résultat de l'ouverture de session sur cet appareil.
-class SignInOutcome {
-  /// Premier passage du compte sur cet appareil.
-  final bool newDevice;
-
-  /// Double authentification active et appareil pas encore de confiance :
-  /// un code SMS doit confirmer la connexion.
-  final bool needsConfirmation;
-
-  /// La session a été fermée à distance pendant que l'app était fermée.
-  final bool revoked;
-
-  const SignInOutcome({this.newDevice = false, this.needsConfirmation = false, this.revoked = false});
-}
-
 typedef DeviceInfoLookup = Future<({String name, String platform})> Function();
 typedef CityLookup = Future<String?> Function();
 
-/// Appareils et historique des connexions d'un compte
-/// (`users/{uid}/devices` et `users/{uid}/logins`).
+/// « Mes appareils » : ce téléphone et l'historique des connexions de chaque
+/// compte sur ce téléphone (collections `devices` et `logins` de
+/// [LocalStore]).
 ///
-/// Chaque appareil écoute son propre document : quand un autre appareil le
-/// marque `revoked`, il ferme sa session. Les règles Firestore limitent ces
-/// documents à leur propriétaire (et aux admins en lecture).
+/// Il n'y a pas de serveur : l'app ne voit ni ne contrôle aucun autre
+/// appareil, et ces données ne quittent jamais le téléphone.
 class DeviceSessionService {
+  /// Lève une [StateError] si la base locale n'est pas ouverte et qu'aucun
+  /// [store] n'est fourni (l'AuthProvider se passe alors de l'historique).
   DeviceSessionService({
-    required FirebaseFirestore firestore,
+    LocalStore? store,
     DeviceInfoLookup? deviceInfo,
     CityLookup? city,
-    Future<SharedPreferences> Function()? prefs,
-  })  : _db = firestore,
+    DateTime Function()? clock,
+  })  : _store = store ?? _sharedStore(),
         _deviceInfo = deviceInfo ?? _platformDeviceInfo,
         _city = city ?? _approximateCity,
-        _prefs = prefs ?? SharedPreferences.getInstance;
+        _now = clock ?? DateTime.now;
 
-  final FirebaseFirestore _db;
+  static LocalStore _sharedStore() {
+    if (!LocalDatabase.isOpen) throw StateError('Stockage local indisponible');
+    return LocalStore();
+  }
+
+  final LocalStore _store;
   final DeviceInfoLookup _deviceInfo;
   final CityLookup _city;
-  final Future<SharedPreferences> Function() _prefs;
+  final DateTime Function() _now;
 
-  static const _deviceIdKey = 'device_id';
-  static const _sessionUidKey = 'device_session_uid';
+  static const devicesCollection = 'devices';
+  static const loginsCollection = 'logins';
+
+  /// Réglage local qui garde l'identifiant de ce téléphone.
+  static const deviceIdKey = 'device.id';
 
   /// Nombre de connexions montrées dans l'historique.
   static const historyLength = 20;
 
-  CollectionReference<Map<String, dynamic>> _devices(String uid) =>
-      _db.collection('users').doc(uid).collection('devices');
-  CollectionReference<Map<String, dynamic>> _logins(String uid) =>
-      _db.collection('users').doc(uid).collection('logins');
-
   DeviceInfo? _info;
 
-  /// Identifiant de cet appareil, tiré une fois et gardé sur le téléphone.
+  static String _docId(String uid, String deviceId) => '${uid}_$deviceId';
+
+  /// Ce téléphone : identifiant tiré une fois et gardé dans les réglages.
   Future<DeviceInfo> currentDevice() async {
     final cached = _info;
     if (cached != null) return cached;
-    final prefs = await _prefs();
-    var id = prefs.getString(_deviceIdKey);
+    var id = _store.getValue(deviceIdKey);
     if (id == null) {
-      id = const Uuid().v4();
-      await prefs.setString(_deviceIdKey, id);
+      id = LocalStore.newId();
+      await _store.setValue(deviceIdKey, id);
     }
-    final d = await _deviceInfo();
+    ({String name, String platform}) d;
+    try {
+      d = await _deviceInfo();
+    } catch (_) {
+      d = (name: 'Ce téléphone', platform: '');
+    }
     return _info = DeviceInfo(id: id, name: d.name, platform: d.platform);
   }
 
-  /// À appeler dès que Firebase annonce une session ouverte, que ce soit
-  /// une vraie connexion ou une session restaurée au lancement de l'app.
-  Future<SignInOutcome> onSignedIn(String uid, {required bool twoFactor}) async {
+  /// Connexion par mot de passe (ou inscription) : ajoute une ligne à
+  /// l'historique et met à jour la fiche de ce téléphone pour [uid].
+  Future<void> recordLogin(String uid) async {
     final device = await currentDevice();
-    final prefs = await _prefs();
-    final ref = _devices(uid).doc(device.id);
-    final snap = await ref.get();
-    final existing = snap.exists ? DeviceSession.fromMap(snap.id, snap.data()!) : null;
-
-    // Session restaurée : l'app a déjà enregistré ce compte sur ce téléphone.
-    if (prefs.getString(_sessionUidKey) == uid && existing != null) {
-      if (existing.revoked) return const SignInOutcome(revoked: true);
-      await ref.update({'lastSeenAt': FieldValue.serverTimestamp()});
-      return SignInOutcome(needsConfirmation: twoFactor && !existing.trusted);
-    }
-
-    // Vraie connexion.
-    final newDevice = existing == null;
-    final needsConfirmation = twoFactor && !(existing?.trusted ?? false);
-    final others = newDevice ? await _devices(uid).limit(1).get() : null;
     final location = await _safeCity();
-    final now = FieldValue.serverTimestamp();
-    await ref.set({
+    final now = _now();
+    final id = _docId(uid, device.id);
+    final newDevice = !_store.exists(devicesCollection, id);
+    await _store.merge(devicesCollection, id, {
+      'uid': uid,
+      'deviceId': device.id,
       'name': device.name,
       'platform': device.platform,
       'location': location,
       if (newDevice) 'firstLoginAt': now,
       'lastLoginAt': now,
-      'lastSeenAt': now,
-      'trusted': (existing?.trusted ?? false) || !needsConfirmation,
-      'revoked': false,
       'signedOut': false,
-      // Les autres appareils affichent l'alerte « Nouvelle connexion ».
-      'alertPending': newDevice && (others?.docs.isNotEmpty ?? false),
-    }, SetOptions(merge: true));
-    await _logins(uid).add({
+    });
+    await _store.set(loginsCollection, LocalStore.newId(), {
+      'uid': uid,
       'deviceId': device.id,
       'deviceName': device.name,
+      'platform': device.platform,
       'location': location,
       'at': now,
       'newDevice': newDevice,
     });
-    await prefs.setString(_sessionUidKey, uid);
-    return SignInOutcome(newDevice: newDevice, needsConfirmation: needsConfirmation);
   }
 
   Future<String?> _safeCity() async {
@@ -139,113 +117,55 @@ class DeviceSessionService {
     }
   }
 
-  /// Déconnexion volontaire sur cet appareil.
-  Future<void> onSignedOut(String uid) async {
-    try {
-      final device = await currentDevice();
-      await _devices(uid).doc(device.id).update({'signedOut': true});
-    } catch (_) {
-      // Hors-ligne ou document absent : rien de grave.
-    }
-    await forgetLocalSession();
+  /// Déconnexion volontaire sur ce téléphone.
+  Future<void> recordLogout(String uid) async {
+    final device = await currentDevice();
+    final id = _docId(uid, device.id);
+    if (!_store.exists(devicesCollection, id)) return;
+    await _store.update(devicesCollection, id, {'signedOut': true, 'lastLogoutAt': _now()});
   }
 
-  /// Oublie la session locale (après une fermeture à distance).
-  Future<void> forgetLocalSession() async {
-    try {
-      final prefs = await _prefs();
-      await prefs.remove(_sessionUidKey);
-    } catch (_) {}
-  }
-
-  /// Document de cet appareil, en direct.
+  /// Fiche de ce téléphone pour [uid] (null avant la première connexion),
+  /// en direct.
   Stream<DeviceSession?> watchThisDevice(String uid) async* {
     final device = await currentDevice();
-    yield* _devices(uid).doc(device.id).snapshots().map(
-        (s) => s.exists ? DeviceSession.fromMap(s.id, s.data()!) : null);
+    final id = _docId(uid, device.id);
+    yield* _store.watchDoc(devicesCollection, id).map((data) => data == null ? null : DeviceSession.fromMap(id, data));
   }
 
-  /// Tous les appareils, le plus récemment connecté d'abord.
-  Stream<List<DeviceSession>> watchDevices(String uid) =>
-      _devices(uid).orderBy('lastLoginAt', descending: true).snapshots().map(
-          (s) => [for (final d in s.docs) DeviceSession.fromMap(d.id, d.data())]);
+  /// Dernières connexions de [uid] sur ce téléphone, la plus récente
+  /// d'abord ([historyLength] au plus).
+  Stream<List<LoginRecord>> watchLogins(String uid) =>
+      _store.watch(loginsCollection).map((_) => _logins(uid).take(historyLength).toList());
 
-  /// Dernières connexions, la plus récente d'abord.
-  Stream<List<LoginRecord>> watchLogins(String uid) => _logins(uid)
-      .orderBy('at', descending: true)
-      .limit(historyLength)
-      .snapshots()
-      .map((s) => [for (final d in s.docs) LoginRecord.fromMap(d.id, d.data())]);
-
-  /// Le code SMS a confirmé cette connexion : l'appareil devient de confiance.
-  Future<void> confirmThisDevice(String uid) async {
-    final device = await currentDevice();
-    await _devices(uid).doc(device.id).update({'trusted': true});
+  List<LoginRecord> _logins(String uid) {
+    final list = [
+      for (final d in _store.where(loginsCollection, (m) => m['uid'] == uid)) LoginRecord.fromMap(d.id, d.data),
+    ];
+    final epoch = DateTime.fromMillisecondsSinceEpoch(0);
+    list.sort((a, b) => (b.at ?? epoch).compareTo(a.at ?? epoch));
+    return list;
   }
 
-  /// « C'est bien moi » : l'alerte de nouvelle connexion disparaît.
-  Future<void> acknowledge(String uid, String deviceId) =>
-      _devices(uid).doc(deviceId).update({'alertPending': false});
+  /// Pour l'export RGPD (valeurs JSON : les dates en ISO 8601).
+  Future<Map<String, dynamic>> export(String uid) async => {
+        'devices': [
+          for (final d in _store.where(devicesCollection, (m) => m['uid'] == uid)) {..._jsonSafe(d.data), 'id': d.id},
+        ],
+        'logins': [
+          for (final l in _logins(uid)) _jsonSafe(_store.get(loginsCollection, l.id) ?? const {}),
+        ],
+      };
 
-  Future<void> setTrusted(String uid, String deviceId, bool trusted) =>
-      _devices(uid).doc(deviceId).update({'trusted': trusted});
+  static Map<String, dynamic> _jsonSafe(Map<String, dynamic> data) => {
+        for (final e in data.entries)
+          e.key: e.value is DateTime ? (e.value as DateTime).toUtc().toIso8601String() : e.value,
+      };
 
-  /// Ferme la session d'un appareil à distance. Il n'est plus de confiance :
-  /// avec la double authentification, la prochaine connexion redemandera le
-  /// code SMS.
-  Future<void> revoke(String uid, String deviceId) => _devices(uid).doc(deviceId).update({
-        'revoked': true,
-        'trusted': false,
-        'alertPending': false,
-      });
-
-  /// Ferme toutes les sessions sauf celle de cet appareil.
-  Future<int> revokeOthers(String uid) async {
-    final me = (await currentDevice()).id;
-    final snap = await _devices(uid).get();
-    final batch = _db.batch();
-    var count = 0;
-    for (final d in snap.docs) {
-      final s = DeviceSession.fromMap(d.id, d.data());
-      if (d.id == me || !s.isActive) continue;
-      batch.update(d.reference, {'revoked': true, 'trusted': false, 'alertPending': false});
-      count++;
-    }
-    await batch.commit();
-    return count;
-  }
-
-  /// Pour l'export RGPD.
-  Future<Map<String, dynamic>> export(String uid) async {
-    final devices = await _devices(uid).get();
-    final logins = await _logins(uid).orderBy('at', descending: true).get();
-    String? iso(dynamic v) => v is Timestamp ? v.toDate().toIso8601String() : null;
-    return {
-      'devices': [
-        for (final d in devices.docs)
-          {
-            for (final e in d.data().entries) e.key: e.value is Timestamp ? iso(e.value) : e.value,
-            'id': d.id,
-          },
-      ],
-      'logins': [
-        for (final d in logins.docs)
-          {
-            for (final e in d.data().entries) e.key: e.value is Timestamp ? iso(e.value) : e.value,
-          },
-      ],
-    };
-  }
-
-  /// Efface appareils et historique (suppression du compte).
+  /// Efface la fiche et l'historique de [uid] (suppression du compte).
   Future<void> deleteAll(String uid) async {
-    for (final col in [_devices(uid), _logins(uid)]) {
-      final snap = await col.get();
-      for (final d in snap.docs) {
-        await d.reference.delete();
-      }
-    }
-    await forgetLocalSession();
+    await _store.deleteWhere(devicesCollection, (m) => m['uid'] == uid);
+    await _store.deleteWhere(loginsCollection, (m) => m['uid'] == uid);
   }
 }
 
@@ -254,9 +174,7 @@ Future<({String name, String platform})> _platformDeviceInfo() async {
   try {
     if (Platform.isAndroid) {
       final a = await plugin.androidInfo;
-      final brand = a.manufacturer.isEmpty
-          ? ''
-          : '${a.manufacturer[0].toUpperCase()}${a.manufacturer.substring(1)} ';
+      final brand = a.manufacturer.isEmpty ? '' : '${a.manufacturer[0].toUpperCase()}${a.manufacturer.substring(1)} ';
       return (name: '$brand${a.model}'.trim(), platform: 'android');
     }
     if (Platform.isIOS) {

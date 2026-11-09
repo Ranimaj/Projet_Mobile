@@ -1,4 +1,3 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -59,7 +58,7 @@ class _ReportSheetState extends State<_ReportSheet> {
       _error = null;
     });
     try {
-      final service = widget.service ?? ReportService(FirebaseFirestore.instance);
+      final service = widget.service ?? ReportService();
       await service.submit(
         reporterId: me.id,
         reporterName: me.fullName,

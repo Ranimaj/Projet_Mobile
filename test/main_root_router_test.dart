@@ -1,5 +1,6 @@
 import 'package:campusconnect/core/theme/app_theme.dart';
 import 'package:campusconnect/main.dart';
+import 'package:campusconnect/models/user_model.dart';
 import 'package:campusconnect/providers/annonce_provider.dart';
 import 'package:campusconnect/providers/article_provider.dart';
 import 'package:campusconnect/providers/event_provider.dart';
@@ -9,6 +10,7 @@ import 'package:campusconnect/screens/auth/register_screen.dart';
 import 'package:campusconnect/screens/onboarding/onboarding_screen.dart';
 import 'package:campusconnect/screens/visitor/visitor_home_screen.dart';
 import 'package:campusconnect/services/app_prefs.dart';
+import 'package:campusconnect/services/auth_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -113,33 +115,46 @@ void main() {
     expect(find.byType(SnackBar), findsNothing);
   });
 
-  testWidgets('a session closed from another device pops the screens left on top',
-      (t) async {
+  testWidgets('a disabled account pops the screens left on top', (t) async {
+    // Session mémorisée sur le téléphone, mais un admin a désactivé le compte
+    // entre-temps : le déverrouillage biométrique la referme d'office.
     final service = MockAuthService();
     when(() => service.authStateChanges).thenAnswer((_) => const Stream.empty());
+    when(() => service.authenticateWithBiometrics()).thenAnswer((_) async => true);
+    when(() => service.currentAccount)
+        .thenReturn(const AuthAccount(uid: 'uid-1', email: 'amel@esprit.tn'));
+    when(() => service.fetchProfile('uid-1')).thenAnswer((_) async => AppUser(
+          id: 'uid-1',
+          fullName: 'Amel Ben Salah',
+          email: 'amel@esprit.tn',
+          disabled: true,
+          createdAt: DateTime(2024, 9, 1),
+        ));
+    when(() => service.signOut()).thenAnswer((_) async {});
     final auth = AuthProvider(authService: service);
     addTearDown(auth.dispose);
     await auth.continueAsVisitor();
     await pumpRouter(t, {'onboarding_seen': true}, realAuth: auth);
 
-    // Un écran de la session (ex. « Mes appareils ») reste ouvert par-dessus.
+    // Un écran reste ouvert par-dessus l'accueil (ex. la connexion).
     Navigator.of(t.element(find.byType(VisitorHomeScreen))).push(
         MaterialPageRoute<void>(
-            builder: (_) => const Scaffold(body: Text('Mes appareils'))));
+            builder: (_) => const Scaffold(body: Text('Écran ouvert'))));
     await t.pumpAndSettle();
-    expect(find.text('Mes appareils'), findsOneWidget);
+    expect(find.text('Écran ouvert'), findsOneWidget);
 
-    auth
-      ..errorCode = AuthProvider.sessionRevokedCode
-      ..errorMessage = 'Ta session a été fermée depuis un autre appareil.';
-    await auth.continueAsVisitor();
+    final ok = await t.runAsync(auth.loginWithBiometrics);
+    expect(ok, isTrue);
     await t.pump();
     await t.pumpAndSettle();
 
-    expect(find.text('Mes appareils'), findsNothing);
+    verify(() => service.signOut()).called(1);
+    expect(auth.status, AuthStatus.visitor);
+    expect(find.text('Écran ouvert'), findsNothing);
     expect(find.byType(VisitorHomeScreen), findsOneWidget);
-    expect(find.text('Ta session a été fermée depuis un autre appareil.'),
+    expect(find.text("Compte désactivé. Contacte l'administration."),
         findsOneWidget);
+    expect(auth.errorCode, isNull, reason: 'le message n\'est annoncé qu\'une fois');
   });
 
   testWidgets('rebuilds before and after the clear show a single snack (real clearError)',

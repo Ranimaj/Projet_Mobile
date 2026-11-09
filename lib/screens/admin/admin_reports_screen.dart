@@ -1,4 +1,3 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -20,7 +19,7 @@ class AdminReportsScreen extends StatefulWidget {
 }
 
 class _AdminReportsScreenState extends State<AdminReportsScreen> {
-  late final ReportService _service = widget.service ?? ReportService(FirebaseFirestore.instance);
+  late final ReportService _service = widget.service ?? ReportService();
   late final Stream<List<UserReport>> _pending = _service.watchPending();
   final _busy = <String>{};
 

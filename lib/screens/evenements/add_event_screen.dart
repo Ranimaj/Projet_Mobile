@@ -1,22 +1,25 @@
 import 'dart:async';
-import 'package:cached_network_image/cached_network_image.dart';
+import 'dart:io';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 import '../../core/theme/app_tokens.dart';
 import '../../models/event_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/event_provider.dart';
+import '../../services/storage_service.dart';
+import '../../widgets/app_image.dart';
 import '../../widgets/primary_button.dart';
 import 'category_classifier.dart';
 import 'category_classifier_loader.dart';
 import 'event_categories.dart';
 import 'event_rules.dart';
 import 'event_validators.dart';
-import 'cloudinary_service.dart';
 import 'photon_service.dart';
 import 'poster_compressor.dart';
 import 'poster_rules.dart';
@@ -130,15 +133,15 @@ class _AddEventScreenState extends State<AddEventScreen> {
       _suggestion!.category != _dismissedSuggestion &&
       !_submitting;
 
-  // --- Affiche (Cloudinary, preset unsigned) ---
-  /// JPEG déjà compressé, choisi mais PAS encore envoyé : l'envoi se fait à
-  /// l'enregistrement, pour ne pas laisser d'images orphelines quand le
-  /// formulaire est abandonné.
+  // --- Affiche (fichier sur le téléphone) ---
+  /// JPEG déjà compressé, choisi mais PAS encore enregistré : il est rangé
+  /// dans le dossier de l'app à l'enregistrement, pour ne pas laisser
+  /// d'images orphelines quand le formulaire est abandonné.
   Uint8List? _posterBytes;
 
-  /// URL déjà obtenue pour [_posterBytes] : un nouvel essai d'enregistrement
-  /// ne renvoie pas l'image une seconde fois.
-  String? _uploadedPosterUrl;
+  /// Chemin déjà obtenu pour [_posterBytes] : un nouvel essai d'enregistrement
+  /// ne copie pas l'image une seconde fois.
+  String? _savedPosterPath;
 
   /// Modification : l'affiche existante a été retirée.
   bool _posterRemoved = false;
@@ -366,8 +369,8 @@ class _AddEventScreenState extends State<AddEventScreen> {
 
   // ------------------------------------------------------------- Affiche
 
-  /// Galerie → contrôle (type réel, taille) → compression. Rien n'est envoyé
-  /// ici. Galerie annulée : rien ne se passe.
+  /// Galerie → contrôle (type réel, taille) → compression. Rien n'est
+  /// enregistré ici. Galerie annulée : rien ne se passe.
   Future<void> _pickPoster() async {
     final messenger = ScaffoldMessenger.of(context);
     XFile? file;
@@ -408,7 +411,7 @@ class _AddEventScreenState extends State<AddEventScreen> {
       _posterPreparing = false;
       if (compressed != null) {
         _posterBytes = compressed;
-        _uploadedPosterUrl = null; // nouvelle image : pas encore envoyée
+        _savedPosterPath = null; // nouvelle image : pas encore enregistrée
         _posterRemoved = false;
       }
     });
@@ -419,57 +422,71 @@ class _AddEventScreenState extends State<AddEventScreen> {
 
   void _removePoster() => setState(() {
         _posterBytes = null;
-        _uploadedPosterUrl = null;
+        _savedPosterPath = null;
         _posterRemoved = _existingPosterUrl != null;
       });
 
-  /// Envoie l'affiche choisie (si besoin) au moment d'enregistrer.
-  /// proceed false = l'organisateur a annulé ; url null = pas de nouvelle affiche.
-  Future<({bool proceed, String? url})> _ensurePosterUploaded(bool isOnline) async {
+  /// Enregistre l'affiche choisie (si besoin) sur le téléphone au moment
+  /// d'enregistrer l'événement. proceed false = l'organisateur a annulé ;
+  /// url null = pas de nouvelle affiche.
+  Future<({bool proceed, String? url})> _ensurePosterSaved() async {
     final bytes = _posterBytes;
     if (bytes == null) return (proceed: true, url: null);
-    if (_uploadedPosterUrl != null) return (proceed: true, url: _uploadedPosterUrl); // déjà envoyée
+    if (_savedPosterPath != null) return (proceed: true, url: _savedPosterPath); // déjà enregistrée
 
     while (true) {
       setState(() {
         _submitting = true;
         _posterUploading = true;
       });
-      final response = isOnline
-          ? await CloudinaryService.instance.upload(bytes)
-          : const UploadFailure(UploadError.noConnection, "Pas de connexion : l'affiche n'a pas été envoyée.");
+      String? path;
+      try {
+        path = await _savePoster(bytes);
+      } catch (e) {
+        debugPrint("Enregistrement de l'affiche échoué : $e");
+      }
       if (!mounted) return (proceed: false, url: null);
       setState(() {
         _submitting = false;
         _posterUploading = false;
       });
-      switch (response) {
-        case UploadSuccess(:final url):
-          _uploadedPosterUrl = url;
-          return (proceed: true, url: url);
-        case UploadFailure(:final message):
-          final choice = await showDialog<String>(
-            context: context,
-            barrierDismissible: false,
-            builder: (ctx) => AlertDialog(
-              title: const Text("Envoi de l'affiche impossible"),
-              content: Text(message),
-              actions: [
-                TextButton(onPressed: () => Navigator.pop(ctx, 'cancel'), child: const Text('Annuler')),
-                TextButton(onPressed: () => Navigator.pop(ctx, 'without'), child: const Text('Enregistrer sans affiche')),
-                FilledButton(onPressed: () => Navigator.pop(ctx, 'retry'), child: const Text('Réessayer')),
-              ],
-            ),
-          );
-          if (!mounted) return (proceed: false, url: null);
-          if (choice == 'retry') {
-            isOnline = context.read<EventProvider>().isOnline; // la connexion a pu revenir
-            continue;
-          }
-          // « Sans affiche » : on enregistre le reste ; la nouvelle image n'est
-          // pas utilisée (une affiche existante reste, sauf si elle a été retirée).
-          return (proceed: choice == 'without', url: null);
+      if (path != null) {
+        _savedPosterPath = path;
+        return (proceed: true, url: path);
       }
+      final choice = await showDialog<String>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          title: const Text("Affiche non enregistrée"),
+          content: const Text("L'affiche n'a pas pu être enregistrée sur le téléphone."),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, 'cancel'), child: const Text('Annuler')),
+            TextButton(onPressed: () => Navigator.pop(ctx, 'without'), child: const Text('Enregistrer sans affiche')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, 'retry'), child: const Text('Réessayer')),
+          ],
+        ),
+      );
+      if (!mounted) return (proceed: false, url: null);
+      if (choice == 'retry') continue;
+      // « Sans affiche » : on enregistre le reste ; la nouvelle image n'est
+      // pas utilisée (une affiche existante reste, sauf si elle a été retirée).
+      return (proceed: choice == 'without', url: null);
+    }
+  }
+
+  /// Range le JPEG déjà compressé dans le dossier de l'app (`events/<id>/`)
+  /// via [StorageService] ; renvoie son chemin, enregistré dans posterUrl.
+  Future<String> _savePoster(Uint8List bytes) async {
+    final tmp = File('${(await getTemporaryDirectory()).path}/poster_$_eventId.jpg');
+    await tmp.writeAsBytes(bytes, flush: true);
+    // Déjà réduite par PosterCompressor : on garde sa taille.
+    final dims = PosterRules.dimensions(bytes);
+    final side = dims == null ? 1080 : math.min(dims.width, dims.height);
+    try {
+      return await StorageService().saveImage(tmp, folder: 'events/$_eventId', minSide: side, quality: 90);
+    } finally {
+      tmp.delete().ignore();
     }
   }
 
@@ -591,12 +608,12 @@ class _AddEventScreenState extends State<AddEventScreen> {
     final lng = located ? _placeLng : null;
     final placeNote = located ? null : "Lieu non localisé : pas de carte ni d'itinéraire.";
 
-    // Affiche : envoyée MAINTENANT (pas au choix). En cas d'échec, l'organisateur
-    // choisit : réessayer, enregistrer sans la nouvelle affiche, ou annuler
-    // (le formulaire reste rempli).
-    final poster = await _ensurePosterUploaded(provider.isOnline);
+    // Affiche : enregistrée MAINTENANT (pas au choix). En cas d'échec,
+    // l'organisateur choisit : réessayer, enregistrer sans la nouvelle
+    // affiche, ou annuler (le formulaire reste rempli).
+    final poster = await _ensurePosterSaved();
     if (!poster.proceed || !mounted) return;
-    // Affiche finale : la nouvelle si envoyée, sinon l'existante (sauf retirée).
+    // Affiche finale : la nouvelle si enregistrée, sinon l'existante (sauf retirée).
     final posterUrl = poster.url ?? (_posterRemoved ? null : _existingPosterUrl);
 
     setState(() => _submitting = true);
@@ -622,10 +639,8 @@ class _AddEventScreenState extends State<AddEventScreen> {
           posterUrl: posterUrl,
           clearPoster: posterUrl == null,
         );
-        final sentOnline = await provider.updateEvent(original, edited);
-        message = sentOnline
-            ? 'Événement modifié !'
-            : 'Modifications enregistrées : envoi au retour du réseau.';
+        await provider.updateEvent(original, edited);
+        message = 'Événement modifié !';
       } else {
         // On ignore l'événement lui-même si un essai précédent a réussi.
         final others = provider.all.where((e) => e.id != _eventId).toList();
@@ -651,9 +666,8 @@ class _AddEventScreenState extends State<AddEventScreen> {
           price: _priceValue,
           posterUrl: posterUrl,
         );
-        // Le provider applique un délai max de 15 s (TimeoutException ci-dessous).
-        final sentOnline = await provider.createEvent(draft);
-        message = sentOnline ? 'Événement créé !' : 'Événement enregistré : publication au retour du réseau.';
+        await provider.createEvent(draft);
+        message = 'Événement créé !';
       }
       if (!mounted) return;
       _saved = true;
@@ -661,11 +675,6 @@ class _AddEventScreenState extends State<AddEventScreen> {
       Navigator.pop(context);
     } on EventActionException catch (e) {
       if (mounted) _showMessage(e.message);
-    } on TimeoutException {
-      if (mounted) {
-        _showMessage('Le serveur ne répond pas. Réessayez : '
-            "l'événement ne sera pas créé en double.");
-      }
     } catch (e) {
       debugPrint('Enregistrement événement échoué : $e');
       if (mounted) _showMessage("Impossible d'enregistrer l'événement. Réessayez.");
@@ -890,7 +899,7 @@ class _AddEventScreenState extends State<AddEventScreen> {
                 if (_posterUploading)
                   Padding(
                     padding: const EdgeInsets.only(top: 8),
-                    child: Text("Envoi de l'affiche…",
+                    child: Text("Enregistrement de l'affiche…",
                         textAlign: TextAlign.center, style: TextStyle(color: t.textSecondary)),
                   ),
               ],
@@ -960,11 +969,11 @@ class _PosterPicker extends StatelessWidget {
       content = Semantics(
         image: true,
         label: "Affiche actuelle de l'événement",
-        child: CachedNetworkImage(
-          imageUrl: existingUrl!,
+        child: AppImage(
+          url: existingUrl!,
           fit: BoxFit.cover,
-          placeholder: (_, __) => const Center(child: CircularProgressIndicator()),
-          errorWidget: (_, __, ___) => placeholder,
+          placeholder: (_) => const Center(child: CircularProgressIndicator()),
+          error: (_) => placeholder,
         ),
       );
     } else {

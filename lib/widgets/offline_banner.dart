@@ -4,7 +4,7 @@ import '../core/theme/app_tokens.dart';
 import '../providers/connectivity_provider.dart';
 
 /// Bandeau "mode hors-ligne" affiché en haut des écrans concernés (BNF3).
-/// Indique le nombre d'actions en attente de synchronisation.
+/// Les données sont sur le téléphone : seuls les services web en dépendent.
 class OfflineBanner extends StatelessWidget {
   const OfflineBanner({super.key});
 
@@ -12,14 +12,9 @@ class OfflineBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<ConnectivityProvider>(
       builder: (context, connectivity, _) {
-        if (connectivity.isOnline && connectivity.pendingActionsCount == 0) {
-          return const SizedBox.shrink();
-        }
-        final label = !connectivity.isOnline
-            ? (connectivity.pendingActionsCount > 0
-                ? 'Mode hors-ligne actif — ${connectivity.pendingActionsCount} action(s) en attente de synchronisation'
-                : 'Mode hors-ligne actif — vos actions seront synchronisées au retour du réseau')
-            : 'Synchronisation de ${connectivity.pendingActionsCount} action(s) en cours…';
+        if (connectivity.isOnline) return const SizedBox.shrink();
+        const label = 'Hors-ligne — tes données restent disponibles ; l\'assistant et les cartes '
+            'reviendront avec le réseau';
 
         final t = AppTokens.of(context);
         return Container(
@@ -31,13 +26,7 @@ class OfflineBanner extends StatelessWidget {
           ),
           child: Row(
             children: [
-              Icon(
-                !connectivity.isOnline
-                    ? Icons.wifi_off_rounded
-                    : Icons.sync_rounded,
-                size: 18,
-                color: t.warning,
-              ),
+              Icon(Icons.wifi_off_rounded, size: 18, color: t.warning),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(

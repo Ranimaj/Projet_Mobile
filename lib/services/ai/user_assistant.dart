@@ -69,7 +69,6 @@ class AssistantMessage {
 class AssistantRequest {
   final String question;
   final AppUser user;
-  final bool emailVerified;
 
   /// Messages précédents (le plus récent à la fin).
   final List<AssistantMessage> history;
@@ -77,7 +76,6 @@ class AssistantRequest {
   const AssistantRequest({
     required this.question,
     required this.user,
-    this.emailVerified = true,
     this.history = const [],
   });
 
@@ -108,22 +106,29 @@ Règles :
 - Ne demande jamais de mot de passe, de code reçu par SMS ni de donnée bancaire.
 - Pour changer quelque chose, explique où aller dans l'app (onglet Profil).
 
-Fonctionnement de l'app (onglet Profil) :
-- « Modifier mes informations » : photo, nom, filière, année, compétences, campus.
+Fonctionnement de l'app :
+- Toutes les données sont stockées sur ce téléphone : il n'y a pas de serveur. Seules les
+  fonctions d'IA en ligne (comme toi) utilisent internet.
+- Connexion par e-mail et mot de passe uniquement : pas de connexion Google, pas d'e-mail de
+  vérification. Mot de passe oublié : demander à un admin de le réinitialiser (aucun e-mail
+  de récupération).
+- Les SMS sont simulés : le code de vérification s'affiche dans l'app (« SMS simulé »).
+- Onglet Profil, « Modifier mes informations » : photo, nom, filière, année, compétences, campus.
 - « Carte étudiant » : envoyer une photo de la carte ; un admin la vérifie, le badge
   « Étudiant vérifié » apparaît ensuite.
-- « Numéro de téléphone » : vérification par code SMS.
-- Sécurité : double authentification, connexion biométrique, changement de mot de passe.
+- « Numéro de téléphone » : vérification par code (SMS simulé).
+- Sécurité : double authentification (avec un numéro vérifié, un code est demandé à chaque
+  connexion par mot de passe), connexion biométrique, changement de mot de passe.
+- « Mes appareils » (Sécurité) : ce téléphone et l'historique des connexions du compte sur ce
+  téléphone. Les autres appareils n'y apparaissent pas et ne peuvent pas être déconnectés d'ici.
 - Données : export RGPD en JSON, suppression définitive du compte.
-- Thème clair / sombre ; mode hors-ligne : les actions sont envoyées au retour du réseau.
-- « Mes appareils » (Sécurité) : sessions ouvertes, déconnexion à distance, historique des
-  connexions. Avec la double authentification, un nouvel appareil demande un code SMS.
+- Thème clair / sombre.
 - Score de confiance (badge Nouveau, Bronze, Argent, Or sur 100) : carte vérifiée 25, téléphone
   15, double authentification 10, ancienneté jusqu'à 15, ventes conclues jusqu'à 15, avis jusqu'à
   20 ; chaque signalement confirmé par un admin retire 15 points.
 
 État du compte de $firstName :
-- Nom : ${u.fullName} ; e-mail ${emailVerified ? 'vérifié' : 'NON vérifié'}
+- Nom : ${u.fullName} ; e-mail : ${u.email}
 - Filière : ${u.major ?? '(vide)'} ; année : ${u.year ?? '(vide)'} ; campus : ${u.campus}
 - Compétences : ${u.skills.isEmpty ? '(aucune)' : u.skills.join(', ')}
 - Carte étudiant : $card
@@ -171,8 +176,8 @@ const Map<_Topic, List<String>> _keywords = {
   _Topic.data: ['données', 'donnees', 'data', 'rgpd', 'gdpr', 'export', 'confidentialité', 'privacy'],
   _Topic.deleteAccount: ['supprimer', 'suppression', 'delete', 'fermer mon compte', 'désinscri'],
   _Topic.theme: ['thème', 'theme', 'sombre', 'dark', 'clair', 'light', 'couleur'],
-  _Topic.offline: ['hors-ligne', 'hors ligne', 'offline', 'réseau', 'reseau', 'internet', 'connexion', 'synchro'],
-  _Topic.devices: ['appareil', 'appareils', 'session', 'device', 'déconnecter', 'deconnecter', 'historique', 'suspect'],
+  _Topic.offline: ['hors-ligne', 'hors ligne', 'offline', 'réseau', 'reseau', 'internet', 'synchro', 'serveur'],
+  _Topic.devices: ['appareil', 'appareils', 'session', 'device', 'déconnecter', 'deconnecter', 'historique', 'suspect', 'connexion'],
   _Topic.trust: ['confiance', 'score', 'trust', 'badge', 'niveau', 'bronze', 'argent', 'réputation', 'reputation', 'fiable'],
   _Topic.modules: ['vendre', 'vente', 'don', 'annonce', 'événement', 'evenement', 'event', 'stage', 'emploi', 'job', 'quoi faire', 'fonctionnalit', 'aide', 'help'],
 };
@@ -210,7 +215,7 @@ class LocalUserAssistant implements UserAssistant {
   /// Boutons d'action proposés pour [question] (même choix que la réponse).
   static List<AssistantAction> actionsFor(String question, AppUser user) {
     final topics = _topics(question);
-    return topics.isEmpty ? const [] : _answer(topics.first, user, true).actions;
+    return topics.isEmpty ? const [] : _answer(topics.first, user).actions;
   }
 
   @override
@@ -222,10 +227,10 @@ class LocalUserAssistant implements UserAssistant {
         'carte étudiant, sécuriser ton compte ou gérer tes données. Essaie une des suggestions !',
       );
     }
-    return _answer(topics.first, request.user, request.emailVerified, firstName: request.firstName);
+    return _answer(topics.first, request.user, firstName: request.firstName);
   }
 
-  static AssistantMessage _answer(_Topic topic, AppUser u, bool emailVerified, {String firstName = ''}) {
+  static AssistantMessage _answer(_Topic topic, AppUser u, {String firstName = ''}) {
     final health = ProfileHealth.of(u);
     switch (topic) {
       case _Topic.greeting:
@@ -282,22 +287,26 @@ class LocalUserAssistant implements UserAssistant {
                 actions: const [AssistantAction.verifyPhone])
             : const AssistantMessage.bot(
                 'Ton numéro n\'est pas encore vérifié. Saisis-le dans « Numéro de téléphone », puis entre le '
-                'code reçu par SMS. Ne donne jamais ce code à quelqu\'un.',
+                'code du SMS simulé, affiché dans l\'app. Ne donne jamais ce code à quelqu\'un.',
                 actions: [AssistantAction.verifyPhone]);
       case _Topic.password:
         return const AssistantMessage.bot(
-            'Tu peux changer ton mot de passe depuis Profil › Compte. Si tu l\'as oublié, déconnecte-toi '
-            'et utilise « Mot de passe oublié » sur l\'écran de connexion. Je ne te demanderai jamais ton '
-            'mot de passe.',
+            'Tu peux changer ton mot de passe depuis Profil › Compte. Si tu l\'as oublié, demande à un '
+            'admin de le réinitialiser : il n\'y a pas d\'e-mail de récupération. Je ne te demanderai '
+            'jamais ton mot de passe.',
             actions: [AssistantAction.changePassword]);
       case _Topic.security:
         final tips = [
-          if (!u.twoFactorEnabled) 'active la double authentification (Profil › Sécurité)',
           if (!u.isPhoneVerified) 'vérifie ton numéro de téléphone',
+          if (!u.twoFactorEnabled)
+            'active la double authentification (Profil › Sécurité) : un code te sera demandé à chaque '
+                'connexion par mot de passe',
           'active la connexion biométrique',
           'utilise un mot de passe unique',
         ];
         return AssistantMessage.bot(
+          '${u.twoFactorEnabled ? 'Ta double authentification est active : un code (SMS simulé) est demandé '
+              'à chaque connexion par mot de passe. ' : ''}'
           'Pour protéger ton compte : ${tips.join(', ')}. Si tu penses qu\'on a accès à ton compte, '
           'change ton mot de passe tout de suite.',
           actions: [
@@ -306,14 +315,14 @@ class LocalUserAssistant implements UserAssistant {
           ],
         );
       case _Topic.email:
-        return AssistantMessage.bot(emailVerified
-            ? 'Ton adresse ${u.email} est vérifiée. Elle ne peut pas être modifiée depuis l\'app.'
-            : 'Ton adresse ${u.email} n\'est pas encore vérifiée : ouvre le lien reçu par e-mail '
-                '(pense aux spams), ou renvoie-le depuis la bannière de ton profil.');
+        return AssistantMessage.bot(
+            'Ton adresse ${u.email} sert d\'identifiant pour te connecter. L\'app n\'envoie pas d\'e-mail '
+            '(ni vérification, ni récupération) et il n\'y a pas de connexion Google. L\'adresse ne peut '
+            'pas être modifiée depuis l\'app.');
       case _Topic.data:
         return const AssistantMessage.bot(
             'Tu peux télécharger une copie de toutes tes données (format JSON) depuis Profil › '
-            'Données & confidentialité. Tes données ne sont jamais vendues.',
+            'Données & confidentialité. Tes données restent sur ce téléphone et ne sont jamais vendues.',
             actions: [AssistantAction.exportData]);
       case _Topic.deleteAccount:
         return const AssistantMessage.bot(
@@ -325,14 +334,15 @@ class LocalUserAssistant implements UserAssistant {
             'Change le thème (clair, sombre ou comme le téléphone) depuis Profil › Thème.');
       case _Topic.offline:
         return const AssistantMessage.bot(
-            'Sans réseau, l\'app reste utilisable : tes actions sont gardées sur le téléphone et envoyées '
-            'automatiquement au retour de la connexion. Le nombre d\'actions en attente s\'affiche dans '
-            'Profil › Sécurité.');
+            'CampusConnect marche sans réseau : toutes tes données sont stockées sur ce téléphone, il n\'y '
+            'a pas de serveur. Seules les fonctions d\'IA en ligne, comme mes réponses détaillées, ont '
+            'besoin d\'internet.');
       case _Topic.devices:
         return const AssistantMessage.bot(
-            'Dans « Mes appareils » tu vois où ton compte est connecté et l\'historique des connexions. '
-            'Tu peux fermer une session à distance. Si tu ne reconnais pas un appareil, déconnecte-le puis '
-            'change ton mot de passe.',
+            'Dans « Mes appareils » tu vois ce téléphone et l\'historique des connexions de ton compte sur '
+            'ce téléphone. Ces données restent ici : les autres appareils n\'y apparaissent pas et ne '
+            'peuvent pas être déconnectés d\'ici. Si une connexion te semble suspecte, change ton mot de '
+            'passe et active la double authentification.',
             actions: [AssistantAction.devices]);
       case _Topic.trust:
         final trust = TrustScore.of(u);

@@ -205,4 +205,22 @@ void main() {
     expect(p.reviewConflict, 'La carte a changé, rouvre-la');
     p.dispose();
   });
+
+  test('resetPassword returns the temporary password', () async {
+    when(() => service.resetPassword('s1')).thenAnswer((_) async => 'Campus-abcdef42');
+    final p = build(users);
+    await Future<void>.delayed(Duration.zero);
+    expect(await p.resetPassword(users[1]), 'Campus-abcdef42');
+    expect(p.error, isNull);
+    p.dispose();
+  });
+
+  test('resetPassword failure returns null and sets an error', () async {
+    when(() => service.resetPassword('s1')).thenThrow(Exception('boom'));
+    final p = build(users);
+    await Future<void>.delayed(Duration.zero);
+    expect(await p.resetPassword(users[1]), isNull);
+    expect(p.error, 'Réinitialisation impossible pour ce compte.');
+    p.dispose();
+  });
 }

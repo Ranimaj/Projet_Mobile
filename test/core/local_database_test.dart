@@ -41,7 +41,7 @@ void main() {
       expect(identical(LocalDatabase.instance, store), isTrue);
     });
 
-    test('schéma : tables, index, version et CHECK sur le type', () async {
+    test('schéma : tables et version', () async {
       await openTestDatabase(path: path);
       await LocalDatabase.instance.close();
       sqfliteFfiInit();
@@ -50,19 +50,33 @@ void main() {
       final names = (await db.rawQuery("SELECT name FROM sqlite_master WHERE type IN ('table','index')"))
           .map((r) => r['name'])
           .toSet();
-      expect(names, containsAll(['cache_documents', 'offline_queue', 'kv', 'idx_queue_doc', 'idx_queue_time']));
+      expect(names, containsAll(['cache_documents', 'kv']));
+      expect(names, isNot(contains('offline_queue')));
       expect(await db.getVersion(), LocalDatabase.schemaVersion);
-      expect(
-        () => db.insert('offline_queue', {
-          'id': 'x',
-          'type': 'upsert',
-          'collection': 'c',
-          'doc_id': 'd',
-          'payload': '{}',
-          'queued_at': 0,
-        }),
-        throwsA(isA<DatabaseException>()),
-      );
+    });
+
+    test('mise à jour depuis la version 1 : documents gardés, file hors-ligne supprimée', () async {
+      sqfliteFfiInit();
+      final v1 = await databaseFactoryFfi.openDatabase(path,
+          options: OpenDatabaseOptions(
+            version: 1,
+            onCreate: (db, _) async {
+              await db.execute('CREATE TABLE cache_documents (collection TEXT NOT NULL, doc_id TEXT NOT NULL, '
+                  'data TEXT NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY (collection, doc_id))');
+              await db.execute('CREATE TABLE offline_queue (id TEXT PRIMARY KEY)');
+              await db.execute('CREATE TABLE kv (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
+            },
+          ));
+      await v1.insert('cache_documents', {'collection': 'users', 'doc_id': 'u1', 'data': '{"fullName":"Amel"}', 'updated_at': 0});
+      await v1.close();
+
+      final store = await openTestDatabase(path: path);
+      expect(store.readDocument('users', 'u1'), {'fullName': 'Amel'});
+      await store.close();
+      final db = await databaseFactoryFfi.openDatabase(path);
+      addTearDown(db.close);
+      final tables = (await db.rawQuery("SELECT name FROM sqlite_master WHERE type = 'table'")).map((r) => r['name']);
+      expect(tables, isNot(contains('offline_queue')));
     });
 
     test('une ligne illisible est ignorée au chargement, sans crash', () async {
@@ -109,7 +123,7 @@ void main() {
     });
   });
 
-  group('cache', () {
+  group('documents', () {
     test('lecture immédiate (mémoire) puis persistance', () async {
       final store = await openTestDatabase(path: path);
       // Pas d'await : la mémoire est déjà à jour.
@@ -154,92 +168,29 @@ void main() {
     });
   });
 
-  group('file d\'attente', () {
-    Future<void> add(LocalDatabase store, String id, DateTime at,
-            {Map<String, dynamic>? payload, Iterable<String> replacing = const []}) =>
-        store.addQueued(
-          id: id,
-          type: 'update',
-          collection: 'events',
-          docId: 'doc-$id',
-          payload: payload ?? {'n': id},
-          queuedAt: at,
-          replacing: replacing,
-        );
-
-    test('ordre gardé en mémoire et après rechargement (queued_at puis ajout)', () async {
-      final store = await openTestDatabase(path: path);
-      final t = DateTime(2026, 11, 8, 10);
-      add(store, 'a', t);
-      add(store, 'b', t); // même instant : ordre d'ajout
-      add(store, 'c', t.add(const Duration(seconds: 1)));
-      expect(store.queuedActions.map((r) => r.id), ['a', 'b', 'c']);
-
-      final reloaded = await reload();
-      expect(reloaded.queuedActions.map((r) => r.id), ['a', 'b', 'c']);
-      expect(reloaded.queuedActions.first.queuedAt, t);
+  group('notifications de changement', () {
+    test('chaque écriture annonce sa collection, après la mise à jour de la mémoire', () async {
+      final store = await openTestDatabase();
+      final seen = <String>[];
+      store.changes.listen((c) => seen.add('$c:${store.readCollection(c).length}'));
+      store.putDocument('users', 'u1', {'n': 1});
+      store.putDocument('events', 'e1', {});
+      store.removeDocument('users', 'u1');
+      store.removeDocument('users', 'absent'); // rien supprimé : pas d'annonce
+      store.replaceCollection('events', {});
+      expect(seen, ['users:1', 'events:1', 'users:0', 'events:0']);
     });
 
-    test('dates du payload : DateTime après rechargement', () async {
-      final store = await openTestDatabase(path: path);
-      final start = DateTime.utc(2026, 12, 1, 14);
-      add(store, 'a', DateTime.now(), payload: {
-        'startDate': start,
-        'history': [
-          {'at': start}
-        ],
+    test('readDocument renvoie une copie, ou null', () async {
+      final store = await openTestDatabase();
+      await store.putDocument('c', 'd', {
+        'tags': ['a']
       });
-      final payload = (await reload()).queued('a')!.payload;
-      expect(payload['startDate'], start);
-      expect(((payload['history'] as List).single as Map)['at'], start);
-    });
-
-    test('replacing retire les anciennes actions dans la même transaction', () async {
-      final store = await openTestDatabase(path: path);
-      add(store, 'a', DateTime(2026));
-      add(store, 'b', DateTime(2026), replacing: ['a', 'inconnu']);
-      expect(store.queuedActions.map((r) => r.id), ['b']);
-      expect((await reload()).queuedActions.map((r) => r.id), ['b']);
-    });
-
-    test('updateQueuedPayloads : révision +1, place gardée, persisté', () async {
-      final store = await openTestDatabase(path: path);
-      add(store, 'a', DateTime(2026));
-      add(store, 'b', DateTime(2026));
-      expect(store.queued('a')!.revision, 0);
-      // Sans await : la modification passe après l'insertion en attente.
-      store.updateQueuedPayloads({
-        'a': {'n': 'a2'},
-        'absent': {'n': 'x'},
+      (store.readDocument('c', 'd')!['tags'] as List).add('b');
+      expect(store.readDocument('c', 'd'), {
+        'tags': ['a']
       });
-      expect(store.queued('a')!.payload, {'n': 'a2'});
-      expect(store.queued('a')!.revision, 1);
-
-      final reloaded = await reload();
-      expect(reloaded.queuedActions.map((r) => r.id), ['a', 'b']);
-      expect(reloaded.queued('a')!.payload, {'n': 'a2'});
-    });
-
-    test('removeQueued', () async {
-      final store = await openTestDatabase(path: path);
-      add(store, 'a', DateTime(2026));
-      add(store, 'b', DateTime(2026));
-      store.removeQueued(['a']);
-      expect(store.queueLength, 1);
-      expect((await reload()).queuedActions.map((r) => r.id), ['b']);
-    });
-
-    test('écritures en rafale sans await : SQLite finit identique à la mémoire', () async {
-      final store = await openTestDatabase(path: path);
-      for (var i = 0; i < 50; i++) {
-        add(store, 'a$i', DateTime(2026, 1, 1, 0, 0, i));
-        if (i.isOdd) store.removeQueued(['a${i - 1}']);
-        if (i % 5 == 0) store.updateQueuedPayloads({'a$i': {'n': 'patched'}});
-      }
-      final memory = store.queuedActions.map((r) => '${r.id}:${r.payload['n']}').toList();
-      final reloaded = await reload();
-      expect(reloaded.queuedActions.map((r) => '${r.id}:${r.payload['n']}').toList(), memory);
-      expect(memory, hasLength(25));
+      expect(store.readDocument('c', 'absent'), isNull);
     });
   });
 

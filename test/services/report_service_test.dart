@@ -1,15 +1,21 @@
+import 'package:campusconnect/services/local_store.dart';
 import 'package:campusconnect/services/report_service.dart';
-import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../helpers/local_db.dart';
+
 void main() {
-  late FakeFirebaseFirestore db;
+  late LocalStore store;
   late ReportService service;
+  final now = DateTime(2026, 11, 9, 10);
+
   setUp(() async {
-    db = FakeFirebaseFirestore();
-    service = ReportService(db);
-    await db.collection('users').doc('bob').set({'fullName': 'Bob', 'reportCount': 0});
+    await openTestDatabase();
+    store = LocalStore();
+    service = ReportService(store: store, clock: () => now);
+    await store.set('users', 'bob', {'fullName': 'Bob', 'reportCount': 0});
   });
+  tearDown(closeTestDatabase);
 
   Future<void> report({String reporter = 'amel'}) => service.submit(
         reporterId: reporter,
@@ -23,10 +29,11 @@ void main() {
 
   test('a report is stored once per reporter and target', () async {
     await report();
-    final doc = await db.collection('reports').doc('amel_bob').get();
+    final doc = store.get('reports', 'amel_bob')!;
     expect(doc['reason'], 'scam');
     expect(doc['details'], 'Demande un virement D17 avant de se voir.');
     expect(doc['status'], 'pending');
+    expect(parseDate(doc['createdAt']), now);
 
     await expectLater(report(), throwsA(isA<AlreadyReported>()));
     await report(reporter: 'chris'); // another student can still report
@@ -49,9 +56,30 @@ void main() {
     await service.confirm(pending.firstWhere((r) => r.reporterId == 'amel'), adminId: 'admin');
     await service.dismiss(pending.firstWhere((r) => r.reporterId == 'chris'), adminId: 'admin');
 
-    expect((await db.collection('users').doc('bob').get())['reportCount'], 1);
+    expect(store.get('users', 'bob')!['reportCount'], 1);
     expect(await service.watchPending().first, isEmpty);
-    expect((await db.collection('reports').doc('amel_bob').get())['status'], 'confirmed');
-    expect((await db.collection('reports').doc('chris_bob').get())['reviewedBy'], 'admin');
+    expect(store.get('reports', 'amel_bob')!['status'], 'confirmed');
+    expect(store.get('reports', 'chris_bob')!['reviewedBy'], 'admin');
+  });
+
+  test('confirming the same report twice counts once', () async {
+    await report();
+    final r = (await service.watchPending().first).single;
+    await service.confirm(r, adminId: 'admin');
+    await service.confirm(r, adminId: 'admin');
+    expect(store.get('users', 'bob')!['reportCount'], 1);
+  });
+
+  test('the pending list follows new reports, oldest first', () async {
+    final seen = <List<String>>[];
+    final sub = service.watchPending().listen((l) => seen.add([for (final r in l) r.reporterId]));
+    await pumpEventQueue();
+    await report();
+    await ReportService(store: store, clock: () => now.add(const Duration(minutes: 1))).submit(
+        reporterId: 'chris', reporterName: 'chris', targetId: 'bob', targetName: 'Bob', reason: ReportReason.other);
+    await pumpEventQueue();
+    await sub.cancel();
+    expect(seen.first, isEmpty);
+    expect(seen.last, ['amel', 'chris']);
   });
 }

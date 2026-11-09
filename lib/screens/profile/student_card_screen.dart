@@ -7,7 +7,6 @@ import 'package:provider/provider.dart';
 import '../../core/theme/app_tokens.dart';
 import '../../models/user_model.dart';
 import '../../providers/auth_provider.dart';
-import '../../providers/connectivity_provider.dart';
 import '../../widgets/auth/auth_feedback.dart';
 import '../../widgets/hero_sheet_scaffold.dart';
 import '../../widgets/pill_button.dart';
@@ -52,20 +51,11 @@ class _StudentCardScreenState extends State<StudentCardScreen> {
     final photo = _photo;
     if (photo == null) return;
     final auth = context.read<AuthProvider>();
-    final online = context.read<ConnectivityProvider>().isOnline;
-    final ok = await auth.submitStudentCard(photo, isOnline: online);
+    final ok = await auth.submitStudentCard(photo);
     if (!mounted) return;
     if (ok) {
-      // The service falls back to the offline queue when the upload times
-      // out or the network fails: a queued card has no Storage path yet.
-      final sent = online && auth.currentUser?.studentCard.imagePath != null;
-      showAuthSnack(
-        context,
-        sent
-            ? 'Carte envoyée, en attente de validation'
-            : 'Carte enregistrée, envoi à la reconnexion',
-        isError: false,
-      );
+      showAuthSnack(context, 'Carte envoyée, en attente de validation',
+          isError: false);
       Navigator.of(context).pop();
     } else {
       showAuthSnack(context, auth.errorMessage ?? 'Envoi impossible. Réessaie.');
@@ -73,7 +63,7 @@ class _StudentCardScreenState extends State<StudentCardScreen> {
   }
 
   ({StatusChipStyle style, String label, IconData icon})? _status(
-      AppUser user, bool queued) {
+      AppUser user) {
     final card = user.studentCard;
     if (user.isVerifiedStudent || card.status == StudentCardStatus.verified) {
       return (
@@ -83,11 +73,6 @@ class _StudentCardScreenState extends State<StudentCardScreen> {
       );
     }
     return switch (card.status) {
-      StudentCardStatus.pending when queued => (
-          style: StatusChipStyle.neutral,
-          label: 'En attente de connexion',
-          icon: Icons.cloud_off_rounded
-        ),
       StudentCardStatus.pending => (
           style: StatusChipStyle.warning,
           label: 'En cours de validation',
@@ -111,7 +96,7 @@ class _StudentCardScreenState extends State<StudentCardScreen> {
     }
     final t = AppTokens.of(context);
     final text = Theme.of(context).textTheme;
-    final status = _status(user, auth.pendingCardQueued);
+    final status = _status(user);
     final card = user.studentCard;
     final rejected = card.status == StudentCardStatus.rejected;
     final verified = user.isVerifiedStudent || card.status == StudentCardStatus.verified;

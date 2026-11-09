@@ -19,7 +19,7 @@ android {
         applicationId = "com.esprit.campusconnect"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion // Firebase + plugins (local_auth, geolocator, image_picker) exigent au moins 23
+        minSdk = flutter.minSdkVersion // plugins (local_auth, geolocator, image_picker) : au moins 23
         targetSdk = 36
         // Uses the version code from pubspec.yaml. When using split APKs, 1000 * ABI_VERSION
         // is added automatically by Flutter. (https://developer.android.com/studio/build/configure-apk-splits#configure-APK-versions)
@@ -49,10 +49,4 @@ kotlin {
 
 flutter {
     source = "../.."
-}
-
-// firebase-iid (obsolète) entre en conflit avec firebase-messaging 24.x :
-// les deux contiennent FirebaseInstanceIdReceiver. On garde firebase-messaging.
-configurations.all {
-    exclude(group = "com.google.firebase", module = "firebase-iid")
 }

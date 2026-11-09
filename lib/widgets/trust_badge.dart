@@ -1,12 +1,13 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../core/constants/app_constants.dart';
 import '../core/theme/app_tokens.dart';
 import '../core/utils/trust_score.dart';
 import '../models/article_model.dart';
 import '../models/user_model.dart';
 import '../providers/article_provider.dart';
+import '../services/local_store.dart';
 
 /// Couleur de chaque niveau (médaille).
 Color trustColor(BuildContext context, TrustLevel level) {
@@ -190,16 +191,15 @@ class _FactorRow extends StatelessWidget {
   }
 }
 
-/// Charge un profil public (`users/{uid}`).
+/// Charge un profil public (`users/{uid}` dans [LocalStore]).
 typedef PublicUserLoader = Future<AppUser?> Function(String uid);
 
 Future<AppUser?> loadPublicUser(String uid) async {
   try {
-    final doc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
-    final data = doc.data();
-    return data == null ? null : AppUser.fromMap(doc.id, data);
+    final data = LocalStore().get(AppConstants.usersCollection, uid);
+    return data == null ? null : AppUser.fromMap(uid, data);
   } catch (_) {
-    return null; // hors-ligne ou Firebase indisponible : pas de badge
+    return null; // stockage local indisponible : pas de badge
   }
 }
 

@@ -11,7 +11,7 @@ import 'package:campusconnect/models/user_model.dart';
 import 'package:campusconnect/providers/auth_provider.dart';
 import 'package:campusconnect/screens/auth/otp_verification_screen.dart';
 import 'package:campusconnect/screens/auth/register_screen.dart';
-import 'package:firebase_auth/firebase_auth.dart' hide AuthProvider;
+import 'package:campusconnect/services/auth_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
@@ -36,7 +36,6 @@ void main() {
           password: any(named: 'password'),
           fullName: any(named: 'fullName'),
         )).thenAnswer((_) async => created);
-    when(() => service.sendEmailVerification()).thenAnswer((_) async {});
   }
 
   Future<void> fillValid(WidgetTester tester, {String phone = ''}) async {
@@ -49,7 +48,7 @@ void main() {
 
   setUp(() {
     service = MockAuthService();
-    when(() => service.authStateChanges).thenAnswer((_) => const Stream<User?>.empty());
+    when(() => service.authStateChanges).thenAnswer((_) => const Stream<AuthAccount?>.empty());
     provider = AuthProvider(authService: service);
   });
 
@@ -125,9 +124,23 @@ void main() {
           password: 'secret123',
           fullName: 'amel ben salah',
         )).called(1);
-    verify(() => service.sendEmailVerification()).called(1);
     expect(find.byType(RegisterScreen), findsNothing);
     expect(find.byType(OtpVerificationScreen), findsNothing);
+  });
+
+  testWidgets('confirms the account without asking to check an email', (tester) async {
+    stubRegister();
+    await pumpAuthScreen(tester, provider, const RegisterScreen());
+
+    await fillValid(tester);
+    await tapText(tester, 'Créer mon compte');
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.text('Compte créé. Bienvenue sur CampusConnect !'), findsOneWidget);
+    expect(find.textContaining('email académique.'), findsNothing);
+    expect(provider.currentUser, created);
+    await tester.pumpAndSettle();
   });
 
   testWidgets('continues to OTP verification when a phone is provided', (tester) async {
@@ -158,7 +171,6 @@ void main() {
 
     expect(find.text('Cet email est déjà utilisé.'), findsOneWidget);
     expect(find.byType(RegisterScreen), findsOneWidget);
-    verifyNever(() => service.sendEmailVerification());
   });
 
   group('UI contract (hero sheet)', () {
@@ -172,12 +184,12 @@ void main() {
       expect(find.byType(AutofillGroup), findsOneWidget);
 
       expect(find.text('Rejoindre CampusConnect'), findsOneWidget);
-      expect(find.text('Utilise ton email académique pour être vérifié'), findsOneWidget);
+      expect(find.text('Inscris-toi avec ton email académique'), findsOneWidget);
       expect(find.byIcon(Icons.person_add_alt_1_rounded), findsOneWidget);
       for (final label in ['Nom complet', 'Email académique', 'Téléphone (optionnel)', 'Mot de passe', 'Confirmer le mot de passe']) {
         expect(find.text(label), findsOneWidget, reason: label);
       }
-      expect(find.text('Pour vérifier ton compte par SMS, juste après l\'inscription.'), findsOneWidget);
+      expect(find.text('Pour vérifier ton numéro juste après l\'inscription.'), findsOneWidget);
     });
 
     testWidgets('the main action is a primary PillButton that spans the sheet', (tester) async {

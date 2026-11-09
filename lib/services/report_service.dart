@@ -1,4 +1,5 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import '../core/constants/app_constants.dart';
+import 'local_store.dart';
 
 /// Motif d'un signalement.
 enum ReportReason {
@@ -50,7 +51,7 @@ class UserReport {
         reason: ReportReason.values.firstWhere((r) => r.name == m['reason'], orElse: () => ReportReason.other),
         details: m['details'] as String? ?? '',
         articleId: m['articleId'] as String?,
-        createdAt: m['createdAt'] is Timestamp ? (m['createdAt'] as Timestamp).toDate() : null,
+        createdAt: parseDate(m['createdAt']),
         status: ReportStatus.values.firstWhere((s) => s.name == m['status'], orElse: () => ReportStatus.pending),
       );
 }
@@ -60,16 +61,20 @@ class AlreadyReported implements Exception {
   const AlreadyReported();
 }
 
-/// Signalements : envoi par les utilisateurs, traitement par les admins.
+/// Signalements : envoi par les utilisateurs, traitement par les admins
+/// (collection `reports` de [LocalStore], sur ce téléphone).
 /// Un signalement confirmé ajoute 1 à `reportCount` du compte visé, ce qui
 /// fait baisser son score de confiance.
 class ReportService {
-  ReportService(this._db);
-  final FirebaseFirestore _db;
+  ReportService({LocalStore? store, DateTime Function()? clock})
+      : _store = store ?? LocalStore(),
+        _now = clock ?? DateTime.now;
 
+  final LocalStore _store;
+  final DateTime Function() _now;
+
+  static const collection = 'reports';
   static const maxDetails = 500;
-
-  CollectionReference<Map<String, dynamic>> get _reports => _db.collection('reports');
 
   static String idFor(String reporterId, String targetId) => '${reporterId}_$targetId';
 
@@ -83,10 +88,10 @@ class ReportService {
     String? articleId,
   }) async {
     if (reporterId == targetId) throw ArgumentError('On ne peut pas se signaler soi-même.');
-    final ref = _reports.doc(idFor(reporterId, targetId));
-    if ((await ref.get()).exists) throw const AlreadyReported();
+    final id = idFor(reporterId, targetId);
+    if (_store.exists(collection, id)) throw const AlreadyReported();
     final text = details.trim();
-    await ref.set({
+    await _store.set(collection, id, {
       'reporterId': reporterId,
       'reporterName': reporterName,
       'targetId': targetId,
@@ -94,33 +99,40 @@ class ReportService {
       'reason': reason.name,
       'details': text.length > maxDetails ? text.substring(0, maxDetails) : text,
       if (articleId != null) 'articleId': articleId,
-      'createdAt': FieldValue.serverTimestamp(),
+      'createdAt': _now(),
       'status': ReportStatus.pending.name,
     });
   }
 
   /// Signalements à traiter, les plus anciens d'abord.
-  Stream<List<UserReport>> watchPending() => _reports
-      .where('status', isEqualTo: ReportStatus.pending.name)
-      .snapshots()
-      .map((s) => [for (final d in s.docs) UserReport.fromMap(d.id, d.data())]
-        ..sort((a, b) => (a.createdAt ?? DateTime(0)).compareTo(b.createdAt ?? DateTime(0))));
+  Stream<List<UserReport>> watchPending() => _store.watch(collection).map((docs) => [
+        for (final d in docs)
+          if (d.data['status'] == ReportStatus.pending.name) UserReport.fromMap(d.id, d.data),
+      ]..sort((a, b) => (a.createdAt ?? DateTime(0)).compareTo(b.createdAt ?? DateTime(0))));
 
   /// Le signalement est fondé : le compte perd des points de confiance.
+  /// Un signalement déjà confirmé ne compte pas deux fois (lecture puis
+  /// écritures sans `await` entre elles).
   Future<void> confirm(UserReport report, {required String adminId}) async {
-    final batch = _db.batch()
-      ..update(_reports.doc(report.id), {
+    final current = _store.get(collection, report.id);
+    if (current == null) throw DocumentNotFound(collection, report.id);
+    if (current['status'] == ReportStatus.confirmed.name) return;
+    final target = _store.get(AppConstants.usersCollection, report.targetId);
+    final count = (target?['reportCount'] as num?)?.toInt() ?? 0;
+    final writes = [
+      _store.update(collection, report.id, {
         'status': ReportStatus.confirmed.name,
         'reviewedBy': adminId,
-        'reviewedAt': FieldValue.serverTimestamp(),
-      })
-      ..update(_db.collection('users').doc(report.targetId), {'reportCount': FieldValue.increment(1)});
-    await batch.commit();
+        'reviewedAt': _now(),
+      }),
+      if (target != null) _store.update(AppConstants.usersCollection, report.targetId, {'reportCount': count + 1}),
+    ];
+    await Future.wait(writes);
   }
 
-  Future<void> dismiss(UserReport report, {required String adminId}) => _reports.doc(report.id).update({
+  Future<void> dismiss(UserReport report, {required String adminId}) => _store.update(collection, report.id, {
         'status': ReportStatus.dismissed.name,
         'reviewedBy': adminId,
-        'reviewedAt': FieldValue.serverTimestamp(),
+        'reviewedAt': _now(),
       });
 }

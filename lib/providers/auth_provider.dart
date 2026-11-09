@@ -1,76 +1,56 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart' show User;
 import 'package:flutter/foundation.dart';
 
 import '../core/utils/auth_failure.dart';
 import '../core/utils/validators.dart';
-import '../models/device_session.dart';
 import '../models/user_model.dart';
 import '../services/auth_service.dart';
 import '../services/device_session_service.dart';
 import '../services/storage_service.dart';
 import '../services/student_card_service.dart';
-import '../core/utils/offline_queue_service.dart';
 
 enum AuthStatus { unknown, visitor, authenticated }
 
 /// État d'authentification global — pilote le routage entre VisitorHomeScreen
-/// et HomeScreen, et expose le profil de l'utilisateur connecté.
+/// et HomeScreen, et expose le profil de l'utilisateur connecté. Tout est
+/// stocké sur le téléphone (voir [AuthService]).
 class AuthProvider extends ChangeNotifier {
   final AuthService _authService;
   final DateTime Function() _now;
-  StreamSubscription<User?>? _authSub;
+  StreamSubscription<AuthAccount?>? _authSub;
   StreamSubscription<AppUser?>? _profileSub;
   String? _watchedUid;
 
-  // Instancié à la demande : FirebaseStorage.instance exige une app Firebase
-  // initialisée, ce qui n'est pas le cas dans les tests ni avant `runApp`.
-  StorageService? _storage;
   final StorageService? _injectedStorage;
+  StorageService? _storage;
   StorageService get _storageService => _storage ??= _injectedStorage ?? StorageService();
 
-  // Idem : Firestore et la file hors-ligne ne sont touchés qu'à l'envoi.
-  StudentCardService? _cardService;
   final StudentCardService? _injectedCardService;
-  StudentCardService get _studentCardService => _cardService ??= _injectedCardService ??
-      StudentCardService(
-        storage: _storageService,
-        firestore: FirebaseFirestore.instance,
-        queue: OfflineQueueService(),
-      );
+  StudentCardService? _cardService;
+  StudentCardService get _studentCardService =>
+      _cardService ??= _injectedCardService ?? StudentCardService(storage: _storageService);
 
-  /// Code d'erreur posé quand un admin a désactivé le compte à la connexion.
+  /// Code d'erreur posé quand un admin a désactivé le compte.
   static const String accountDisabledCode = 'account-disabled';
 
-  /// Code d'erreur posé quand la session a été fermée depuis un autre appareil.
-  static const String sessionRevokedCode = 'session-revoked';
-
-  // Appareils et historique des connexions (« Mes appareils »). Comme le
-  // reste de Firebase, créé à la demande ; `null` quand Firebase n'est pas
-  // disponible (tests) : la connexion se fait alors sans suivi d'appareil.
-  DeviceSessionService? _sessions;
   final DeviceSessionService? _injectedSessions;
-  StreamSubscription<DeviceSession?>? _deviceSub;
+  DeviceSessionService? _sessions;
 
-  /// Service des appareils, ou `null` s'il n'est pas disponible.
+  /// Historique des connexions de ce téléphone (« Mes appareils »), ou
+  /// `null` si le stockage local n'est pas disponible (tests d'écran).
   DeviceSessionService? get deviceSessions {
     try {
-      return _sessions ??= _injectedSessions ?? DeviceSessionService(firestore: FirebaseFirestore.instance);
+      return _sessions ??= _injectedSessions ?? DeviceSessionService();
     } catch (_) {
       return null;
     }
   }
 
-  /// Double authentification : la connexion vient d'un appareil qui n'est
-  /// pas encore de confiance. L'app demande le code SMS (ou l'accord d'un
-  /// appareil déjà connecté) avant d'ouvrir l'accueil.
-  bool deviceConfirmationRequired = false;
-
-  /// Délai minimal entre deux envois d'email de vérification.
-  static const Duration verificationCooldown = Duration(seconds: 60);
+  /// Double authentification : le mot de passe est bon, l'app attend le code
+  /// envoyé au numéro vérifié avant d'ouvrir l'accueil.
+  bool twoFactorRequired = false;
 
   AuthStatus status = AuthStatus.unknown;
   AppUser? currentUser;
@@ -78,19 +58,17 @@ class AuthProvider extends ChangeNotifier {
   String? errorCode;
   bool isLoading = false;
 
-  /// Statut Firebase Auth du compte courant (rafraîchi à chaque changement de
-  /// session et via [refreshEmailVerification]).
-  bool emailVerified = false;
-  bool hasPasswordProvider = false;
-
-  /// Numéro (E.164) auquel le dernier code OTP a été envoyé.
+  /// Numéro (E.164) auquel le dernier code a été envoyé.
   String? otpPhone;
+
+  /// Code du dernier « SMS » : sans serveur, l'app l'affiche elle-même.
+  String? get demoSmsCode => _authService.demoSmsCode;
 
   /// Biométrie utilisable sur cet appareil (voir [checkBiometrics]).
   bool biometricsAvailable = false;
 
   /// Le bouton « Déverrouiller par biométrie » n'a de sens que s'il y a une
-  /// session à rouvrir : biométrie disponible ET session Firebase mémorisée.
+  /// session à rouvrir : biométrie disponible ET session mémorisée.
   bool get canUnlockWithBiometrics {
     if (!biometricsAvailable) return false;
     try {
@@ -114,8 +92,6 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
-  DateTime? _lastVerificationEmailAt;
-
   AuthProvider({
     AuthService? authService,
     StorageService? storageService,
@@ -130,97 +106,28 @@ class AuthProvider extends ChangeNotifier {
     _authSub = _authService.authStateChanges.listen(_onAuthStateChanged);
   }
 
-  Future<void> _onAuthStateChanged(User? firebaseUser) async {
-    if (firebaseUser == null) {
+  Future<void> _onAuthStateChanged(AuthAccount? account) async {
+    if (account == null) {
       _stopProfileWatch();
-      _stopDeviceWatch();
-      deviceConfirmationRequired = false;
+      twoFactorRequired = false;
       status = AuthStatus.visitor;
       currentUser = null;
-      emailVerified = false;
-      hasPasswordProvider = false;
     } else {
-      _syncAccountFlags(firebaseUser);
       AppUser? profile;
       try {
-        profile = await _authService.fetchProfile(firebaseUser.uid);
+        profile = await _authService.fetchProfile(account.uid);
       } on AuthFailure {
-        // Profil indisponible (hors-ligne...) : on garde la session ouverte.
+        // Profil illisible : la session reste ouverte avec le dernier connu.
       }
       if (profile?.disabled == true) {
         await _signOutDisabled();
         return;
       }
-      final outcome = await _registerDevice(firebaseUser.uid, profile ?? currentUser);
-      if (outcome?.revoked == true) {
-        await _signOutRevoked();
-        return;
-      }
-      deviceConfirmationRequired = outcome?.needsConfirmation ?? false;
+      twoFactorRequired = _authService.twoFactorPending;
       currentUser = profile ?? currentUser;
       status = AuthStatus.authenticated;
-      _watchProfile(firebaseUser.uid);
-      _watchDevice(firebaseUser.uid);
+      _watchProfile(account.uid);
     }
-    notifyListeners();
-  }
-
-  /// La double authentification ne s'applique qu'avec un numéro vérifié (le
-  /// code part par SMS).
-  static bool _twoFactorActive(AppUser? user) =>
-      user != null && user.twoFactorEnabled && user.isPhoneVerified && (user.phoneNumber ?? '').isNotEmpty;
-
-  /// Enregistre la connexion de cet appareil. Hors-ligne ou sans Firebase, la
-  /// session s'ouvre quand même (`null`).
-  Future<SignInOutcome?> _registerDevice(String uid, AppUser? profile) async {
-    final sessions = deviceSessions;
-    if (sessions == null) return null;
-    try {
-      return await sessions
-          .onSignedIn(uid, twoFactor: _twoFactorActive(profile))
-          .timeout(const Duration(seconds: 8));
-    } catch (_) {
-      return null;
-    }
-  }
-
-  /// Écoute le document de cet appareil : fermeture à distance, ou accord
-  /// donné depuis un autre appareil pendant la double authentification.
-  void _watchDevice(String uid) {
-    _stopDeviceWatch();
-    final sessions = deviceSessions;
-    if (sessions == null) return;
-    _deviceSub = sessions.watchThisDevice(uid).listen((device) {
-      if (device == null || status != AuthStatus.authenticated) return;
-      if (device.revoked) {
-        _signOutRevoked();
-      } else if (deviceConfirmationRequired && device.trusted) {
-        deviceConfirmationRequired = false;
-        notifyListeners();
-      }
-    }, onError: (Object _) {});
-  }
-
-  void _stopDeviceWatch() {
-    _deviceSub?.cancel();
-    _deviceSub = null;
-  }
-
-  /// Session fermée depuis un autre appareil : on se déconnecte ici aussi.
-  Future<void> _signOutRevoked() async {
-    _stopProfileWatch();
-    _stopDeviceWatch();
-    try {
-      await _authService.signOut();
-    } catch (_) {}
-    await deviceSessions?.forgetLocalSession();
-    currentUser = null;
-    emailVerified = false;
-    hasPasswordProvider = false;
-    deviceConfirmationRequired = false;
-    status = AuthStatus.visitor;
-    errorCode = sessionRevokedCode;
-    errorMessage = 'Ta session a été fermée depuis un autre appareil.';
     notifyListeners();
   }
 
@@ -233,8 +140,7 @@ class AuthProvider extends ChangeNotifier {
       // La session sera de toute façon masquée : l'app repasse en visiteur.
     }
     currentUser = null;
-    emailVerified = false;
-    hasPasswordProvider = false;
+    twoFactorRequired = false;
     status = AuthStatus.visitor;
     errorCode = accountDisabledCode;
     errorMessage = "Compte désactivé. Contacte l'administration.";
@@ -251,7 +157,7 @@ class AuthProvider extends ChangeNotifier {
     try {
       stream = _authService.watchProfile(uid);
     } catch (_) {
-      return; // Firestore indisponible : la lecture ponctuelle suffit.
+      return; // stockage indisponible : la lecture ponctuelle suffit.
     }
     _watchedUid = uid;
     _profileSub = stream.listen((profile) {
@@ -263,9 +169,7 @@ class AuthProvider extends ChangeNotifier {
       }
       currentUser = profile;
       notifyListeners();
-    }, onError: (Object _) {
-      // Lecture refusée (session en cours de fermeture) ou hors-ligne.
-    });
+    }, onError: (Object _) {});
   }
 
   void _stopProfileWatch() {
@@ -274,17 +178,10 @@ class AuthProvider extends ChangeNotifier {
     _watchedUid = null;
   }
 
-  void _syncAccountFlags(User firebaseUser) {
-    emailVerified = firebaseUser.emailVerified;
-    hasPasswordProvider =
-        firebaseUser.providerData.any((p) => p.providerId == AuthService.passwordProviderId);
-  }
-
   @override
   void dispose() {
     _authSub?.cancel();
     _stopProfileWatch();
-    _stopDeviceWatch();
     super.dispose();
   }
 
@@ -309,82 +206,36 @@ class AuthProvider extends ChangeNotifier {
           fullName: fullName,
         );
         currentUser = user;
-        hasPasswordProvider = true;
-        await _authService.sendEmailVerification();
-        _lastVerificationEmailAt = _now();
+        await _recordLogin(user.id);
       });
 
+  /// Connexion par mot de passe. Avec la double authentification, la session
+  /// s'ouvre avec [twoFactorRequired] : l'app demande alors le code.
   Future<bool> login(String email, String password) => _run(() async {
-        await _authService.signInWithEmail(email, password);
+        final account = await _authService.signInWithEmail(email, password);
+        await _recordLogin(account.uid);
       });
 
-  /// Renvoie `true` aussi quand l'utilisateur ferme la fenêtre Google
-  /// (aucune erreur à afficher dans ce cas).
-  Future<bool> loginWithGoogle() => _run(() async {
-        await _authService.signInWithGoogle();
-      });
+  Future<void> _recordLogin(String uid) async {
+    try {
+      await deviceSessions?.recordLogin(uid);
+    } catch (_) {
+      // L'historique est un plus : il ne bloque jamais la connexion.
+    }
+  }
 
-  /// Rouvre la session Firebase mémorisée après une biométrie réussie.
+  /// Rouvre la session mémorisée après une biométrie réussie.
   Future<bool> loginWithBiometrics() => _run(() async {
         final ok = await _authService.authenticateWithBiometrics();
         if (!ok) throw AuthFailure.fromCode('biometric-denied');
-        final user = _authService.currentFirebaseUser;
-        if (user == null) throw AuthFailure.fromCode('no-session');
-        await _onAuthStateChanged(user);
+        final account = _authService.currentAccount;
+        if (account == null) throw AuthFailure.fromCode('no-session');
+        await _onAuthStateChanged(account);
       });
 
   Future<void> continueAsVisitor() async {
     status = AuthStatus.visitor;
     notifyListeners();
-  }
-
-  Future<bool> sendPasswordReset(String email) =>
-      _run(() => _authService.sendPasswordReset(email));
-
-  // --- Vérification email --------------------------------------------------------
-
-  Duration get verificationCooldownLeft {
-    final last = _lastVerificationEmailAt;
-    if (last == null) return Duration.zero;
-    final left = verificationCooldown - _now().difference(last);
-    return left.isNegative ? Duration.zero : left;
-  }
-
-  bool get canResendVerification => verificationCooldownLeft == Duration.zero;
-
-  Future<bool> resendVerificationEmail() => _run(() async {
-        if (!canResendVerification) {
-          throw AuthFailure(
-            'verification-cooldown',
-            'Patientez ${verificationCooldownLeft.inSeconds} s avant un nouvel envoi.',
-          );
-        }
-        await _authService.sendEmailVerification();
-        _lastVerificationEmailAt = _now();
-      });
-
-  /// Recharge le statut de vérification depuis Firebase. Renvoie `true` si
-  /// l'email est maintenant vérifié.
-  ///
-  /// [silent] : vérification en arrière-plan (retour dans l'app, minuterie) :
-  /// ni état de chargement ni message d'erreur, juste une mise à jour du badge.
-  Future<bool> refreshEmailVerification({bool silent = false}) async {
-    if (silent) {
-      try {
-        final verified = await _authService.reloadUser();
-        if (verified != emailVerified) {
-          emailVerified = verified;
-          notifyListeners();
-        }
-        return verified;
-      } catch (_) {
-        return false;
-      }
-    }
-    final ok = await _run(() async {
-      emailVerified = await _authService.reloadUser();
-    });
-    return ok && emailVerified;
   }
 
   // --- Profil ------------------------------------------------------------------------
@@ -393,44 +244,24 @@ class AuthProvider extends ChangeNotifier {
         currentUser = await _authService.updateProfile(updated);
       });
 
-  /// Envoie une nouvelle photo de profil puis met à jour le profil. L'ancienne
-  /// photo hébergée dans Storage est supprimée (best effort).
+  /// Enregistre une nouvelle photo de profil puis met à jour le profil.
+  /// L'ancienne photo est supprimée du téléphone.
   Future<bool> updateAvatar(File file) => _run(() async {
         final user = currentUser;
         if (user == null) throw AuthFailure.fromCode('no-session');
-        final previousUrl = user.photoUrl;
-        final url = await _storageService.uploadAvatar(file, uid: user.id);
-        currentUser = await _authService.updateProfile(user.copyWith(photoUrl: url));
-        if (previousUrl != null && previousUrl != url) {
-          await _storageService.deleteByUrl(previousUrl);
-        }
+        final previous = user.photoUrl;
+        final path = await _storageService.saveAvatar(file, uid: user.id);
+        currentUser = await _authService.updateProfile(user.copyWith(photoUrl: path));
+        if (previous != null && previous != path) await _storageService.delete(previous);
       });
 
-  /// Envoie la carte étudiant pour validation ; hors-ligne, elle est mise en
-  /// file et partira au retour du réseau (voir [pendingCardQueued]).
-  Future<bool> submitStudentCard(File photo, {required bool isOnline}) => _run(() async {
+  /// Envoie la carte étudiant pour validation par un admin.
+  Future<bool> submitStudentCard(File photo) => _run(() async {
         final user = currentUser;
         if (user == null) throw AuthFailure.fromCode('no-session');
-        final card = await _studentCardService.submit(
-          uid: user.id,
-          photo: photo,
-          isOnline: isOnline,
-          now: _now,
-        );
+        final card = await _studentCardService.submit(uid: user.id, photo: photo, now: _now);
         currentUser = user.copyWith(studentCard: card);
       });
-
-  /// Une carte attend la connexion dans la file hors-ligne.
-  bool get pendingCardQueued {
-    final user = currentUser;
-    if (user == null) return false;
-    try {
-      return _studentCardService.hasQueuedSubmission(user.id);
-    } catch (_) {
-      // Firebase ou le stockage local non initialisés (tests) : rien en attente.
-      return false;
-    }
-  }
 
   Future<bool> changePassword({
     required String currentPassword,
@@ -441,26 +272,21 @@ class AuthProvider extends ChangeNotifier {
             newPassword: newPassword,
           ));
 
-  // --- OTP téléphone -----------------------------------------------------------
+  // --- Code téléphone -----------------------------------------------------------
 
   Future<bool> sendPhoneOtp(String phone) => _run(() async {
         otpPhone = await _authService.sendPhoneOtp(phone);
       });
 
+  /// Vérifie le code : numéro vérifié, et double authentification validée
+  /// si elle était en attente.
   Future<bool> verifyPhoneOtp(String code) => _run(() async {
         final error = Validators.otp(code);
         if (error != null) throw AuthFailure.fromCode('invalid-verification-code');
         await _authService.verifyPhoneOtp(code);
         currentUser = currentUser?.copyWith(isPhoneVerified: true, phoneNumber: otpPhone);
         otpPhone = null;
-        final uid = currentUser?.id;
-        if (deviceConfirmationRequired && uid != null) {
-          // Le code SMS confirme la connexion : cet appareil devient de confiance.
-          try {
-            await deviceSessions?.confirmThisDevice(uid);
-          } catch (_) {}
-          deviceConfirmationRequired = false;
-        }
+        twoFactorRequired = false;
       });
 
   // --- Session / compte ----------------------------------------------------------
@@ -469,52 +295,32 @@ class AuthProvider extends ChangeNotifier {
         final uid = currentUser?.id;
         if (uid != null) {
           try {
-            // L'envoi de carte en attente appartient à ce compte : il ne doit
-            // pas être rejoué (et refusé) sous une autre session.
-            await _studentCardService.discardQueued(uid);
-          } catch (_) {}
-          // Avant la déconnexion Firebase : il faut encore le droit d'écrire.
-          _stopDeviceWatch();
-          try {
-            await deviceSessions?.onSignedOut(uid).timeout(const Duration(seconds: 5));
+            await deviceSessions?.recordLogout(uid);
           } catch (_) {}
         }
         await _authService.signOut();
         _stopProfileWatch();
-        deviceConfirmationRequired = false;
+        twoFactorRequired = false;
         currentUser = null;
         status = AuthStatus.visitor;
       });
 
-  /// Supprime le compte. [password] est obligatoire pour un compte email /
-  /// mot de passe (ré-authentification) ; les comptes Google se ré-authentifient
-  /// via Google.
+  /// Supprime le compte après vérification du mot de passe, avec son
+  /// historique de connexions.
   Future<bool> deleteAccount({String? password}) => _run(() async {
-        final uid = currentUser?.id;
-        if (uid != null) {
-          try {
-            // Comme à la déconnexion : la carte en file ne doit pas partir
-            // après la suppression du compte.
-            await _studentCardService.discardQueued(uid);
-          } catch (_) {}
-        }
         final sessions = deviceSessions;
-        if (sessions == null) {
-          await _authService.deleteAccount(password: password);
-        } else {
-          _stopDeviceWatch();
-          // Appareils et connexions effacés après la ré-authentification, tant
-          // que le compte existe encore (les règles l'exigent).
-          await _authService.deleteAccount(
-            password: password,
-            beforeDelete: (uid) async {
-              try {
-                await sessions.deleteAll(uid);
-              } catch (_) {}
-            },
-          );
-        }
+        await _authService.deleteAccount(
+          password: password,
+          beforeDelete: sessions == null
+              ? null
+              : (uid) async {
+                  try {
+                    await sessions.deleteAll(uid);
+                  } catch (_) {}
+                },
+        );
         _stopProfileWatch();
+        twoFactorRequired = false;
         currentUser = null;
         status = AuthStatus.visitor;
       });

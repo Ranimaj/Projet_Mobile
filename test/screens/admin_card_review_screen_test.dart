@@ -3,24 +3,26 @@ import 'package:campusconnect/models/user_model.dart';
 import 'package:campusconnect/providers/admin_users_provider.dart';
 import 'package:campusconnect/screens/admin/admin_card_review_screen.dart';
 import 'package:campusconnect/services/admin_user_service.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
+import 'package:campusconnect/services/local_store.dart';
+import 'package:campusconnect/widgets/app_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
-import 'package:mocktail/mocktail.dart';
 import 'package:provider/provider.dart';
 
-import '../helpers/mocks.dart';
 import '../helpers/pump_themed.dart';
+import 'admin_memory_store.dart';
 
 void main() {
-  late FakeFirebaseFirestore db;
+  late LocalStore db;
   late AdminUsersProvider provider;
+  const cardPath = '/app/student_cards/s1/card.jpg';
+
+  Map<String, dynamic> stored() => db.get('users', 's1')!;
 
   setUpAll(() => initializeDateFormatting('fr_FR'));
 
-  AppUser student(StudentCardStatus status) => AppUser(
+  AppUser student(StudentCardStatus status, {String? imagePath = cardPath}) => AppUser(
         id: 's1',
         fullName: 'Amel Ben Salah',
         email: 's1@esprit.tn',
@@ -30,7 +32,7 @@ void main() {
         createdAt: DateTime(2026, 1, 1),
         studentCard: StudentCard(
           status: status,
-          imagePath: 'student_cards/s1/card.jpg',
+          imagePath: imagePath,
           submittedAt: DateTime(2026, 10, 20),
           reviewedAt: status == StudentCardStatus.verified ? DateTime(2026, 10, 25) : null,
         ),
@@ -38,21 +40,19 @@ void main() {
 
   Future<void> pumpReview(WidgetTester t, AppUser user,
       {Brightness brightness = Brightness.light}) async {
-    db = FakeFirebaseFirestore();
-    final storage = MockStorageService();
-    when(() => storage.downloadUrl(any())).thenAnswer((_) async => throw Exception('no net'));
-    await db.collection('users').doc('s1').set({
+    db = MemoryLocalStore();
+    await db.set('users', 's1', {
       'fullName': user.fullName,
       'email': user.email,
       'role': 'student',
-      'createdAt': Timestamp.fromDate(user.createdAt),
+      'createdAt': user.createdAt,
       'studentCard': {
         'status': user.studentCard.status.name,
-        'imagePath': 'student_cards/s1/card.jpg',
-        'submittedAt': Timestamp.fromDate(DateTime(2026, 10, 20)),
+        if (user.studentCard.imagePath != null) 'imagePath': user.studentCard.imagePath,
+        'submittedAt': DateTime(2026, 10, 20),
       },
     });
-    provider = AdminUsersProvider(AdminUserService(db, storage: storage), currentAdminUid: 'a1');
+    provider = AdminUsersProvider(AdminUserService(store: db), currentAdminUid: 'a1');
     addTearDown(provider.dispose);
     t.view.physicalSize = const Size(420, 1000);
     t.view.devicePixelRatio = 1;
@@ -92,11 +92,32 @@ void main() {
     expect(find.text('Valider'), findsOneWidget);
   });
 
+  testWidgets('shows the stored local photo directly, zoomable', (t) async {
+    await pumpReview(t, student(StudentCardStatus.pending));
+    final image = t.widget<AppImage>(find.byType(AppImage));
+    expect(image.url, cardPath);
+    await t.tap(find.byType(AppImage));
+    await t.pumpAndSettle();
+    expect(find.byType(InteractiveViewer), findsOneWidget);
+    expect(t.widget<AppImage>(find.descendant(
+            of: find.byType(InteractiveViewer), matching: find.byType(AppImage)))
+        .url, cardPath);
+    await t.tap(find.byTooltip('Fermer'));
+    await t.pumpAndSettle();
+    expect(find.byType(InteractiveViewer), findsNothing);
+  });
+
+  testWidgets('a card without photo shows a placeholder', (t) async {
+    await pumpReview(t, student(StudentCardStatus.pending, imagePath: null));
+    expect(find.byType(AppImage), findsNothing);
+    expect(find.text('Aucune image'), findsOneWidget);
+  });
+
   testWidgets('approve writes verified, snacks and pops', (t) async {
     await pumpReview(t, student(StudentCardStatus.pending));
     await t.tap(find.text('Valider'));
     await t.pumpAndSettle();
-    final data = (await db.collection('users').doc('s1').get()).data()!;
+    final data = stored();
     expect(data['isVerifiedStudent'], true);
     expect((data['studentCard'] as Map)['status'], 'verified');
     expect((data['studentCard'] as Map)['reviewedBy'], 'a1');
@@ -106,16 +127,16 @@ void main() {
 
   testWidgets('a card resubmitted meanwhile is not decided: snack and pop', (t) async {
     await pumpReview(t, student(StudentCardStatus.pending));
-    await t.runAsync(() => db.collection('users').doc('s1').update({
-          'studentCard': {
-            'status': 'pending',
-            'imagePath': 'student_cards/s1/new.jpg',
-            'submittedAt': Timestamp.fromDate(DateTime(2026, 10, 27)),
-          },
-        }));
+    await db.update('users', 's1', {
+      'studentCard': {
+        'status': 'pending',
+        'imagePath': '/app/student_cards/s1/new.jpg',
+        'submittedAt': DateTime(2026, 10, 27),
+      },
+    });
     await t.tap(find.text('Valider'));
     await t.pumpAndSettle();
-    final data = (await db.collection('users').doc('s1').get()).data()!;
+    final data = stored();
     expect((data['studentCard'] as Map)['status'], 'pending');
     expect(data['isVerifiedStudent'], isNull);
     expect(find.text('La carte a changé, rouvre-la'), findsOneWidget);
@@ -130,12 +151,12 @@ void main() {
     await t.tap(find.widgetWithText(TextButton, 'Refuser'));
     await t.pump();
     expect(find.text('Motif requis (5 caractères minimum)'), findsOneWidget);
-    expect((await db.collection('users').doc('s1').get()).data()!['isVerifiedStudent'], isNull);
+    expect(stored()['isVerifiedStudent'], isNull);
 
     await t.enterText(find.byType(TextFormField), 'Photo floue');
     await t.tap(find.widgetWithText(TextButton, 'Refuser'));
     await t.pumpAndSettle();
-    final data = (await db.collection('users').doc('s1').get()).data()!;
+    final data = stored();
     expect(data['isVerifiedStudent'], false);
     expect((data['studentCard'] as Map)['status'], 'rejected');
     expect((data['studentCard'] as Map)['rejectReason'], 'Photo floue');

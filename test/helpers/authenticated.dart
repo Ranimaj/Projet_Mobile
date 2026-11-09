@@ -4,10 +4,9 @@ import 'dart:async';
 import 'package:campusconnect/models/user_model.dart';
 import 'package:campusconnect/providers/auth_provider.dart';
 import 'package:campusconnect/providers/connectivity_provider.dart';
+import 'package:campusconnect/services/auth_service.dart';
 import 'package:campusconnect/services/device_session_service.dart';
 import 'package:campusconnect/services/student_card_service.dart';
-import 'package:firebase_auth/firebase_auth.dart' hide AuthProvider;
-import 'package:firebase_auth_mocks/firebase_auth_mocks.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -32,10 +31,10 @@ class AuthHarness {
   final MockAuthService service = MockAuthService();
   final MockStorageService storage = MockStorageService();
   final MockConnectivityProvider connectivity = MockConnectivityProvider();
-  final StreamController<User?> _stream = StreamController<User?>.broadcast();
+  final StreamController<AuthAccount?> _stream = StreamController<AuthAccount?>.broadcast();
   late final AuthProvider provider;
 
-  /// Heure courante vue par le provider (délai de renvoi d'email...).
+  /// Heure courante vue par le provider.
   DateTime now = DateTime(2026, 1, 1, 12);
 
   AuthHarness({StudentCardService? studentCardService, DeviceSessionService? deviceSessionService}) {
@@ -43,7 +42,8 @@ class AuthHarness {
     when(() => service.watchProfile(any()))
         .thenAnswer((_) => const Stream<AppUser?>.empty().asBroadcastStream());
     when(() => connectivity.isOnline).thenReturn(true);
-    when(() => connectivity.pendingActionsCount).thenReturn(0);
+    when(() => service.twoFactorPending).thenReturn(false);
+    when(() => service.demoSmsCode).thenReturn(null);
     provider = AuthProvider(
       authService: service,
       storageService: storage,
@@ -53,21 +53,15 @@ class AuthHarness {
     );
   }
 
-  Future<void> signIn(
-    WidgetTester tester, {
-    AppUser? user,
-    bool emailVerified = true,
-    List<String> providers = const ['password'],
-  }) async {
+  /// Ouvre la session de [user] ([sampleUser] par défaut). Avec
+  /// [twoFactorPending], la connexion attend le code de double
+  /// authentification.
+  Future<void> signIn(WidgetTester tester, {AppUser? user, bool twoFactorPending = false}) async {
     final u = user ?? sampleUser;
     when(() => service.fetchProfile(u.id)).thenAnswer((_) async => u);
+    when(() => service.twoFactorPending).thenReturn(twoFactorPending);
     await tester.runAsync(() async {
-      _stream.add(MockUser(
-        uid: u.id,
-        email: u.email,
-        isEmailVerified: emailVerified,
-        providerData: [for (final p in providers) FakeUserInfo(p)],
-      ));
+      _stream.add(AuthAccount(uid: u.id, email: u.email));
       await Future<void>.delayed(Duration.zero);
     });
     expect(provider.status, AuthStatus.authenticated);

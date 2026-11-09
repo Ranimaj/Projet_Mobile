@@ -86,7 +86,6 @@ class _AssistantScreenState extends State<AssistantScreen> {
       answer = await _assistant.reply(AssistantRequest(
         question: question,
         user: user,
-        emailVerified: auth.emailVerified,
         history: history,
       ));
     } catch (_) {
@@ -101,7 +100,6 @@ class _AssistantScreenState extends State<AssistantScreen> {
 
   bool _available(AssistantAction a) => switch (a) {
         AssistantAction.verifyPhone || AssistantAction.exportData => widget.onProfileAction != null,
-        AssistantAction.changePassword => context.read<AuthProvider>().hasPasswordProvider,
         _ => true,
       };
 

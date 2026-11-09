@@ -11,8 +11,8 @@ import 'event_style.dart';
 import 'ticket_rules.dart';
 
 /// « Mon billet » : lit l'événement à jour dans le provider (alimenté en
-/// direct par la fiche) et l'étudiant connecté. Fonctionne hors-ligne avec
-/// les données en cache.
+/// direct par la fiche) et l'étudiant connecté. Fonctionne hors-ligne : les
+/// données sont sur le téléphone.
 class TicketScreen extends StatelessWidget {
   final EventModel event;
   const TicketScreen({super.key, required this.event});

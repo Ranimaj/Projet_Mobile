@@ -18,7 +18,7 @@ import '../../widgets/social_icon_row.dart';
 import 'forgot_password_screen.dart';
 import 'register_screen.dart';
 
-/// Connexion email/mot de passe + Google Sign-In + biométrie (BF2).
+/// Connexion email/mot de passe + biométrie (BF2), sur le téléphone.
 ///
 /// - l'email peut être mémorisé (« Se souvenir de moi »), jamais le mot de passe ;
 /// - le domaine académique est proposé en un tap quand il manque ;
@@ -120,18 +120,6 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  Future<void> _google() async {
-    _clearError();
-    final auth = context.read<AuthProvider>();
-    final ok = await auth.loginWithGoogle();
-    if (!mounted) return;
-    if (ok) {
-      if (auth.status == AuthStatus.authenticated) await _goHome();
-    } else if (auth.errorMessage != null) {
-      _showError(auth);
-    }
-  }
-
   Future<void> _biometrics() async {
     _clearError();
     final auth = context.read<AuthProvider>();
@@ -150,10 +138,9 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  /// Suite proposée selon l'erreur : réessayer si le réseau a lâché,
-  /// réinitialiser le mot de passe après trop de tentatives.
+  /// Suite proposée selon l'erreur : après trop de tentatives, expliquer
+  /// comment faire réinitialiser le mot de passe.
   AuthBannerAction? get _errorAction => switch (_errorCode) {
-        'network-request-failed' => AuthBannerAction('Réessayer', _submit),
         'too-many-requests' => AuthBannerAction('Réinitialiser le mot de passe', _openForgotPassword),
         _ => null,
       };
@@ -260,22 +247,18 @@ class _LoginScreenState extends State<LoginScreen> {
                   isLoading: auth.isLoading,
                   onPressed: _submit,
                 ),
-                const SizedBox(height: 28),
-                SocialIconRow(
-                  items: [
-                    SocialIconItem(
-                      tooltip: 'Continuer avec Google',
-                      onPressed: auth.isLoading ? null : _google,
-                      child: const _GoogleMark(),
-                    ),
-                    if (auth.canUnlockWithBiometrics && _biometricEnabled)
+                if (auth.canUnlockWithBiometrics && _biometricEnabled) ...[
+                  const SizedBox(height: 28),
+                  SocialIconRow(
+                    items: [
                       SocialIconItem(
                         tooltip: 'Déverrouiller par biométrie',
                         icon: Icons.fingerprint_rounded,
                         onPressed: auth.isLoading ? null : _biometrics,
                       ),
-                  ],
-                ),
+                    ],
+                  ),
+                ],
                 const SizedBox(height: 16),
                 Center(
                   child: TextButton(
@@ -327,22 +310,6 @@ class _RememberMe extends StatelessWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-/// Monogramme « G » du bouton rond Google.
-class _GoogleMark extends StatelessWidget {
-  const _GoogleMark();
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      'G',
-      style: Theme.of(context)
-          .textTheme
-          .headlineMedium
-          ?.copyWith(color: AppTokens.of(context).textPrimary, height: 1),
     );
   }
 }

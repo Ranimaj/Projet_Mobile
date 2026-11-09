@@ -1,126 +1,152 @@
-import 'package:campusconnect/services/device_session_service.dart';
-import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
-import 'package:flutter_test/flutter_test.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
 
-/// Un « téléphone » : son propre stockage local, la même base Firestore.
-DeviceSessionService phone(FakeFirebaseFirestore db, String name, {String? city}) {
-  SharedPreferences.setMockInitialValues({});
-  final prefs = SharedPreferences.getInstance();
-  return DeviceSessionService(
-    firestore: db,
-    deviceInfo: () async => (name: name, platform: 'android'),
-    city: () async => city,
-    prefs: () => prefs,
-  );
-}
+import 'package:campusconnect/core/utils/local_database.dart';
+import 'package:campusconnect/services/device_session_service.dart';
+import 'package:campusconnect/services/local_store.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+import '../helpers/local_db.dart';
 
 void main() {
-  late FakeFirebaseFirestore db;
-  setUp(() => db = FakeFirebaseFirestore());
+  late LocalStore store;
+  late DateTime now;
 
-  Future<List<Map<String, dynamic>>> logins() async =>
-      [for (final d in (await db.collection('users/u1/logins').get()).docs) d.data()];
+  DeviceSessionService phone({String name = 'Pixel 8', String? city}) => DeviceSessionService(
+        store: store,
+        deviceInfo: () async => (name: name, platform: 'android'),
+        city: () async => city,
+        clock: () => now,
+      );
 
-  test('first login records the device and the login, without alert', () async {
-    final a = phone(db, 'Pixel 8', city: 'Tunis, Tunisie');
-    final r = await a.onSignedIn('u1', twoFactor: false);
-    expect(r.newDevice, isTrue);
-    expect(r.needsConfirmation, isFalse);
+  setUp(() async {
+    await openTestDatabase();
+    store = LocalStore();
+    now = DateTime(2026, 11, 9, 10);
+  });
+  tearDown(closeTestDatabase);
 
-    final devices = await a.watchDevices('u1').first;
-    expect(devices.single.name, 'Pixel 8');
-    expect(devices.single.location, 'Tunis, Tunisie');
-    expect(devices.single.trusted, isTrue);
-    expect(devices.single.alertPending, isFalse);
-    expect((await logins()).single['newDevice'], isTrue);
+  test('first login records this phone and the login', () async {
+    final s = phone(city: 'Tunis, Tunisie');
+    await s.recordLogin('u1');
+
+    final device = (await s.watchThisDevice('u1').first)!;
+    expect(device.name, 'Pixel 8');
+    expect(device.platform, 'android');
+    expect(device.location, 'Tunis, Tunisie');
+    expect(device.firstLoginAt, now);
+    expect(device.lastLoginAt, now);
+    expect(device.isActive, isTrue);
+
+    final logins = await s.watchLogins('u1').first;
+    expect(logins.single.deviceName, 'Pixel 8');
+    expect(logins.single.location, 'Tunis, Tunisie');
+    expect(logins.single.newDevice, isTrue);
   });
 
-  test('a second device raises the new-device alert', () async {
-    await phone(db, 'Pixel 8').onSignedIn('u1', twoFactor: false);
-    final b = phone(db, 'iPhone 15');
-    await b.onSignedIn('u1', twoFactor: false);
-
-    final devices = await b.watchDevices('u1').first;
-    final iphone = devices.firstWhere((d) => d.name == 'iPhone 15');
-    expect(iphone.alertPending, isTrue);
-    await b.acknowledge('u1', iphone.id);
-    expect((await b.watchDevices('u1').first).firstWhere((d) => d.name == 'iPhone 15').alertPending, isFalse);
+  test('the phone id is drawn once and kept in the local settings', () async {
+    final id = (await phone().currentDevice()).id;
+    expect(store.getValue(DeviceSessionService.deviceIdKey), id);
+    // Un autre service (redémarrage de l'app) retrouve le même identifiant.
+    expect((await phone().currentDevice()).id, id);
   });
 
-  test('a restored session is not a new login', () async {
-    final a = phone(db, 'Pixel 8');
-    await a.onSignedIn('u1', twoFactor: false);
-    final again = await a.onSignedIn('u1', twoFactor: false);
-    expect(again.newDevice, isFalse);
-    expect(await logins(), hasLength(1));
+  test('a second login updates this phone and adds to the history, newest first', () async {
+    final s = phone();
+    await s.recordLogin('u1');
+    final first = now;
+    now = now.add(const Duration(hours: 2));
+    await s.recordLogin('u1');
+
+    final device = (await s.watchThisDevice('u1').first)!;
+    expect(device.firstLoginAt, first);
+    expect(device.lastLoginAt, now);
+    expect(store.all(DeviceSessionService.devicesCollection), hasLength(1));
+
+    final logins = await s.watchLogins('u1').first;
+    expect([for (final l in logins) l.at], [now, first]);
+    expect([for (final l in logins) l.newDevice], [false, true]);
   });
 
-  test('2FA: a new device needs confirmation, then becomes trusted', () async {
-    await phone(db, 'Pixel 8').onSignedIn('u1', twoFactor: true);
-    final b = phone(db, 'iPhone 15');
-    final r = await b.onSignedIn('u1', twoFactor: true);
-    expect(r.needsConfirmation, isTrue);
-    // Restauration avant confirmation : toujours à confirmer.
-    expect((await b.onSignedIn('u1', twoFactor: true)).needsConfirmation, isTrue);
+  test('history is per account and limited to the last 20', () async {
+    final s = phone();
+    for (var i = 0; i < 25; i++) {
+      now = now.add(const Duration(minutes: 1));
+      await s.recordLogin('u1');
+    }
+    await s.recordLogin('u2');
 
-    await b.confirmThisDevice('u1');
-    expect((await b.onSignedIn('u1', twoFactor: true)).needsConfirmation, isFalse);
+    final logins = await s.watchLogins('u1').first;
+    expect(logins, hasLength(DeviceSessionService.historyLength));
+    expect(logins.first.at, now);
+    expect(logins.last.at, now.subtract(const Duration(minutes: 19)));
+    expect(logins.every((l) => l.uid == 'u1'), isTrue);
+    expect(await s.watchLogins('u2').first, hasLength(1));
   });
 
-  test('a revoked device is told to sign out, and must confirm again later', () async {
-    final a = phone(db, 'Pixel 8');
-    await a.onSignedIn('u1', twoFactor: true);
-    final b = phone(db, 'iPhone 15');
-    await b.onSignedIn('u1', twoFactor: true);
-    await b.confirmThisDevice('u1');
-    final bId = (await b.currentDevice()).id;
-
-    await a.revoke('u1', bId);
-    expect((await b.onSignedIn('u1', twoFactor: true)).revoked, isTrue);
-    expect((await b.watchThisDevice('u1').first)!.revoked, isTrue);
-
-    // Nouvelle connexion sur l'iPhone : la session redémarre, à confirmer.
-    await b.forgetLocalSession();
-    final r = await b.onSignedIn('u1', twoFactor: true);
-    expect(r.revoked, isFalse);
-    expect(r.needsConfirmation, isTrue);
+  test('the history stream follows new logins', () async {
+    final s = phone();
+    final seen = <int>[];
+    final sub = s.watchLogins('u1').listen((l) => seen.add(l.length));
+    await pumpEventQueue();
+    await s.recordLogin('u1');
+    await pumpEventQueue();
+    await sub.cancel();
+    expect(seen.first, 0);
+    expect(seen.last, 1);
   });
 
-  test('revokeOthers closes every other active session', () async {
-    final a = phone(db, 'Pixel 8');
-    await a.onSignedIn('u1', twoFactor: false);
-    await phone(db, 'iPhone 15').onSignedIn('u1', twoFactor: false);
-    await phone(db, 'MacBook').onSignedIn('u1', twoFactor: false);
+  test('logout marks this phone as signed out, the next login reopens it', () async {
+    final s = phone();
+    await s.recordLogin('u1');
+    now = now.add(const Duration(hours: 1));
+    await s.recordLogout('u1');
+    var device = (await s.watchThisDevice('u1').first)!;
+    expect(device.signedOut, isTrue);
+    expect(device.lastLogoutAt, now);
 
-    expect(await a.revokeOthers('u1'), 2);
-    final devices = await a.watchDevices('u1').first;
-    expect(devices.where((d) => d.isActive).single.name, 'Pixel 8');
+    await s.recordLogin('u1');
+    device = (await s.watchThisDevice('u1').first)!;
+    expect(device.isActive, isTrue);
   });
 
-  test('sign-out, export and delete', () async {
-    final a = phone(db, 'Pixel 8');
-    await a.onSignedIn('u1', twoFactor: false);
-    await a.onSignedOut('u1');
-    expect((await a.watchThisDevice('u1').first)!.signedOut, isTrue);
+  test('logout before any login does nothing', () async {
+    await phone().recordLogout('u1');
+    expect(store.all(DeviceSessionService.devicesCollection), isEmpty);
+  });
 
-    final export = await a.export('u1');
+  test('export is JSON-safe; deleteAll only erases this account', () async {
+    final s = phone();
+    await s.recordLogin('u1');
+    await s.recordLogin('u2');
+
+    final export = await s.export('u1');
+    expect(() => jsonEncode(export), returnsNormally);
     expect((export['devices'] as List).single['name'], 'Pixel 8');
+    expect((export['devices'] as List).single['lastLoginAt'], now.toUtc().toIso8601String());
     expect(export['logins'] as List, hasLength(1));
 
-    await a.deleteAll('u1');
-    expect((await db.collection('users/u1/devices').get()).docs, isEmpty);
-    expect((await db.collection('users/u1/logins').get()).docs, isEmpty);
+    await s.deleteAll('u1');
+    expect(await s.watchLogins('u1').first, isEmpty);
+    expect(await s.watchThisDevice('u1').first, isNull);
+    expect(await s.watchLogins('u2').first, hasLength(1));
   });
 
-  test('a failing city lookup does not block the login', () async {
-    SharedPreferences.setMockInitialValues({});
+  test('a failing city or device lookup does not block the login', () async {
     final s = DeviceSessionService(
-      firestore: db,
-      deviceInfo: () async => (name: 'Pixel 8', platform: 'android'),
+      store: store,
+      deviceInfo: () async => throw Exception('no plugin'),
       city: () async => throw Exception('no GPS'),
+      clock: () => now,
     );
-    await s.onSignedIn('u1', twoFactor: false);
-    expect((await s.watchThisDevice('u1').first)!.location, isNull);
+    await s.recordLogin('u1');
+    final device = (await s.watchThisDevice('u1').first)!;
+    expect(device.location, isNull);
+    expect(device.name, 'Ce téléphone');
+  });
+
+  test('without an open database the default constructor throws', () async {
+    await closeTestDatabase();
+    expect(LocalDatabase.isOpen, isFalse);
+    expect(() => DeviceSessionService(), throwsStateError);
   });
 }

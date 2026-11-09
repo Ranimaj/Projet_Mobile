@@ -83,7 +83,7 @@ class _AddAnnonceScreenState extends State<AddAnnonceScreen> {
               ),
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
-                title: const Text('Annonce urgente (notification push)', style: TextStyle(fontSize: 13.5)),
+                title: const Text('Annonce urgente', style: TextStyle(fontSize: 13.5)),
                 value: _isUrgent,
                 onChanged: (v) => setState(() => _isUrgent = v),
               ),

@@ -99,6 +99,37 @@ void main() {
       expect(trust.actions, [AssistantAction.studentCard, AssistantAction.verifyPhone]);
     });
 
+    test('answers match the phone-only app (no server, no e-mail, simulated SMS)', () async {
+      final forgot = await ask('mot de passe oublié');
+      expect(forgot.text, contains('admin'));
+      expect(forgot.text, isNot(contains('Mot de passe oublié »')));
+
+      final email = await ask('mon email');
+      expect(email.text, contains('pas de connexion Google'));
+      expect(email.text, isNot(contains('lien')));
+
+      final devices = await ask('Mes appareils, c\'est quoi ?');
+      expect(devices.text, contains('ce téléphone'));
+      expect(devices.text, isNot(contains('à distance')));
+
+      final twoFactor = await ask('double authentification', sampleUser.copyWith(twoFactorEnabled: true));
+      expect(twoFactor.text, contains('à chaque connexion par mot de passe'));
+      expect(twoFactor.text, contains('SMS simulé'));
+
+      final offline = await ask('ça marche hors ligne ?');
+      expect(offline.text, contains('pas de serveur'));
+    });
+
+    test('the system prompt describes the phone-only app', () {
+      final prompt = AssistantRequest(question: 'x', user: sampleUser).systemPrompt;
+      expect(prompt, contains('pas de serveur'));
+      expect(prompt, contains('SMS simulé'));
+      expect(prompt, contains('demander à un admin'));
+      expect(prompt, contains('historique des connexions du compte sur ce'));
+      expect(prompt, isNot(contains('déconnexion à distance')));
+      expect(prompt, isNot(contains('NON vérifié')));
+    });
+
     test('never asks for a password', () async {
       final r = await ask('mot de passe oublié');
       expect(r.text, contains('Je ne te demanderai jamais'));

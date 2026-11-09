@@ -88,7 +88,7 @@ void main() {
     expect(TrustScore.of(user(card: true, phone: true, disabled: true), now: now).score, 0);
   });
 
-  test('reportCount round-trips through Firestore maps', () {
+  test('reportCount round-trips through stored maps', () {
     final u = user(reportCount: 3);
     expect(AppUser.fromMap('u', u.toMap()).reportCount, 3);
     expect(AppUser.fromMap('u', const {'fullName': 'x'}).reportCount, 0);

@@ -1,4 +1,3 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../core/utils/geo.dart';
 import '../services/local_photo_store.dart';
@@ -86,7 +85,6 @@ class ArticleModel {
 
   static DateTime? _date(dynamic v) {
     if (v == null) return null;
-    if (v is Timestamp) return v.toDate();
     if (v is DateTime) return v;
     return DateTime.tryParse(v.toString());
   }
@@ -127,8 +125,8 @@ class ArticleModel {
       'status': status.name,
       'latitude': latitude,
       'longitude': longitude,
-      'createdAt': Timestamp.fromDate(createdAt),
-      if (updatedAt != null) 'updatedAt': Timestamp.fromDate(updatedAt!),
+      'createdAt': createdAt,
+      if (updatedAt != null) 'updatedAt': updatedAt!,
       'viewCount': viewCount,
       'favoritedBy': favoritedBy,
       'labels': labels,

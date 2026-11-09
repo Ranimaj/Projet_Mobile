@@ -1,4 +1,4 @@
-import 'package:cached_network_image/cached_network_image.dart';
+import 'app_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../core/theme/app_tokens.dart';
@@ -40,13 +40,12 @@ class InitialsAvatar extends StatelessWidget {
     final circle = url == null || url.isEmpty
         ? initialsWidget
         : ClipOval(
-            child: CachedNetworkImage(
-              imageUrl: url,
+            child: AppImage(
+              url: url,
               width: size,
               height: size,
-              fit: BoxFit.cover,
-              placeholder: (_, __) => initialsWidget,
-              errorWidget: (_, __, ___) => initialsWidget,
+              placeholder: (_) => initialsWidget,
+              error: (_) => initialsWidget,
             ),
           );
 

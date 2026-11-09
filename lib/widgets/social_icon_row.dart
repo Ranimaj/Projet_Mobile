@@ -14,7 +14,7 @@ class SocialIconItem {
 }
 
 /// Légende (« Ou connectez-vous avec ») + rangée de boutons ronds pour les
-/// connexions alternatives (Google, biométrie…). Les ronds sont des boutons
+/// connexions alternatives (biométrie…). Les ronds sont des boutons
 /// `surface` de 48 dp minimum avec un contour `outline` (ombre en thème clair).
 class SocialIconRow extends StatelessWidget {
   final String caption;

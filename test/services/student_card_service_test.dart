@@ -1,47 +1,37 @@
-import 'dart:async';
 import 'dart:io';
 
-import 'package:campusconnect/core/utils/offline_queue_service.dart';
 import 'package:campusconnect/models/user_model.dart';
+import 'package:campusconnect/services/local_store.dart';
+import 'package:campusconnect/services/storage_service.dart';
 import 'package:campusconnect/services/student_card_service.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mocktail/mocktail.dart';
 import 'package:path/path.dart' as p;
 
 import '../helpers/local_db.dart';
-import '../helpers/mocks.dart';
 
 void main() {
   late Directory dir;
-  late OfflineQueueService queue;
-  late FakeFirebaseFirestore firestore;
-  late MockStorageService storage;
+  late LocalStore store;
+  late StorageService storage;
   late StudentCardService service;
   late File photo;
   final now = DateTime(2026, 10, 28, 9);
 
-  setUpAll(() => registerFallbackValue(File('x')));
+  Map<String, dynamic> stored() => store.get('users', 'u1')!;
+  String pathFor(DateTime at) =>
+      p.join(dir.path, 'student_cards', 'u1', '${at.millisecondsSinceEpoch}.jpg');
 
   setUp(() async {
     dir = await Directory.systemTemp.createTemp('card_test');
     await openTestDatabase();
-    queue = OfflineQueueService(appDir: () async => dir);
-    firestore = FakeFirebaseFirestore();
-    storage = MockStorageService();
-    service = StudentCardService(
-      storage: storage,
-      firestore: firestore,
-      queue: queue,
-      appDir: () => dir,
-    );
-    photo = File('${dir.path}/pick.jpg')..writeAsBytesSync([9, 9]);
-    // Le fake fusionne les maps imbriquées à l'update (Firestore réel les
-    // remplace) : on part donc d'une carte sans motif pour juger les clés.
-    await firestore.collection('users').doc('u1').set({
+    store = LocalStore();
+    // Pas de compression dans les tests : le fichier est copié tel quel.
+    storage = StorageService(appDir: () async => dir, compress: (file, _, __) async => file);
+    service = StudentCardService(storage: storage, store: store);
+    photo = File(p.join(dir.path, 'pick.jpg'))..writeAsBytesSync([9, 9]);
+    await store.set('users', 'u1', {
       'fullName': 'Amel',
-      'studentCard': {'status': 'rejected'},
+      'studentCard': {'status': 'rejected', 'rejectReason': 'Photo floue'},
     });
   });
 
@@ -50,178 +40,74 @@ void main() {
     await dir.delete(recursive: true);
   });
 
-  test('online: uploads then writes a pending whole-map with the storage path', () async {
-    final path = 'student_cards/u1/${now.millisecondsSinceEpoch}.jpg';
-    when(() => storage.uploadFile(any(), remotePath: any(named: 'remotePath')))
-        .thenAnswer((i) async => i.namedArguments[#remotePath] as String);
+  test('copies the photo into the app folder and writes a pending whole-map card', () async {
+    final card = await service.submit(uid: 'u1', photo: photo, now: () => now);
 
-    final card = await service.submit(uid: 'u1', photo: photo, isOnline: true, now: () => now);
-
-    verify(() => storage.uploadFile(photo, remotePath: path)).called(1);
+    final path = pathFor(now);
     expect(card.status, StudentCardStatus.pending);
     expect(card.imagePath, path);
-    final data = (await firestore.collection('users').doc('u1').get()).data()!;
+    expect(File(path).readAsBytesSync(), [9, 9]);
+    final data = stored();
     expect(data['fullName'], 'Amel');
     final written = data['studentCard'] as Map<String, dynamic>;
+    // Remplacement complet : l'ancien motif de refus disparaît.
     expect(written.keys.toSet(), {'status', 'imagePath', 'submittedAt'});
     expect(written['status'], 'pending');
     expect(written['imagePath'], path);
-    expect(queue.pendingCount, 0);
+    expect(parseDate(written['submittedAt']), now);
   });
 
-  test('online: an upload failure writes nothing', () async {
-    when(() => storage.uploadFile(any(), remotePath: any(named: 'remotePath')))
-        .thenThrow(Exception('boom'));
-
-    await expectLater(
-        service.submit(uid: 'u1', photo: photo, isOnline: true, now: () => now), throwsException);
-
-    final data = (await firestore.collection('users').doc('u1').get()).data()!;
-    expect((data['studentCard'] as Map)['status'], 'rejected');
+  test('the stored card reads back as an AppUser', () async {
+    await service.submit(uid: 'u1', photo: photo, now: () => now);
+    final user = AppUser.fromMap('u1', stored());
+    expect(user.studentCard.status, StudentCardStatus.pending);
+    expect(user.studentCard.imagePath, pathFor(now));
+    expect(user.studentCard.submittedAt, now);
+    expect(user.studentCard.rejectReason, isNull);
   });
 
-  group('online fallback to the queue', () {
-    late StudentCardService quick;
+  test('a copy failure writes nothing', () async {
+    final missing = File(p.join(dir.path, 'absent.jpg'));
 
-    setUp(() {
-      quick = StudentCardService(
-        storage: storage,
-        firestore: firestore,
-        queue: queue,
-        appDir: () => dir,
-        onlineTimeout: const Duration(milliseconds: 50),
-      );
-    });
+    await expectLater(service.submit(uid: 'u1', photo: missing, now: () => now), throwsA(anything));
 
-    Future<void> expectQueued(StudentCard card) async {
-      expect(card.status, StudentCardStatus.pending);
-      expect(card.imagePath, isNull);
-      expect(queue.pendingActions.single.type, QueueActionType.uploadStudentCard);
-      final data = (await firestore.collection('users').doc('u1').get()).data()!;
-      expect((data['studentCard'] as Map)['status'], 'rejected');
-    }
-
-    test('an upload that never completes is queued once the timeout expires', () async {
-      when(() => storage.uploadFile(any(), remotePath: any(named: 'remotePath')))
-          .thenAnswer((_) => Completer<String>().future);
-
-      final card = await quick.submit(uid: 'u1', photo: photo, isOnline: true, now: () => now);
-
-      await expectQueued(card);
-    });
-
-    test('a late upload after the timeout writes nothing', () async {
-      final upload = Completer<String>();
-      when(() => storage.uploadFile(any(), remotePath: any(named: 'remotePath')))
-          .thenAnswer((_) => upload.future);
-
-      final card = await quick.submit(uid: 'u1', photo: photo, isOnline: true, now: () => now);
-      upload.complete('student_cards/u1/late.jpg');
-      await Future<void>.delayed(const Duration(milliseconds: 10));
-
-      await expectQueued(card);
-    });
-
-    test('a SocketException is queued', () async {
-      when(() => storage.uploadFile(any(), remotePath: any(named: 'remotePath')))
-          .thenThrow(const SocketException('no route'));
-      await expectQueued(
-          await quick.submit(uid: 'u1', photo: photo, isOnline: true, now: () => now));
-    });
-
-    test('a Firebase network error is queued', () async {
-      when(() => storage.uploadFile(any(), remotePath: any(named: 'remotePath')))
-          .thenThrow(FirebaseException(plugin: 'firebase_storage', code: 'retry-limit-exceeded'));
-      await expectQueued(
-          await quick.submit(uid: 'u1', photo: photo, isOnline: true, now: () => now));
-    });
-
-    test('a refusal is not queued', () async {
-      when(() => storage.uploadFile(any(), remotePath: any(named: 'remotePath')))
-          .thenThrow(FirebaseException(plugin: 'firebase_storage', code: 'unauthorized'));
-      await expectLater(
-          quick.submit(uid: 'u1', photo: photo, isOnline: true, now: () => now),
-          throwsA(isA<FirebaseException>()));
-      expect(queue.pendingCount, 0);
-    });
+    final card = stored()['studentCard'] as Map;
+    expect(card['status'], 'rejected');
+    expect(card['rejectReason'], 'Photo floue');
   });
 
-  test('offline: copies the file and enqueues one uploadStudentCard, no remote write', () async {
-    final card = await service.submit(uid: 'u1', photo: photo, isOnline: false, now: () => now);
-
-    expect(card.status, StudentCardStatus.pending);
-    expect(card.imagePath, isNull);
-    final actions = queue.pendingActions;
-    expect(actions, hasLength(1));
-    final a = actions.single;
-    expect(a.type, QueueActionType.uploadStudentCard);
-    expect(a.collection, 'users');
-    expect(a.docId, 'u1');
-    expect(a.payload['uid'], 'u1');
-    expect(a.payload['file'], 'student_card_u1_${now.millisecondsSinceEpoch}.jpg');
-    expect(a.payload['submittedAt'], now.toIso8601String());
-    expect(a.payload['remotePath'], 'student_cards/u1/${now.millisecondsSinceEpoch}.jpg');
-    expect(File('${dir.path}/${a.payload['file']}').readAsBytesSync(), [9, 9]);
-    verifyNever(() => storage.uploadFile(any(), remotePath: any(named: 'remotePath')));
-    final data = (await firestore.collection('users').doc('u1').get()).data()!;
-    expect((data['studentCard'] as Map)['status'], 'rejected');
-    expect(service.hasQueuedSubmission('u1'), isTrue);
-    expect(service.hasQueuedSubmission('u2'), isFalse);
+  test('an unknown account fails and creates no profile', () async {
+    await expectLater(service.submit(uid: 'ghost', photo: photo, now: () => now),
+        throwsA(isA<DocumentNotFound>()));
+    expect(store.exists('users', 'ghost'), isFalse);
   });
 
-  test('a second offline submit replaces the queued action with the newest file', () async {
-    await service.submit(uid: 'u1', photo: photo, isOnline: false, now: () => now);
-    final second = File('${dir.path}/pick2.jpg')..writeAsBytesSync([7]);
+  test('a resubmission replaces the previous photo file', () async {
+    await service.submit(uid: 'u1', photo: photo, now: () => now);
+    final first = pathFor(now);
+    final second = File(p.join(dir.path, 'pick2.jpg'))..writeAsBytesSync([7]);
     final later = now.add(const Duration(minutes: 5));
 
-    await service.submit(uid: 'u1', photo: second, isOnline: false, now: () => later);
+    final card = await service.submit(uid: 'u1', photo: second, now: () => later);
 
-    final actions = queue.pendingActions
-        .where((a) => a.type == QueueActionType.uploadStudentCard && a.docId == 'u1');
-    expect(actions, hasLength(1));
-    expect(actions.single.payload['remotePath'],
-        'student_cards/u1/${later.millisecondsSinceEpoch}.jpg');
-    final newest = File('${dir.path}/${actions.single.payload['file']}');
-    expect(newest.readAsBytesSync(), [7]);
-    final copies = dir
+    expect(card.imagePath, pathFor(later));
+    expect(File(pathFor(later)).readAsBytesSync(), [7]);
+    expect(File(first).existsSync(), isFalse);
+    final copies = Directory(p.join(dir.path, 'student_cards', 'u1'))
         .listSync()
-        .map((e) => p.basename(e.path)) // séparateur \ sous Windows, / ailleurs
-        .where((n) => n.startsWith('student_card_'))
-        .toList();
-    expect(copies, [p.basename(newest.path)]);
+        .map((e) => p.basename(e.path));
+    expect(copies, [p.basename(pathFor(later))]);
+    expect((stored()['studentCard'] as Map)['imagePath'], pathFor(later));
   });
 
-  test('two offline submits keep distinct files until the first is superseded', () async {
-    await service.submit(uid: 'u1', photo: photo, isOnline: false, now: () => now);
-    final first = queue.pendingActions.single.payload['file'];
-    final second = File('${dir.path}/pick2.jpg')..writeAsBytesSync([7]);
-    await service.submit(
-        uid: 'u1', photo: second, isOnline: false, now: () => now.add(const Duration(seconds: 1)));
+  test('a previous image that is not a local file is left alone', () async {
+    await store.update('users', 'u1', {
+      'studentCard': {'status': 'rejected', 'imagePath': 'asset:assets/demo/card.jpg'},
+    });
 
-    final newest = queue.pendingActions.single.payload['file'];
-    expect(newest, isNot(first));
-    expect(File('${dir.path}/$first').existsSync(), isFalse);
-    expect(File('${dir.path}/$newest').existsSync(), isTrue);
-  });
+    final card = await service.submit(uid: 'u1', photo: photo, now: () => now);
 
-  test('discardQueued drops the pending card and its file', () async {
-    await service.submit(uid: 'u1', photo: photo, isOnline: false, now: () => now);
-    final file = queue.pendingActions.single.payload['file'];
-
-    await service.discardQueued('u1');
-
-    expect(service.hasQueuedSubmission('u1'), isFalse);
-    expect(File('${dir.path}/$file').existsSync(), isFalse);
-  });
-
-  test('queued replay then writes a pending card', () async {
-    await service.submit(uid: 'u1', photo: photo, isOnline: false, now: () => now);
-
-    await queue.syncAll(firestore, upload: (l, r) async => r);
-
-    final data = (await firestore.collection('users').doc('u1').get()).data()!;
-    final written = data['studentCard'] as Map<String, dynamic>;
-    expect(written.keys.toSet(), {'status', 'imagePath', 'submittedAt'});
-    expect(queue.pendingCount, 0);
+    expect(card.imagePath, pathFor(now));
+    expect(File(pathFor(now)).existsSync(), isTrue);
   });
 }
