@@ -10,7 +10,7 @@ entre les 5 membres de l'équipe :
 | Gestion Vente & Don | Membre 2 | Articles (créer/lire/modifier/supprimer, réserver, terminer) | Photos multiples compressées + recherche/filtres avancés | SQLite (`sqflite`) + Google ML Kit |
 | Gestion Annonces | Membre 3 | Annonces (créer/lire/modifier/supprimer) | Ciblage par filière + épinglage auto des annonces officielles | SQLite (`sqflite`) |
 | Gestion Événements | Membre 4 | Événements (créer/lire/modifier/annuler/supprimer, inscription atomique, présences/paiements) | Calendrier natif + vue mois, carte et itinéraire, météo, affiches, billet QR + scanner, « Près de moi » | add_2_calendar, Photon, OSRM, Open-Meteo (voir [Événements (P4)](#9-événements-p4)) |
-| Gestion Stage & Emploi | Membre 5 | Offres + candidatures (créer/lire/modifier/supprimer) | Matching intelligent par compétences + suivi de statut en temps réel | SQLite (`sqflite`) |
+| Gestion Stage & Emploi | Membre 5 | Offres, candidatures, profil candidat (créer/lire/modifier/supprimer) | Matching IA Gemini sur chaque offre + suivi par étapes avec email à chaque étape (SMTP Gmail) | SQLite (`sqflite`) |
 
 **Pas de Firebase ni de serveur** : toutes les données (comptes, profils, annonces,
 événements, offres, articles, messages) sont dans une base **SQLite** sur le téléphone.
@@ -168,6 +168,31 @@ utilise la rédaction locale.
   < 45 % → « le vendeur te répondra directement ». L'assistant ne décide jamais à la place du
   vendeur (baisse de prix, réservation) et rappelle de ne jamais payer à l'avance.
 - `test/ai/chat_assistant_test.dart` vérifie que l'app calcule exactement comme Python.
+
+## Gestion Stage & Emploi
+
+Le module s'ouvre depuis l'onglet **Stages** et s'adapte au rôle du compte :
+
+- **Étudiant** : offres avec score de compatibilité, candidature en 4 étapes (CV, lettre de motivation, message au recruteur, vérification), suivi, profil candidat (compétences, formations et expériences).
+- **Recruteur** : CRUD des offres, candidats, passage aux étapes suivantes.
+- **Admin** : *Profil › Administration* : suivi des stages, offres et candidatures, emails envoyés (avec renvoi).
+
+Suivi : `En attente → Entretien RH → Entretien technique → Acceptée` (refus possible à chaque étape ouverte). Seul le recruteur de l'offre fait avancer une candidature, et chaque étape envoie un email à l'étudiant.
+
+**Données** : base commune `campusconnect.db` via `LocalStore`. Collections `job_offers`, `applications` (l'historique est dans le document), `stage_emails` (file d'envoi), `stage_match_scores` (cache Gemini) et `stage_experiences`. Code : `lib/services/stages/`, `lib/screens/stages_emploi/`, `lib/widgets/stages/`.
+
+**Configuration** (`.env.json`, non versionné, voir `.env.example.json`) :
+
+| Clé | Rôle |
+|---|---|
+| `SMTP_USER` | Adresse Gmail d'envoi |
+| `SMTP_APP_PASSWORD` | [Mot de passe d'application](https://myaccount.google.com/apppasswords) (validation en 2 étapes requise) |
+| `GEMINI_API_KEY` | Clé Gemini du matching |
+| `GEMINI_MODEL` | Modèle Gemini, `gemini-3.5-flash` par défaut, avec `gemini-3.5-flash-lite` en secours |
+
+Sans SMTP, les emails restent en file et partent au prochain démarrage configuré. Sans Gemini, l'app affiche une estimation locale (`estimé`) d'après les compétences. Les comptes de démonstration (identifiant `demo-…`) ne reçoivent jamais de vrai email : inscrivez un étudiant avec une vraie adresse pour tester l'envoi.
+
+Test sur appareil : `flutter test integration_test/stage_e2e_test.dart -d <deviceId>`.
 
 ## 5. Données locales (SQLite)
 

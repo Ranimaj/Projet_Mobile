@@ -1,17 +1,18 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
-import 'dart:io';
+
 import '../core/constants/app_constants.dart';
 import '../models/job_offer_model.dart';
 import '../services/local_repository.dart';
 import '../services/local_store.dart';
-import '../services/storage_service.dart';
 
-/// Gestion Stage & Emploi — CRUD des offres + candidatures + matching
-/// intelligent + suivi de statut (fonctionnalités avancées). Données
-/// stockées sur le téléphone (SQLite), CV copiés dans le dossier de l'app.
+/// Lecture des offres et candidatures pour l'accueil et le profil. Les
+/// écritures et le suivi passent par `StageServices`.
 class JobProvider extends ChangeNotifier {
-  JobProvider({LocalStore? store, StorageService? storage})
-      : _jobsRepo = LocalRepository<JobOfferModel>(
+  JobProvider({LocalStore? store})
+      : _store = store ?? LocalStore(),
+        _jobsRepo = LocalRepository<JobOfferModel>(
           collectionName: AppConstants.jobOffersCollection,
           fromMap: JobOfferModel.fromMap,
           toMap: (j) => j.toMap(),
@@ -22,14 +23,13 @@ class JobProvider extends ChangeNotifier {
           fromMap: ApplicationModel.fromMap,
           toMap: (a) => a.toMap(),
           store: store,
-        ),
-        _injectedStorage = storage;
+        );
 
+  final LocalStore _store;
   final LocalRepository<JobOfferModel> _jobsRepo;
   final LocalRepository<ApplicationModel> _applicationsRepo;
-  final StorageService? _injectedStorage;
-  StorageService? _storageInstance;
-  StorageService get _storage => _storageInstance ??= _injectedStorage ?? StorageService();
+  StreamSubscription<void>? _offersWatch;
+  StreamSubscription<void>? _applicationsWatch;
 
   /// Sans effet : tout est local, le réseau ne change rien. Conservé pour
   /// le ChangeNotifierProxyProvider de main.dart.
@@ -37,6 +37,7 @@ class JobProvider extends ChangeNotifier {
 
   List<JobOfferModel> _offers = [];
   List<ApplicationModel> _myApplications = [];
+  String? _candidateId;
   bool isLoading = false;
   String? typeFilter; // 'stage' | 'emploi'
 
@@ -59,18 +60,35 @@ class JobProvider extends ChangeNotifier {
     return scored.where((e) => e.value > 0).map((e) => e.key).toList();
   }
 
+  void _readOffers() => _offers = _jobsRepo.fetchAll().where((o) => o.acceptsApplications).toList();
+
+  void _readApplications() {
+    final id = _candidateId;
+    _myApplications = id == null
+        ? []
+        : (_applicationsRepo.fetchAll().where((a) => a.candidateId == id).toList()
+          ..sort((a, b) => b.appliedAt.compareTo(a.appliedAt)));
+  }
+
   Future<void> load() async {
     isLoading = true;
     notifyListeners();
-    _offers = _jobsRepo.fetchAll();
+    _readOffers();
+    _offersWatch ??= _store.watch(AppConstants.jobOffersCollection).skip(1).listen((_) {
+      _readOffers();
+      notifyListeners();
+    });
     isLoading = false;
     notifyListeners();
   }
 
   Future<void> loadMyApplications(String candidateId) async {
-    final all = _applicationsRepo.fetchAll();
-    _myApplications = all.where((a) => a.candidateId == candidateId).toList()
-      ..sort((a, b) => b.appliedAt.compareTo(a.appliedAt));
+    _candidateId = candidateId;
+    _readApplications();
+    _applicationsWatch ??= _store.watch(AppConstants.applicationsCollection).skip(1).listen((_) {
+      _readApplications();
+      notifyListeners();
+    });
     notifyListeners();
   }
 
@@ -79,42 +97,10 @@ class JobProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<String> createOffer(JobOfferModel draft) async {
-    final id = await _jobsRepo.create(draft);
-    await load();
-    return id;
-  }
-
-  /// Postuler à une offre — CV copié dans le dossier de l'app + lettre,
-  /// création de la candidature. Fonctionne sans réseau (BF14).
-  Future<String> applyToOffer({
-    required JobOfferModel offer,
-    required String candidateId,
-    File? cvFile,
-    String? coverLetter,
-  }) async {
-    String? cvUrl;
-    if (cvFile != null) {
-      cvUrl = await _storage.saveDocument(cvFile, folder: 'cv');
-    }
-    final application = ApplicationModel(
-      id: '',
-      jobOfferId: offer.id,
-      jobTitle: offer.title,
-      companyName: offer.companyName,
-      candidateId: candidateId,
-      cvUrl: cvUrl,
-      coverLetter: coverLetter,
-      appliedAt: DateTime.now(),
-    );
-    final id = await _applicationsRepo.create(application);
-    await loadMyApplications(candidateId);
-    return id;
-  }
-
-  /// Mise à jour du statut par le recruteur — visible aussitôt côté
-  /// candidat (même base sur le téléphone).
-  Future<void> updateApplicationStatus(String applicationId, ApplicationStatus status) async {
-    await _applicationsRepo.update(applicationId, {'status': status.name});
+  @override
+  void dispose() {
+    _offersWatch?.cancel();
+    _applicationsWatch?.cancel();
+    super.dispose();
   }
 }

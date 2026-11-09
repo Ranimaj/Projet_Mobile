@@ -11,6 +11,15 @@ class AppConstants {
   static const String eventsCollection = 'events'; // Événements
   static const String jobOffersCollection = 'job_offers'; // Stage & Emploi
   static const String applicationsCollection = 'applications';
+  static const String stageEmailsCollection = 'stage_emails';
+  static const String stageMatchScoresCollection = 'stage_match_scores';
+  static const String stageExperiencesCollection = 'stage_experiences';
+
+  // --- Candidature ---
+  static const int maxCvBytes = 5 * 1024 * 1024;
+  static const List<String> cvExtensions = ['pdf', 'doc', 'docx'];
+  static const int minLetterLength = 50;
+  static const int minMessageLength = 10;
 
   // --- Cache local SQLite : clé de collection de chaque module ---
   // (valeurs inchangées : ce sont les clés de la table cache_documents)
