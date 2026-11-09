@@ -3,6 +3,7 @@ import 'package:campusconnect/models/event_model.dart';
 import 'package:campusconnect/providers/event_provider.dart';
 import 'package:campusconnect/screens/evenements/event_actor.dart';
 import 'package:campusconnect/screens/evenements/event_categories.dart';
+import 'package:campusconnect/screens/evenements/ticket_rules.dart';
 import 'package:campusconnect/services/auth_service.dart';
 import 'package:campusconnect/services/local_store.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -347,6 +348,78 @@ void main() {
       await signOut();
       expect(() => provider.deleteEvent(draft()), refused('Connectez-vous'));
       expect(store.exists(col, 'e1'), isTrue);
+    });
+  });
+
+  group('présences et paiements', () {
+    final soon = DateTime.now().add(const Duration(minutes: 30)); // dans la fenêtre de pointage
+
+    test('un inscrit ne peut pas se pointer présent ni payé lui-même ; un autre étudiant non plus', () async {
+      await seed(draft(start: soon, price: 10, registered: ['u1']));
+      for (final who in ['u1', 'u2']) {
+        await signIn(who);
+        expect(() => provider.togglePresent('e1', 'u1'), refused("Seul l'organisateur"), reason: who);
+        expect(() => provider.markPresent('e1', 'u1'), refused("Seul l'organisateur"), reason: who);
+        expect(() => provider.togglePaid('e1', 'u1'), refused("Seul l'organisateur"), reason: who);
+      }
+      expect(stored('e1').checkedInUserIds, isEmpty);
+      expect(stored('e1').paidUserIds, isEmpty);
+    });
+
+    test('visiteur : refusé', () async {
+      await seed(draft(start: soon, registered: ['u1']));
+      await signOut();
+      expect(() => provider.togglePresent('e1', 'u1'), refused('Connectez-vous'));
+    });
+
+    test('admin : peut pointer', () async {
+      await seed(draft(start: soon, price: 10, registered: ['u1']));
+      await signIn('chef', admin: true);
+      await provider.togglePresent('e1', 'u1');
+      await provider.togglePaid('e1', 'u1');
+      expect(stored('e1').checkedInUserIds, ['u1']);
+      expect(stored('e1').paidUserIds, ['u1']);
+    });
+
+    test('un seul inscrit à la fois ; une personne non inscrite est refusée', () async {
+      await seed(draft(start: soon, price: 10, registered: ['u1', 'u2']));
+      await provider.togglePresent('e1', 'u1');
+      expect(stored('e1').checkedInUserIds, ['u1']);
+      expect(() => provider.togglePresent('e1', 'intrus'), refused("pas inscrite"));
+      expect(() => provider.togglePaid('e1', 'intrus'), refused("pas inscrite"));
+    });
+
+    test('fenêtre de présence : d\'1 h avant le début jusqu\'à la fin ; annulé : lecture seule', () async {
+      final early = draft(id: 'tot', start: DateTime.now().add(const Duration(hours: 2)), registered: ['u1']);
+      final ended = draft(id: 'fini', start: DateTime.now().subtract(const Duration(hours: 3)), registered: ['u1']);
+      final cancelled = draft(id: 'annule', start: soon, registered: ['u1'], status: EventStatus.cancelled);
+      for (final e in [early, ended, cancelled]) {
+        await seed(e);
+        await expectLater(provider.togglePresent(e.id, 'u1'), refused(), reason: e.id);
+      }
+      final running = draft(id: 'encours', start: DateTime.now().subtract(const Duration(minutes: 20)), registered: ['u1']);
+      await seed(running);
+      await provider.togglePresent('encours', 'u1');
+      expect(stored('encours').checkedInUserIds, ['u1']);
+    });
+
+    test('payé seulement si payant et inscrit ; jamais sur un événement annulé', () async {
+      await seed(draft(id: 'gratuit', start: soon, registered: ['u1']));
+      expect(() => provider.togglePaid('gratuit', 'u1'), refused('gratuit'));
+      await seed(draft(id: 'annule', start: soon, price: 5, registered: ['u1'], status: EventStatus.cancelled));
+      expect(() => provider.togglePaid('annule', 'u1'), refused('annulé'));
+    });
+
+    test('scan : billet lu → verdict « à pointer » → présent ; un 2e scan ne retire jamais', () async {
+      final e = draft(start: soon, registered: ['u1']);
+      await seed(e);
+      final raw = TicketRules.buildTicketPayload('e1', 'u1');
+      final verdict = TicketRules.scanVerdict(stored('e1'), raw, DateTime.now());
+      expect(verdict.verdict, ScanVerdict.markPresent);
+      await provider.markPresent('e1', verdict.uid!);
+      await provider.markPresent('e1', verdict.uid!);
+      expect(stored('e1').checkedInUserIds, ['u1']);
+      expect(TicketRules.scanVerdict(stored('e1'), raw, DateTime.now()).verdict, ScanVerdict.alreadyPresent);
     });
   });
 

@@ -454,7 +454,10 @@ class EventProvider extends ChangeNotifier {
   Future<void> _toggleAttendance(String eventId, String field, String uid, {bool onlyAdd = false}) async {
     final key = '$eventId|$field|$uid';
     if (_busyAttendance.contains(key)) return; // double tap ignoré
+    final actor = _requireActor('pointer les participants');
     final current = _readStored(eventId);
+    // Organisateur ou admin seulement, comme l'ancien serveur (isAttendanceChange).
+    _requireManager(actor, current, 'pointer les participants');
     final isPresentList = field == 'checkedInUserIds';
     final blocked = isPresentList
         ? EventRules.presentBlockedReason(current, uid, DateTime.now())
