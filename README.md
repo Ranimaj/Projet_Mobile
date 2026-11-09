@@ -303,7 +303,7 @@ soutenance : [`docs/EVENEMENT_DEFENSE.md`](docs/EVENEMENT_DEFENSE.md).
 | Liste | `evenements_list_screen.dart` | Onglets *À venir / Passés / Mes inscriptions / Mes événements* (`TabBar` ; les deux derniers une fois connecté), bande des jours, carte « Prochain événement », recherche sans accents, filtres (catégorie, gratuit/payant), tri *Date / Près de moi* |
 | Calendrier | `event_calendar_screen.dart` | Grille du mois (`GridView.builder`) avec un point par jour occupé |
 | Détail | `event_detail_screen.dart` | Mis à jour en direct (`StreamBuilder`), affiche, places restantes, conflit d'horaire, météo, carte, ajout au calendrier, partage, menu organisateur |
-| Créer / modifier | `add_event_screen.dart` | `Form` + validateurs, lieu avec autocomplétion, affiche, capacité, prix ; création possible hors-ligne |
+| Créer / modifier | `add_event_screen.dart` | `Form` + validateurs, lieu avec autocomplétion, affiche, capacité, prix ; création possible hors-ligne ; **scanner une affiche** (création seulement, voir ci-dessous) |
 | Itinéraire | `event_map.dart` | Carte OSM, trajet à pied/voiture (OSRM), lien Google Maps |
 | Participants | `attendees_screen.dart` | Liste des inscrits, pointage *Présent* / *Payé*, filtres, recette |
 | Mon billet | `ticket_screen.dart` | QR code (`eventId` + `uid`), statut présent/payé en direct |
@@ -312,7 +312,44 @@ soutenance : [`docs/EVENEMENT_DEFENSE.md`](docs/EVENEMENT_DEFENSE.md).
 Règles métier (sans Flutter, testées) : `event_rules.dart`,
 `event_validators.dart`, `ticket_rules.dart`, `poster_rules.dart`,
 `place_rules.dart`, `itinerary_rules.dart`, `weather_rules.dart`,
-`event_calendar_sync.dart`, `event_categories.dart`.
+`event_calendar_sync.dart`, `event_categories.dart`, `poster_parser.dart`.
+
+### Scanner une affiche
+
+Dans « Créer un événement » (pas en modification), la carte **Scanner une
+affiche** remplit le formulaire à partir d'une photo (« Prendre une photo ») ou
+d'une image déjà enregistrée (« Choisir dans la galerie »). Tout se passe sur le
+téléphone, gratuitement, sans réseau.
+
+1. **Lecture du texte** : modèle de reconnaissance de texte pré-entraîné de
+   ML Kit (`google_mlkit_text_recognition`, alphabet latin), embarqué dans
+   l'application : aucun téléchargement, aucune clé. Fichier :
+   `poster_text_reader_mlkit.dart` (délai maximal 20 s).
+2. **Règles d'extraction écrites à la main** (`poster_parser.dart`, Dart pur,
+   testé) : titre (plus grande ligne, capitales remises en phrase en gardant
+   les sigles), date et heure (formats français, plages, année déduite, dates
+   limites « Inscription avant le… » ignorées), lieu, prix ou gratuit,
+   description (sans bandeaux ni pieds de page). Une valeur que le formulaire
+   refuserait (date passée, durée de plus de 72 h…) n'est pas remplie et un
+   avertissement l'explique. Une date lue sans heure ne reçoit jamais d'heure
+   inventée : l'app propose « Choisir l'heure ».
+3. **Vérification par l'utilisateur** : la feuille « Voici ce que j'ai lu »
+   montre chaque valeur avec une case. Un champ déjà saisi n'est pas remplacé,
+   sauf si on coche sa case. Rien n'est enregistré avant « Créer l'événement » :
+   les valeurs préremplies passent alors par les mêmes contrôles qu'une saisie
+   (validateurs du formulaire, puis `EventProvider`).
+4. **Catégorie** : notre propre classifieur embarqué
+   (`category_classifier.dart`, entraîné par `ml/train.py`) propose la
+   catégorie par la puce habituelle ; elle n'est appliquée que sur
+   « Appliquer ».
+5. **Affiche** : l'image peut devenir l'affiche de l'événement (interrupteur),
+   avec les contrôles et la compression habituels (EXIF supprimé). Elle reste
+   sur le téléphone : à l'enregistrement, elle est rangée dans le dossier de
+   l'app comme une affiche choisie dans la galerie.
+
+Précision des règles sur les 5 affiches de référence, mesurée sur des lignes de
+texte propres (elle évalue les règles, pas la lecture de l'image) :
+`flutter test test/evenements/poster_accuracy_report_test.dart`.
 
 ### API gratuites et limites
 
@@ -419,6 +456,7 @@ docs/EVENEMENT_TESTS.md, docs/EVENEMENT_DEFENSE.md, docs/NOTE_USERS_RULES.md
 | `qr_flutter` | dessiner le billet QR |
 | `share_plus` | partager un événement |
 | `mobile_scanner` | scanner les billets |
+| `google_mlkit_text_recognition` | lire le texte d'une affiche sur le téléphone (alphabet latin, modèle embarqué) |
 
 Déjà présents et réutilisés : `image_picker`, `flutter_image_compress`,
 `cached_network_image`, `geolocator`, `sqflite`, `connectivity_plus`.
@@ -432,6 +470,17 @@ Déjà présents et réutilisés : `image_picker`, `flutter_image_compress`,
 - Pas de notifications (rappel, annulation).
 - OSRM et Photon sont des serveurs publics de démonstration : ils peuvent être
   lents ou indisponibles.
+- Scanner une affiche : seul le texte en **caractères latins** est lu (l'arabe
+  est ignoré). Le résultat dépend de la photo (flou, reflets, polices
+  décoratives) et les règles de date restent des heuristiques qui peuvent se
+  tromper : l'utilisateur vérifie toujours avant d'enregistrer. Le lieu lu
+  n'est pas localisé (choisir une suggestion pour avoir la carte).
+- Le moteur de lecture embarqué alourdit l'APK d'environ 12 Mo par
+  architecture (mesuré : +40 Mo sur l'APK de débogage, qui contient 3
+  architectures).
+- iOS : ML Kit (lecture d'affiche, et aussi l'étiquetage d'images de Vente &
+  Don) demande des réglages Xcode non faits dans ce projet (option de liaison
+  `-all_load`, ajout de `LatinOCRResources.bundle`) ; non testé sur iOS.
 
 ---
 
