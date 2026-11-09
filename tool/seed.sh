@@ -56,6 +56,14 @@ create_account() {
   echo "$resp" | uid_of
 }
 
+# verify_email uid : marque l'email comme vérifié dans l'émulateur Auth, sinon
+# l'app affiche « Email à vérifier » sur les comptes de démonstration.
+verify_email() {
+  http "email vérifié $1" -X POST "$AUTH/projects/campusconnect-esprit/accounts:update" \
+    -H 'Authorization: Bearer owner' -H 'Content-Type: application/json' \
+    -d "{\"localId\":\"$1\",\"emailVerified\":true}" > /dev/null
+}
+
 # write_user uid email fullName role verified cardJson skillsJson
 write_user() {
   local uid="$1" email="$2" name="$3" role="$4" verified="$5" card="$6" skills="$7"
@@ -101,6 +109,7 @@ add() { # email name role verified cardkind skills
   uid="$(create_account "$email")"
   LAST_UID="$uid"
   [[ -n "$uid" ]] || { echo "Échec pour $email"; exit 1; }
+  verify_email "$uid"
   if [[ "$kind" == pending ]]; then
     upload_card "$uid"
     card="$(pending_card "$uid")"
