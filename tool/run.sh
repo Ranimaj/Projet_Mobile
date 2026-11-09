@@ -15,6 +15,6 @@ DEVICE_ARGS=()
 if [[ -n "${1:-}" ]]; then DEVICE_ARGS=(-d "$1"); fi
 
 if [[ -f .env.json ]]; then
-  exec flutter run "${DEVICE_ARGS[@]}" --dart-define-from-file=.env.json
+  exec flutter run ${DEVICE_ARGS[@]+"${DEVICE_ARGS[@]}"} --dart-define-from-file=.env.json
 fi
-exec flutter run "${DEVICE_ARGS[@]}"
+exec flutter run ${DEVICE_ARGS[@]+"${DEVICE_ARGS[@]}"}
