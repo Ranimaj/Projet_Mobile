@@ -120,6 +120,37 @@ class EventValidators {
     return null;
   }
 
+  static const int posterRefMax = 500;
+
+  /// Référence d'affiche enregistrée dans `posterUrl` : absente, ou 500
+  /// caractères au plus et de l'une des formes acceptées par l'affichage :
+  /// fichier du téléphone (chemin absolu), image embarquée (`asset:`) ou
+  /// adresse https (données de démonstration).
+  static String? posterRef(String? ref) {
+    if (ref == null) return null;
+    const message = 'Affiche invalide';
+    if (ref.isEmpty || ref.length > posterRefMax) return message;
+    final isAbsolutePath = ref.startsWith('/') || RegExp(r'^[A-Za-z]:[\\/]').hasMatch(ref);
+    if (ref.startsWith('https://') || ref.startsWith('asset:') || isAbsolutePath) return null;
+    return message;
+  }
+
+  /// Contenu complet d'un événement, comme le contrôlaient les anciennes
+  /// règles du serveur : titre, description, lieu, catégorie, dates (fin
+  /// après le début, 15 min à 72 h), capacité, prix, coordonnées, affiche.
+  /// Le début dans le futur se vérifie à part ([start]) : seulement à la
+  /// création et quand il change. Renvoie la première erreur, ou null.
+  static String? eventContent(EventModel e) =>
+      title(e.title) ??
+      description(e.description) ??
+      location(e.location) ??
+      category(e.category) ??
+      end(e.startDate, e.endDate) ??
+      capacity(e.capacity?.toString()) ??
+      (e.price == null ? null : price(e.price!.toString())) ??
+      coordinates(e.latitude, e.longitude) ??
+      posterRef(e.posterUrl);
+
   /// Coordonnées optionnelles, mais si présentes elles doivent être réelles.
   static String? coordinates(double? latitude, double? longitude) {
     if (latitude == null && longitude == null) return null;

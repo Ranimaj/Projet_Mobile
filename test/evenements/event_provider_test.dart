@@ -1,6 +1,8 @@
 import 'package:campusconnect/core/constants/app_constants.dart';
 import 'package:campusconnect/models/event_model.dart';
 import 'package:campusconnect/providers/event_provider.dart';
+import 'package:campusconnect/screens/evenements/event_actor.dart';
+import 'package:campusconnect/screens/evenements/event_categories.dart';
 import 'package:campusconnect/services/local_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -12,6 +14,10 @@ void main() {
   late LocalStore store;
   late EventProvider provider;
   const col = AppConstants.eventsCollection;
+
+  /// Personne connectée vue par le provider : l'organisateur par défaut ;
+  /// les tests d'inscription agissent au nom de l'étudiant concerné.
+  EventActor? actingAs;
 
   final start = DateTime.now().add(const Duration(days: 3));
 
@@ -28,7 +34,8 @@ void main() {
         organizerName: 'Club',
         title: 'Atelier',
         description: 'Un atelier pour tous',
-        category: 'Atelier',
+        // Catégorie de la liste : la création vérifie de nouveau le contenu.
+        category: EventCategories.conference,
         startDate: startDate ?? start,
         location: 'Salle B12',
         capacity: capacity,
@@ -46,7 +53,8 @@ void main() {
   setUp(() async {
     await openTestDatabase();
     store = LocalStore();
-    provider = EventProvider(store: store);
+    actingAs = const EventActor('org');
+    provider = EventProvider(store: store, actor: () => actingAs);
   });
 
   tearDown(closeTestDatabase);
