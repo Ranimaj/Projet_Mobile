@@ -103,75 +103,80 @@ Future<File?> showDemoPhotoPickerSheet(BuildContext context) async {
             Text('Photos de démonstration', style: text.titleMedium),
             const SizedBox(height: 4),
             Text(
-              'Choisis l\'une des 4 photos pour tester la publication et l\'IA :',
+              'Choisis l\'une des ${kAvailableDemoPhotos.length} photos pour tester la publication et l\'IA :',
               style: text.bodySmall,
             ),
             const SizedBox(height: 16),
-            GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                crossAxisSpacing: 12,
-                mainAxisSpacing: 12,
-                childAspectRatio: 1.1,
-              ),
-              itemCount: kAvailableDemoPhotos.length,
-              itemBuilder: (ctx, i) {
-                final photoChoice = kAvailableDemoPhotos[i];
-                return InkWell(
-                  borderRadius: BorderRadius.circular(16),
-                  onTap: () async {
-                    try {
-                      final file = await demoPhotoToFile(photoChoice.fileName);
-                      if (ctx.mounted) Navigator.pop(ctx, file);
-                    } catch (_) {
-                      if (ctx.mounted) Navigator.pop(ctx);
-                    }
-                  },
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: t.surfaceMuted,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: t.outline),
-                    ),
-                    clipBehavior: Clip.antiAlias,
-                    child: Stack(
-                      children: [
-                        Positioned.fill(
-                          child: Image.asset(
-                            photoChoice.assetPath,
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) => const ColoredBox(
-                              color: Colors.grey,
-                              child: Icon(Icons.broken_image, color: Colors.white),
-                            ),
-                          ),
-                        ),
-                        Positioned(
-                          left: 0,
-                          right: 0,
-                          bottom: 0,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            color: Colors.black.withValues(alpha: 0.65),
-                            child: Text(
-                              photoChoice.title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
+            // Flexible + grille défilante : la grille garde sa hauteur
+            // naturelle quand elle tient, et défile dans la feuille sinon
+            // (auparavant non défilante, elle débordait dès la 3e rangée).
+            Flexible(
+              child: GridView.builder(
+                key: const Key('demo-photo-grid'),
+                shrinkWrap: true,
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2,
+                  crossAxisSpacing: 12,
+                  mainAxisSpacing: 12,
+                  childAspectRatio: 1.1,
+                ),
+                itemCount: kAvailableDemoPhotos.length,
+                itemBuilder: (ctx, i) {
+                  final photoChoice = kAvailableDemoPhotos[i];
+                  return InkWell(
+                    borderRadius: BorderRadius.circular(16),
+                    onTap: () async {
+                      try {
+                        final file = await demoPhotoToFile(photoChoice.fileName);
+                        if (ctx.mounted) Navigator.pop(ctx, file);
+                      } catch (_) {
+                        if (ctx.mounted) Navigator.pop(ctx);
+                      }
+                    },
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: t.surfaceMuted,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: t.outline),
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: Stack(
+                        children: [
+                          Positioned.fill(
+                            child: Image.asset(
+                              photoChoice.assetPath,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => const ColoredBox(
+                                color: Colors.grey,
+                                child: Icon(Icons.broken_image, color: Colors.white),
                               ),
                             ),
                           ),
-                        ),
-                      ],
+                          Positioned(
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              color: Colors.black.withValues(alpha: 0.65),
+                              child: Text(
+                                photoChoice.title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                );
-              },
+                  );
+                },
+              ),
             ),
           ],
         ),
