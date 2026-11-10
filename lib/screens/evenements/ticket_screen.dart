@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -41,6 +43,23 @@ class TicketView extends StatelessWidget {
   final String studentName;
   const TicketView({super.key, required this.event, required this.uid, required this.studentName});
 
+  /// Fond de la carte : blanc dans les deux thèmes (le QR reste sombre sur
+  /// clair). Toutes les couleurs de texte de la carte en sont déduites,
+  /// jamais du thème ambiant.
+  static const Color cardColor = Colors.white;
+
+  /// Référence lisible du billet, tirée des identifiants du QR
+  /// (« Billet n° 3B70-3DA7 »). Affichage seulement : jamais stockée ni
+  /// utilisée pour valider un billet.
+  static String reference(String eventId, String uid) {
+    String part(String id) {
+      final s = id.replaceAll(RegExp(r'[^A-Za-z0-9]'), '');
+      return (s.length > 4 ? s.substring(0, 4) : s).toUpperCase();
+    }
+
+    return 'Billet n° ${part(eventId)}-${part(uid)}';
+  }
+
   @override
   Widget build(BuildContext context) {
     final cancelled = event.status == EventStatus.cancelled;
@@ -50,6 +69,9 @@ class TicketView extends StatelessWidget {
     final date = DateFormat('EEEE d MMMM yyyy', 'fr_FR').format(event.startDate);
     final time =
         '${DateFormat('HH:mm', 'fr_FR').format(event.startDate)} → ${DateFormat('HH:mm', 'fr_FR').format(event.endDate)}';
+
+    final ink = TicketColors.ink(cardColor);
+    final inkSoft = TicketColors.inkSoft(cardColor);
 
     final qr = QrImageView(
       data: TicketRules.buildTicketPayload(event.id, uid),
@@ -62,8 +84,9 @@ class TicketView extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
       children: [
         Container(
+          key: const Key('ticket-card'),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: cardColor,
             borderRadius: BorderRadius.circular(20),
             border: Border.all(color: AppColors.border),
           ),
@@ -106,11 +129,27 @@ class TicketView extends StatelessWidget {
                             border: Border.all(color: AppColors.danger, width: 3),
                             borderRadius: BorderRadius.circular(8),
                           ),
-                          child: const Text('ANNULÉ',
-                              style: TextStyle(color: AppColors.danger, fontSize: 26, fontWeight: FontWeight.w900)),
+                          child: Text('ANNULÉ',
+                              style: TextStyle(
+                                  color: TicketColors.readableOn(AppColors.danger, cardColor),
+                                  fontSize: 26,
+                                  fontWeight: FontWeight.w900)),
                         ),
                       ),
                   ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                reference(event.id, uid),
+                key: const Key('ticket-reference'),
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: inkSoft,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 1.1,
+                  fontFeatures: const [FontFeature.tabularFigures()],
                 ),
               ),
               Padding(
@@ -119,19 +158,27 @@ class TicketView extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(studentName,
+                        key: const Key('ticket-attendee'),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: inkSoft)),
                     const SizedBox(height: 4),
                     Text(event.title,
+                        key: const Key('ticket-title'),
                         maxLines: 3,
                         overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
+                        style: TextStyle(fontSize: 22, height: 1.25, fontWeight: FontWeight.w800, color: ink)),
                     const SizedBox(height: 12),
-                    _Line(icon: Icons.calendar_today_outlined, text: '${date[0].toUpperCase()}${date.substring(1)}'),
-                    _Line(icon: Icons.schedule_rounded, text: time),
-                    _Line(icon: Icons.place_outlined, text: event.location),
-                    _Line(icon: Icons.sell_outlined, text: EventRules.priceLabel(event)),
+                    _Line(
+                        icon: Icons.calendar_today_outlined,
+                        text: '${date[0].toUpperCase()}${date.substring(1)}',
+                        ink: ink,
+                        iconColor: inkSoft),
+                    _Line(icon: Icons.schedule_rounded, text: time, ink: ink, iconColor: inkSoft),
+                    _Line(icon: Icons.place_outlined, text: event.location, ink: ink, iconColor: inkSoft),
+                    // Gratuit : la puce le dit déjà, pas de ligne en double.
+                    if (payment != TicketPayment.free)
+                      _Line(icon: Icons.sell_outlined, text: EventRules.priceLabel(event), ink: ink, iconColor: inkSoft),
                     const SizedBox(height: 12),
                     // Wrap : les puces passent à la ligne en grand texte.
                     Wrap(
@@ -166,18 +213,53 @@ class TicketView extends StatelessWidget {
   }
 }
 
+/// Couleurs lisibles sur la carte du billet (contraste WCAG ≥ 4,5:1).
+class TicketColors {
+  TicketColors._();
+
+  static const double minContrast = 4.5;
+
+  /// Rapport de contraste WCAG entre deux couleurs opaques.
+  static double contrast(Color a, Color b) {
+    final la = a.computeLuminance();
+    final lb = b.computeLuminance();
+    return (math.max(la, lb) + 0.05) / (math.min(la, lb) + 0.05);
+  }
+
+  /// [color] assombri (fond clair) ou éclairci (fond foncé) juste assez pour
+  /// atteindre [minContrast] sur [background].
+  static Color readableOn(Color color, Color background) {
+    final toward = background.computeLuminance() > 0.5 ? Colors.black : Colors.white;
+    var c = color;
+    for (var t = 0.05; contrast(c, background) < minContrast && t <= 1.0; t += 0.05) {
+      c = Color.lerp(color, toward, t)!;
+    }
+    return c;
+  }
+
+  /// Texte principal : encre sombre sur fond clair, blanche sur fond foncé.
+  static Color ink(Color background) =>
+      readableOn(background.computeLuminance() > 0.5 ? AppColors.textPrimary : Colors.white, background);
+
+  /// Texte secondaire (nom, référence, icônes).
+  static Color inkSoft(Color background) => readableOn(
+      background.computeLuminance() > 0.5 ? AppColors.textSecondary : const Color(0xFFD1D5DB), background);
+}
+
 class _Line extends StatelessWidget {
   final IconData icon;
   final String text;
-  const _Line({required this.icon, required this.text});
+  final Color ink;
+  final Color iconColor;
+  const _Line({required this.icon, required this.text, required this.ink, required this.iconColor});
 
   @override
   Widget build(BuildContext context) => Padding(
         padding: const EdgeInsets.only(bottom: 6),
         child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Icon(icon, size: 16, color: AppColors.textSecondary),
+          Icon(icon, size: 16, color: iconColor),
           const SizedBox(width: 8),
-          Expanded(child: Text(text)),
+          Expanded(child: Text(text, style: TextStyle(fontSize: 15, color: ink))),
         ]),
       );
 }
@@ -188,13 +270,19 @@ class _Chip extends StatelessWidget {
   const _Chip({required this.text, required this.color});
 
   @override
-  Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: color),
-        ),
-        child: Text(text, style: TextStyle(color: color, fontWeight: FontWeight.w700)),
-      );
+  Widget build(BuildContext context) {
+    final tint = color.withValues(alpha: 0.12);
+    // Texte lisible sur la teinte de la puce, posée sur la carte.
+    final background = Color.alphaBlend(tint, TicketView.cardColor);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: tint,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color),
+      ),
+      child: Text(text,
+          style: TextStyle(color: TicketColors.readableOn(color, background), fontWeight: FontWeight.w700)),
+    );
+  }
 }
