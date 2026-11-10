@@ -27,7 +27,30 @@ class TwoFactorEmail {
   }
 }
 
-/// Envoi du code de double authentification par email.
+/// Email du code de réinitialisation du mot de passe (le code n'est pas dans
+/// l'objet).
+class PasswordResetEmail {
+  PasswordResetEmail._();
+
+  static const String subject = 'Réinitialisation de votre mot de passe CampusConnect';
+
+  static String body({
+    required String code,
+    required String name,
+    required DateTime expiresAt,
+    required Duration validity,
+  }) {
+    final hello = name.trim().isEmpty ? 'Bonjour,' : 'Bonjour ${name.trim()},';
+    final until = '${expiresAt.hour}h${expiresAt.minute.toString().padLeft(2, '0')}';
+    return '$hello\n\n'
+        'Votre code pour choisir un nouveau mot de passe CampusConnect : $code\n\n'
+        'Il est valable ${validity.inMinutes} minutes (jusqu\'à $until). Ne le communiquez à personne.\n\n'
+        'Si vous n\'avez rien demandé, ignorez ce message : votre mot de passe ne change pas.\n\n'
+        'L\'équipe CampusConnect';
+  }
+}
+
+/// Envoi des codes par email (double authentification, mot de passe oublié).
 abstract class TwoFactorMailer {
   /// `false` sans identifiants SMTP : le code reste affiché dans l'app.
   bool get isConfigured;

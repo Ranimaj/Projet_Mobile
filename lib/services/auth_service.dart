@@ -25,6 +25,28 @@ class TwoFactorEmailSent {
   const TwoFactorEmailSent({required this.email, required this.resendIn, required this.expiresAt});
 }
 
+/// Réponse à une demande de réinitialisation du mot de passe par email.
+/// Identique qu'un compte existe ou non pour [email].
+class PasswordResetRequest {
+  final String email;
+
+  /// Pas d'email possible (SMTP non configuré, compte de démonstration) :
+  /// un administrateur réinitialise le mot de passe.
+  final bool byAdmin;
+
+  /// Délai avant de pouvoir demander un nouveau code (zéro : tout de suite).
+  final Duration resendIn;
+  final DateTime? expiresAt;
+
+  const PasswordResetRequest({required this.email, required this.resendIn, required this.expiresAt})
+      : byAdmin = false;
+
+  const PasswordResetRequest.admin(this.email)
+      : byAdmin = true,
+        resendIn = Duration.zero,
+        expiresAt = null;
+}
+
 /// Compte connecté sur ce téléphone.
 class AuthAccount {
   final String uid;
@@ -52,7 +74,8 @@ class AuthAccount {
 /// téléphone sont affichés dans l'app ([demoSmsCode], « SMS simulé ») et un
 /// mot de passe oublié est réinitialisé par un admin
 /// ([resetPasswordByAdmin]). Avec un SMTP configuré, le code de double
-/// authentification part par email ([sendTwoFactorEmail]).
+/// authentification ([sendTwoFactorEmail]) et celui du mot de passe oublié
+/// ([requestPasswordReset]) partent par email.
 ///
 /// Toutes les méthodes lèvent une [AuthFailure] avec un message prêt à
 /// afficher.
@@ -426,26 +449,13 @@ class AuthService {
         if (!resend && previous != null && previous.isLive(now)) {
           return _sentInfo(account.email, previous, now);
         }
-        final wait = previous?.resendWait(now) ?? Duration.zero;
-        if (wait > Duration.zero) {
-          throw AuthFailure('otp-cooldown', 'Patiente ${_ceil(wait, 1)} s avant de demander un nouveau code.');
-        }
-
-        final code = List.generate(Validators.otpLength, (_) => _random.nextInt(10)).join();
-        final salt = base64Encode(List<int>.generate(16, (_) => _random.nextInt(256)));
-        final expiresAt = now.add(otpValidity);
-        final record = _EmailCode(
-          salt: salt,
-          hash: _EmailCode.digest(account.uid, code, salt),
-          sentAt: now,
-          expiresAt: expiresAt,
-          // Redemander un code ne remet pas les essais ratés à zéro.
-          failures: previous?.carriedFailures(now) ?? 0,
-        );
-        // Écrit avant l'envoi : l'ancien code ne vaut plus rien.
-        await _writeEmailCode(account.uid, record);
-        try {
-          await _mailer.send(
+        final record = await _issueEmailCode(
+          owner: account.uid,
+          previous: previous,
+          now: now,
+          validity: otpValidity,
+          write: (c) => _writeEmailCode(account.uid, c),
+          send: (code, expiresAt) => _mailer.send(
             to: account.email,
             subject: TwoFactorEmail.subject,
             body: TwoFactorEmail.body(
@@ -454,12 +464,8 @@ class AuthService {
               expiresAt: expiresAt,
               validity: otpValidity,
             ),
-          );
-        } catch (_) {
-          // Jamais l'erreur d'origine : elle pourrait citer la configuration SMTP.
-          await _writeEmailCode(account.uid, record.withoutCode());
-          throw AuthFailure.fromCode('email-send-failed');
-        }
+          ),
+        );
         return _sentInfo(account.email, record, now);
       });
 
@@ -470,32 +476,213 @@ class AuthService {
   /// [maxFailedAttempts] codes faux, le compte est bloqué pendant [lockout].
   Future<void> verifyTwoFactorEmail(String code) => _guard(() async {
         final account = _requireAccount();
-        final now = _now();
-        final stored = _readEmailCode(account.uid);
-        _throwIfLocked(stored, now);
-        if (stored == null || !stored.hasCode) throw AuthFailure.fromCode('otp-not-sent');
-        if (!stored.expiresAt!.isAfter(now)) {
-          await _writeEmailCode(account.uid, stored.withoutCode());
-          throw AuthFailure.fromCode('session-expired');
-        }
-        if (Validators.otp(code) != null || !stored.matches(account.uid, code.trim())) {
-          final failures = stored.failures + 1;
-          if (failures >= maxFailedAttempts) {
-            final until = now.add(lockout);
-            await _writeEmailCode(account.uid, stored.withoutCode(failures: failures, lockedUntil: until));
-            throw _lockedFailure(until, now);
-          }
-          await _writeEmailCode(account.uid, stored.copyWith(failures: failures));
-          final left = maxFailedAttempts - failures;
-          throw AuthFailure(
-            'invalid-verification-code',
-            left == 1
-                ? 'Code incorrect. Dernier essai avant un blocage de ${lockout.inMinutes} minutes.'
-                : 'Code incorrect. Encore $left essais.',
-          );
-        }
+        await _checkEmailCode(
+          owner: account.uid,
+          stored: _readEmailCode(account.uid),
+          code: code,
+          now: _now(),
+          write: (c) => _writeEmailCode(account.uid, c),
+        );
         await _writeEmailCode(account.uid, null);
         await _store.setValue(twoFactorPendingKey, null);
+      });
+
+  // --- Codes par email (double authentification, mot de passe oublié) ---------
+
+  /// Nouveau code à [Validators.otpLength] chiffres pour [owner]. Respecte
+  /// l'attente entre deux codes ([resendCooldown]) et garde les essais ratés
+  /// de la fenêtre en cours. L'empreinte est écrite AVANT l'envoi (l'ancien
+  /// code ne vaut plus rien) ; si l'envoi échoue, aucun code valide ne reste.
+  ///
+  /// Sans [send] (adresse sans compte, mot de passe oublié), aucun code n'est
+  /// tiré ni envoyé : seule la fenêtre (attente, expiration, essais) existe,
+  /// pour répondre exactement comme pour un vrai compte.
+  Future<_EmailCode> _issueEmailCode({
+    required String owner,
+    required _EmailCode? previous,
+    required DateTime now,
+    required Duration validity,
+    required Future<void> Function(_EmailCode? code) write,
+    required Future<void> Function(String code, DateTime expiresAt)? send,
+  }) async {
+    final wait = previous?.resendWait(now) ?? Duration.zero;
+    if (wait > Duration.zero) {
+      throw AuthFailure('otp-cooldown', 'Patiente ${_ceil(wait, 1)} s avant de demander un nouveau code.');
+    }
+    final expiresAt = now.add(validity);
+    // Redemander un code ne remet pas les essais ratés à zéro.
+    final failures = previous?.carriedFailures(now) ?? 0;
+    if (send == null) {
+      final window = _EmailCode(sentAt: now, expiresAt: expiresAt, failures: failures);
+      await write(window);
+      return window;
+    }
+
+    final code = List.generate(Validators.otpLength, (_) => _random.nextInt(10)).join();
+    final salt = base64Encode(List<int>.generate(16, (_) => _random.nextInt(256)));
+    final record = _EmailCode(
+      salt: salt,
+      hash: _EmailCode.digest(owner, code, salt),
+      sentAt: now,
+      expiresAt: expiresAt,
+      failures: failures,
+    );
+    await write(record);
+    try {
+      await send(code, expiresAt);
+    } catch (_) {
+      // Jamais l'erreur d'origine : elle pourrait citer la configuration SMTP.
+      await write(record.withoutCode());
+      throw AuthFailure.fromCode('email-send-failed');
+    }
+    return record;
+  }
+
+  /// Vérifie [code] contre [stored] : blocage, code demandé, expiration, puis
+  /// comparaison en temps constant. Un code faux compte un essai ; au
+  /// [maxFailedAttempts]-ième, plus de code et blocage de [lockout]. Ne fait
+  /// rien de plus en cas de succès : à l'appelant d'effacer le code.
+  Future<void> _checkEmailCode({
+    required String owner,
+    required _EmailCode? stored,
+    required String code,
+    required DateTime now,
+    required Future<void> Function(_EmailCode? code) write,
+  }) async {
+    _throwIfLocked(stored, now);
+    if (stored == null || stored.sentAt == null) throw AuthFailure.fromCode('otp-not-sent');
+    if (!stored.expiresAt!.isAfter(now)) {
+      await write(stored.withoutCode());
+      throw AuthFailure.fromCode('session-expired');
+    }
+    if (Validators.otp(code) != null || !stored.matches(owner, code.trim())) {
+      final failures = stored.failures + 1;
+      if (failures >= maxFailedAttempts) {
+        final until = now.add(lockout);
+        await write(stored.withoutCode(failures: failures, lockedUntil: until));
+        throw _lockedFailure(until, now);
+      }
+      await write(stored.copyWith(failures: failures));
+      final left = maxFailedAttempts - failures;
+      throw AuthFailure(
+        'invalid-verification-code',
+        left == 1
+            ? 'Code incorrect. Dernier essai avant un blocage de ${lockout.inMinutes} minutes.'
+            : 'Code incorrect. Encore $left essais.',
+      );
+    }
+  }
+
+  // --- Mot de passe oublié par email ---------------------------------------------
+
+  /// Validité d'un code de réinitialisation du mot de passe.
+  static const Duration passwordResetValidity = Duration(minutes: 10);
+
+  /// Réglage qui garde l'empreinte du code de réinitialisation du compte
+  /// [uid] (jamais le code lui-même).
+  static String passwordResetKey(String uid) => 'auth.password_reset.$uid';
+
+  /// Fenêtres des adresses sans compte, en mémoire seulement : mêmes
+  /// réponses (attente, essais, blocage) que pour un vrai compte.
+  final Map<String, _EmailCode> _unknownResets = {};
+
+  /// La réinitialisation par email est possible (SMTP configuré). Sinon, un
+  /// admin réinitialise le mot de passe ([resetPasswordByAdmin]).
+  bool get passwordResetByEmail => _mailer.isConfigured;
+
+  /// Compte réel (pas `demo-…`) de [email], ou null.
+  StoredDoc? _resettableAccount(String email) {
+    final account = _accountByEmail(email);
+    return account == null || account.id.startsWith('demo-') ? null : account;
+  }
+
+  _EmailCode? _readReset(String email, StoredDoc? account) => account == null
+      ? _unknownResets[email]
+      : _EmailCode.read(_store.getValue(passwordResetKey(account.id)));
+
+  Future<void> _writeReset(String email, StoredDoc? account, _EmailCode? code) async {
+    if (account == null) {
+      code == null ? _unknownResets.remove(email) : _unknownResets[email] = code;
+      return;
+    }
+    await _store.setValue(passwordResetKey(account.id), code == null ? null : jsonEncode(code.toMap()));
+  }
+
+  /// Mot de passe oublié : envoie un code à 6 chiffres à [email] s'il
+  /// correspond à un compte réel. La réponse est la même que l'adresse ait un
+  /// compte ou non (seul un échec d'envoi la distingue, pour proposer de
+  /// réessayer).
+  ///
+  /// Un compte de démonstration n'a pas de vraie boîte mail : la réponse
+  /// indique alors [PasswordResetRequest.byAdmin]. Un code encore valide
+  /// n'est pas renvoyé, sauf avec [resend] (au plus une fois toutes les
+  /// [resendCooldown]).
+  Future<PasswordResetRequest> requestPasswordReset(String email, {bool resend = false}) => _guard(() async {
+        final cleanEmail = Validators.normalizeEmail(email);
+        if (Validators.email(cleanEmail) != null) throw AuthFailure.fromCode('invalid-email');
+        if (!passwordResetByEmail) return PasswordResetRequest.admin(cleanEmail);
+        final stored = _accountByEmail(cleanEmail);
+        if (stored != null && stored.id.startsWith('demo-')) return PasswordResetRequest.admin(cleanEmail);
+
+        final now = _now();
+        _unknownResets.removeWhere((_, c) => !(c.lockedUntil?.isAfter(now) ?? false) && !c.isWindowOpen(now));
+        final account = _resettableAccount(cleanEmail);
+        final previous = _readReset(cleanEmail, account);
+        _throwIfLocked(previous, now);
+        if (!resend && previous != null && previous.isWindowOpen(now)) {
+          return PasswordResetRequest(email: cleanEmail, resendIn: previous.resendWait(now), expiresAt: previous.expiresAt);
+        }
+        final record = await _issueEmailCode(
+          owner: _resetOwner(account?.id),
+          previous: previous,
+          now: now,
+          validity: passwordResetValidity,
+          write: (c) => _writeReset(cleanEmail, account, c),
+          send: account == null
+              ? null
+              : (code, expiresAt) => _mailer.send(
+                    to: cleanEmail,
+                    subject: PasswordResetEmail.subject,
+                    body: PasswordResetEmail.body(
+                      code: code,
+                      name: _profile(account.id)?.fullName ?? '',
+                      expiresAt: expiresAt,
+                      validity: passwordResetValidity,
+                    ),
+                  ),
+        );
+        return PasswordResetRequest(email: cleanEmail, resendIn: record.resendWait(now), expiresAt: record.expiresAt);
+      });
+
+  /// Empreinte propre à la réinitialisation : un code de double
+  /// authentification ne peut pas servir ici.
+  static String _resetOwner(String? uid) => 'password-reset:${uid ?? ''}';
+
+  /// Change le mot de passe du compte de [email] avec le code reçu. Le
+  /// nouveau mot de passe suit les règles de l'inscription ; il est vérifié
+  /// avant le code (une faute de saisie ne coûte pas d'essai). Le code est
+  /// effacé une fois utilisé.
+  Future<void> resetPasswordWithEmailCode({
+    required String email,
+    required String code,
+    required String newPassword,
+  }) =>
+      _guard(() async {
+        if (Validators.newPassword(newPassword) != null) throw AuthFailure.fromCode('weak-password');
+        final cleanEmail = Validators.normalizeEmail(email);
+        final account = _resettableAccount(cleanEmail);
+        await _checkEmailCode(
+          owner: _resetOwner(account?.id),
+          stored: _readReset(cleanEmail, account),
+          code: code,
+          now: _now(),
+          write: (c) => _writeReset(cleanEmail, account, c),
+        );
+        // Une fenêtre sans compte n'a pas de code : on n'arrive jamais ici.
+        if (account == null) throw AuthFailure.fromCode('otp-not-sent');
+        await _setPassword(account.id, newPassword);
+        await _writeReset(cleanEmail, account, null);
+        _failures.remove(cleanEmail); // la connexion repart sans échec récent
       });
 
   void _throwIfLocked(_EmailCode? code, DateTime now) {
@@ -556,6 +743,7 @@ class AuthService {
         await _store.delete(accountsCollection, account.uid);
         await signOut();
         await _writeEmailCode(account.uid, null);
+        await _store.setValue(passwordResetKey(account.uid), null);
       });
 
   /// Rend une valeur stockée sérialisable en JSON (dates en ISO 8601).
@@ -584,6 +772,10 @@ class _EmailCode {
 
   bool isLive(DateTime now) => hasCode && expiresAt!.isAfter(now);
 
+  /// Un code a été demandé et n'a pas expiré (avec ou sans code réel : voir
+  /// AuthService._issueEmailCode).
+  bool isWindowOpen(DateTime now) => sentAt != null && expiresAt != null && expiresAt!.isAfter(now);
+
   Duration resendWait(DateTime now) {
     final sent = sentAt;
     if (sent == null) return Duration.zero;
@@ -601,6 +793,7 @@ class _EmailCode {
 
   /// Comparaison en temps constant.
   bool matches(String uid, String code) {
+    if (hash == null || salt == null) return false; // fenêtre sans code
     final expected = base64Decode(hash!);
     final actual = base64Decode(digest(uid, code, salt!));
     if (actual.length != expected.length) return false;

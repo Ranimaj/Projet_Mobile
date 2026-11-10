@@ -324,6 +324,46 @@ class AuthProvider extends ChangeNotifier {
         twoFactorRequired = false;
       });
 
+  // --- Mot de passe oublié par email -------------------------------------------
+
+  /// La réinitialisation par email est possible (SMTP configuré). Sinon, un
+  /// administrateur réinitialise le mot de passe, comme avant.
+  bool get passwordResetByEmail {
+    try {
+      return _authService.passwordResetByEmail;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Réponse à la dernière demande de code (la même, qu'un compte existe
+  /// ou non), ou `null` si aucun code n'est en cours.
+  PasswordResetRequest? passwordReset;
+
+  /// Demande un code de réinitialisation pour [email] (voir
+  /// [AuthService.requestPasswordReset]).
+  Future<bool> requestPasswordReset(String email, {bool resend = false}) => _run(() async {
+        try {
+          passwordReset = await _authService.requestPasswordReset(email, resend: resend);
+        } on AuthFailure catch (e) {
+          // L'ancien code a été remplacé avant l'échec : il ne vaut plus rien.
+          if (e.code == 'email-send-failed') passwordReset = null;
+          rethrow;
+        }
+      });
+
+  /// Choisit un nouveau mot de passe avec le code reçu par email.
+  Future<bool> resetPasswordWithEmailCode({
+    required String email,
+    required String code,
+    required String newPassword,
+  }) =>
+      _run(() async {
+        if (Validators.otp(code) != null) throw AuthFailure.fromCode('invalid-verification-code');
+        await _authService.resetPasswordWithEmailCode(email: email, code: code, newPassword: newPassword);
+        passwordReset = null;
+      });
+
   // --- Session / compte ----------------------------------------------------------
 
   Future<bool> logout() => _run(() async {

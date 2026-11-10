@@ -132,10 +132,20 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  void _openForgotPassword() {
-    Navigator.of(context).push(
+  /// Mot de passe oublié. Après un changement par code email, l'écran
+  /// revient avec l'email du compte : on le remet dans le champ.
+  Future<void> _openForgotPassword() async {
+    final email = await Navigator.of(context).push<String>(
       MaterialPageRoute(builder: (_) => ForgotPasswordScreen(initialEmail: _emailCtrl.text)),
     );
+    if (email == null || !mounted) return;
+    setState(() {
+      _emailCtrl.text = email;
+      _passwordCtrl.clear();
+      _error = null;
+      _errorCode = null;
+    });
+    showAuthSnack(context, 'Mot de passe modifié. Connecte-toi avec ton nouveau mot de passe.', isError: false);
   }
 
   /// Suite proposée selon l'erreur : après trop de tentatives, expliquer
