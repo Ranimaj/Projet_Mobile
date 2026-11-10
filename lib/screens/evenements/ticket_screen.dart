@@ -10,6 +10,7 @@ import '../../providers/auth_provider.dart';
 import '../../providers/event_provider.dart';
 import 'event_rules.dart';
 import 'event_style.dart';
+import 'ticket_link.dart';
 import 'ticket_rules.dart';
 
 /// « Mon billet » : lit l'événement à jour dans le provider (alimenté en
@@ -73,8 +74,12 @@ class TicketView extends StatelessWidget {
     final ink = TicketColors.ink(cardColor);
     final inkSoft = TicketColors.inkSoft(cardColor);
 
+    // Adresse de la page web du billet : l'appareil photo d'un téléphone
+    // l'ouvre, le scanner de l'organisateur n'en lit que « CC1|… ».
+    // Correction d'erreur basse : QR moins dense, lu sur écran sans dégât.
     final qr = QrImageView(
-      data: TicketRules.buildTicketPayload(event.id, uid),
+      data: TicketLink.build(event, uid, studentName),
+      errorCorrectionLevel: QrErrorCorrectLevel.L,
       size: 200,
       backgroundColor: Colors.white,
       semanticsLabel: 'Code QR du billet de $studentName pour ${event.title}',

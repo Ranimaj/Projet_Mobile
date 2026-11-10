@@ -1,4 +1,5 @@
 import 'package:campusconnect/models/event_model.dart';
+import 'package:campusconnect/screens/evenements/ticket_link.dart';
 import 'package:campusconnect/screens/evenements/ticket_rules.dart';
 import 'package:campusconnect/screens/evenements/ticket_screen.dart';
 import 'package:flutter/material.dart';
@@ -157,13 +158,18 @@ void main() {
       expect(TicketView.reference('demo-amel', 'u1'), 'Billet n° DEMO-U1');
     });
 
-    testWidgets('le QR contient toujours « CC1|eventId|uid »', (tester) async {
+    testWidgets('le QR contient l’adresse du billet, dont le fragment est « CC1|eventId|uid »', (tester) async {
       await pumpThemed(tester, ThemeData.light(), withIds());
-      expect(TicketRules.buildTicketPayload(eventId, uid), 'CC1|$eventId|$uid');
+      final link = TicketLink.build(withIds(), uid, 'Yasmine Ben Salah Trabelsi');
+      expect(link, startsWith('${TicketRules.billetBaseUrl}#${Uri.encodeComponent('CC1|$eventId|$uid')}?'));
+      final ticket = TicketRules.parseTicketPayload(link)!;
+      expect((ticket.eventId, ticket.uid), (eventId, uid));
 
       final shown = tester.widget<CustomPaint>(
           find.descendant(of: find.byType(QrImageView), matching: find.byType(CustomPaint)).first);
       final painter = shown.painter! as QrPainter;
+      // Correction d'erreur basse : QR le moins dense possible.
+      expect(painter.errorCorrectionLevel, QrErrorCorrectLevel.L);
       QrPainter reference(String data) => QrPainter(
             data: data,
             version: QrVersions.auto,
@@ -175,8 +181,8 @@ void main() {
 
       final (actual, same, other) = (await tester.runAsync(() async => (
             (await painter.toImageData(200))!.buffer.asUint8List(),
-            (await reference('CC1|$eventId|$uid').toImageData(200))!.buffer.asUint8List(),
-            (await reference('CC1|$eventId|autre').toImageData(200))!.buffer.asUint8List(),
+            (await reference(link).toImageData(200))!.buffer.asUint8List(),
+            (await reference(link.replaceFirst(uid, 'autre')).toImageData(200))!.buffer.asUint8List(),
           )))!;
       expect(actual, same);
       expect(actual, isNot(other));

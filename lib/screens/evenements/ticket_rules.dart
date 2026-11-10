@@ -11,7 +11,8 @@ enum ScanVerdict { markPresent, alreadyPresent, invalid, otherEvent, notRegister
 /// Règles PURES du billet (« Mon billet »), du partage et du scan.
 ///
 /// SÉCURITÉ (honnêtement) : le QR n'est PAS signé, ce n'est qu'un
-/// identifiant « CC1|<eventId>|<uid> ». N'importe qui peut fabriquer ce
+/// identifiant « CC1|<eventId>|<uid> » (dans une adresse web pour les
+/// nouveaux billets : le reste de l'adresse n'est que de l'affichage). N'importe qui peut fabriquer ce
 /// texte. Ce qui protège le pointage : on vérifie toujours que l'uid est
 /// dans registeredUserIds de l'événement, et seul l'organisateur (ou un
 /// admin) a accès à l'écran de pointage. Un faux QR pour quelqu'un de non inscrit est donc refusé ; un
@@ -22,16 +23,47 @@ class TicketRules {
   static const String prefix = 'CC1';
   static final RegExp _id = RegExp(r'^[A-Za-z0-9_-]{1,128}$');
 
-  /// Contenu du QR : « CC1|<eventId>|<uid> ».
+  /// Adresse de la page web du billet (docs/billet/index.html). Le QR du
+  /// billet est « <adresse>#<CC1|eventId|uid encodé>?… » : l'appareil photo
+  /// d'un téléphone ouvre la page. Autre adresse à la compilation :
+  /// --dart-define=BILLET_BASE_URL=https://…/billet/
+  static const String billetBaseUrl = String.fromEnvironment(
+    'BILLET_BASE_URL',
+    defaultValue: 'https://ranimaj.github.io/Projet_Mobile/billet/',
+  );
+
+  /// Identifiant vérifié du billet : « CC1|<eventId>|<uid> ». C'est la seule
+  /// partie du QR utilisée au pointage (voir ticket_link.dart pour l'adresse
+  /// complète affichée dans le QR).
   static String buildTicketPayload(String eventId, String uid) => '$prefix|$eventId|$uid';
+
+  /// « CC1|… » contenu dans une adresse de billet, ou null : l'adresse doit
+  /// commencer par [baseUrl] suivi de « # » ; le fragment (jusqu'au « ? »)
+  /// est décodé. Tout ce qui suit le « ? » est de l'affichage, ignoré ici.
+  static String? payloadFromLink(String raw, {String baseUrl = billetBaseUrl}) {
+    if (baseUrl.isEmpty || !raw.startsWith('$baseUrl#')) return null;
+    final fragment = raw.substring(baseUrl.length + 1);
+    final q = fragment.indexOf('?');
+    try {
+      final decoded = Uri.decodeComponent(q == -1 ? fragment : fragment.substring(0, q));
+      return decoded == decoded.trim() ? decoded : null;
+    } catch (_) {
+      return null; // encodage « % » invalide
+    }
+  }
 
   /// Lecture STRICTE : exactement 3 parties, préfixe « CC1 », identifiants
   /// simples (lettres, chiffres, « - », « _ »). Seuls les espaces autour du
   /// texte entier sont tolérés (retour à la ligne d'un lecteur) ; un espace
   /// à l'intérieur rend le billet invalide. Renvoie null si invalide.
-  static ({String eventId, String uid})? parseTicketPayload(String? raw) {
+  ///
+  /// Deux formes acceptées : le texte « CC1|… » des anciens billets, et
+  /// l'adresse web des nouveaux, seulement si elle commence par [baseUrl] et
+  /// que son fragment est un « CC1|… » valide.
+  static ({String eventId, String uid})? parseTicketPayload(String? raw, {String baseUrl = billetBaseUrl}) {
     if (raw == null) return null;
-    final parts = raw.trim().split('|');
+    final text = raw.trim();
+    final parts = (payloadFromLink(text, baseUrl: baseUrl) ?? text).split('|');
     if (parts.length != 3 || parts[0] != prefix) return null;
     if (!_id.hasMatch(parts[1]) || !_id.hasMatch(parts[2])) return null;
     return (eventId: parts[1], uid: parts[2]);
