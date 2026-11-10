@@ -4,6 +4,7 @@ import 'package:campusconnect/screens/evenements/event_categories.dart';
 import 'package:campusconnect/screens/evenements/event_style.dart';
 import 'package:campusconnect/screens/evenements/ticket_link.dart';
 import 'package:campusconnect/screens/evenements/ticket_rules.dart';
+import 'package:campusconnect/screens/evenements/ticket_screen.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Adresse du QR du billet (page docs/billet/index.html) et lecture par le
@@ -58,9 +59,55 @@ void main() {
         'e': '2026-11-10T19:00:00Z',
         'p': 'Hall principal',
         'x': '15 TND',
+        'r': '3B70-3DA7',
       });
-      // Ordre des paramètres de la demande.
-      expect(params(link).keys.toList(), ['t', 'n', 'c', 'k', 'd', 'e', 'p', 'x']);
+      // Ordre des paramètres de la demande, la référence en dernier.
+      expect(params(link).keys.toList(), ['t', 'n', 'c', 'k', 'd', 'e', 'p', 'x', 'r']);
+    });
+
+    group('référence « r » : celle affichée sous le QR', () {
+      // Expression de docs/billet/index.html pour les identifiants et pour r.
+      final pageIds = RegExp(r'^CC1\|([A-Za-z0-9_-]{1,64})\|([A-Za-z0-9_-]{1,64})$');
+      final pageRef = RegExp(r'^[0-9A-Z-]{3,20}$');
+
+      for (final (name, eventId, holder, expected) in [
+        ('UUID', eventId, uid, '3B70-3DA7'),
+        ('démo', 'demo-evt-rentree', 'demo-amel', 'DEMO-DEMO'),
+        ('démo courts', 'e1', 'demo_u1', 'E1-DEMO'),
+      ]) {
+        test('identifiants $name : r présent, identique à l’écran, aller-retour', () {
+          final link = TicketLink.build(ev(id: eventId, registered: [holder]), holder, 'Amel');
+          final r = params(link)['r'];
+
+          expect(r, expected);
+          expect('Billet n° $r', TicketView.reference(eventId, holder));
+          expect(r, matches(pageRef));
+          expect(link.length, lessThanOrEqualTo(TicketLink.maxLength));
+
+          final ticket = TicketRules.parseTicketPayload(link)!;
+          expect((ticket.eventId, ticket.uid), (eventId, holder));
+          // La page lit les mêmes identifiants dans le fragment.
+          final fragment = link.substring(base.length + 1);
+          final idPart = Uri.decodeComponent(fragment.substring(0, fragment.indexOf('?')));
+          expect(pageIds.firstMatch(idPart)?.groups([1, 2]), [eventId, holder]);
+          // Et le scan donne le même verdict que l'ancien texte.
+          final now = start.add(const Duration(minutes: 10));
+          final e = ev(id: eventId, registered: [holder]);
+          expect(TicketRules.scanVerdict(e, link, now).verdict, ScanVerdict.markPresent);
+          expect(TicketRules.scanVerdict(e, TicketRules.buildTicketPayload(eventId, holder), now).verdict,
+              ScanVerdict.markPresent);
+        });
+      }
+
+      test('textes très accentués : ≤ 512, r et l’identifiant gardés', () {
+        final accents = 'é' * 200;
+        for (final (id, holder) in [(eventId, uid), ('demo-evt-rentree', 'demo-amel')]) {
+          final link = TicketLink.build(ev(id: id, title: accents, location: accents, category: accents), holder, accents);
+          expect(link.length, lessThanOrEqualTo(TicketLink.maxLength));
+          expect(params(link)['r'], TicketLink.referenceCode(id, holder));
+          expect(TicketRules.parseTicketPayload(link)?.uid, holder);
+        }
+      });
     });
 
     test('aller-retour avec le lecteur du scanner', () {
@@ -90,10 +137,10 @@ void main() {
       final link = TicketLink.build(ev(title: title, location: place), uid, name);
       final fragment = link.substring(base.length + 1);
       // Aucun caractère réservé ne sort de son paramètre : un seul « ? », un
-      // seul « # » (avant le fragment) et 7 séparateurs « & ».
+      // seul « # » (avant le fragment) et 8 séparateurs « & » (9 paramètres).
       expect('#'.allMatches(link).length, 1);
       expect('?'.allMatches(fragment).length, 1);
-      expect('&'.allMatches(fragment).length, 7);
+      expect('&'.allMatches(fragment).length, 8);
       expect(link, isNot(contains(' ')));
       final p = params(link);
       expect((p['t'], p['n'], p['p']), (title, name, place));

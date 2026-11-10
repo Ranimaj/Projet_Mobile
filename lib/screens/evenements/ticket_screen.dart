@@ -50,16 +50,10 @@ class TicketView extends StatelessWidget {
   static const Color cardColor = Colors.white;
 
   /// Référence lisible du billet, tirée des identifiants du QR
-  /// (« Billet n° 3B70-3DA7 »). Affichage seulement : jamais stockée ni
-  /// utilisée pour valider un billet.
-  static String reference(String eventId, String uid) {
-    String part(String id) {
-      final s = id.replaceAll(RegExp(r'[^A-Za-z0-9]'), '');
-      return (s.length > 4 ? s.substring(0, 4) : s).toUpperCase();
-    }
-
-    return 'Billet n° ${part(eventId)}-${part(uid)}';
-  }
+  /// (« Billet n° 3B70-3DA7 »), la même que le paramètre « r » de la page
+  /// web du billet. Affichage seulement : jamais stockée ni utilisée pour
+  /// valider un billet.
+  static String reference(String eventId, String uid) => 'Billet n° ${TicketLink.referenceCode(eventId, uid)}';
 
   @override
   Widget build(BuildContext context) {

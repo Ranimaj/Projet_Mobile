@@ -83,7 +83,7 @@
   var idPart = safeDecode(q === -1 ? hash : hash.slice(0, q));
   var params = new URLSearchParams(q === -1 ? '' : hash.slice(q + 1));
 
-  var m = /^CC1\|([0-9a-fA-F-]{8,40})\|([0-9a-fA-F-]{8,40})$/.exec(idPart);
+  var m = /^CC1\|([A-Za-z0-9_-]{1,64})\|([A-Za-z0-9_-]{1,64})$/.exec(idPart);
   var color = validColor(params.get('k'));
   var band = el('div', 'band');
   band.style.background = color; band.style.color = textOn(color);
@@ -124,9 +124,11 @@
     body.appendChild(pill);
   }
 
-  var evId = m[1].replace(/-/g, '').slice(0, 4).toUpperCase();
-  var uid = m[2].replace(/-/g, '').slice(0, 4).toUpperCase();
-  body.appendChild(el('div', 'ref', 'Billet n° ' + evId + '-' + uid));
+  // Référence : celle que l'application affiche sous son QR (paramètre r) ; à défaut, calculée depuis les identifiants.
+  var given = (params.get('r') || '').trim().toUpperCase();
+  var ref = /^[0-9A-Z-]{3,20}$/.test(given) ? given
+    : m[1].replace(/[^A-Za-z0-9]/g, '').slice(0, 4).toUpperCase() + '-' + m[2].replace(/[^A-Za-z0-9]/g, '').slice(0, 4).toUpperCase();
+  body.appendChild(el('div', 'ref', 'Billet n° ' + ref));
   body.appendChild(el('p', 'note', 'Présentez ce billet à l’organisateur : il le scanne dans l’application CampusConnect, qui vérifie l’inscription. Cette page ne valide rien.'));
   card.appendChild(body);
   document.title = 'Billet · ' + title;

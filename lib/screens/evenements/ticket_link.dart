@@ -7,11 +7,12 @@ import 'ticket_rules.dart';
 
 /// Adresse web encodée dans le QR du billet, lue par docs/billet/index.html :
 ///
-/// `<base>#<encodeComponent("CC1|eventId|uid")>?t=…&n=…&c=…&k=…&d=…&e=…&p=…&x=…`
+/// `<base>#<encodeComponent("CC1|eventId|uid")>?t=…&n=…&c=…&k=…&d=…&e=…&p=…&x=…&r=…`
 ///
 /// Seul le fragment avant « ? » sert au pointage (TicketRules.parseTicketPayload).
 /// Les paramètres ne sont que de l'AFFICHAGE : titre, titulaire, catégorie,
-/// couleur, début et fin (ISO 8601 UTC), lieu, prix. Le fragment d'une
+/// couleur, début et fin (ISO 8601 UTC), lieu, prix, référence du billet
+/// ([referenceCode], celle affichée sous le QR). Le fragment d'une
 /// adresse n'est jamais envoyé au serveur qui héberge la page.
 class TicketLink {
   TicketLink._();
@@ -45,6 +46,22 @@ class TicketLink {
     return '${String.fromCharCodes(runes.take(max - 1)).trimRight()}…';
   }
 
+  /// Référence affichée sous le QR, sans « Billet n° » (« 3B70-3DA7 ») :
+  /// 4 premiers caractères alphanumériques de chaque identifiant, en
+  /// majuscules. Affichage seulement : jamais utilisée pour valider.
+  static String referenceCode(String eventId, String uid) {
+    String part(String id) {
+      final s = id.replaceAll(RegExp(r'[^A-Za-z0-9]'), '');
+      return (s.length > 4 ? s.substring(0, 4) : s).toUpperCase();
+    }
+
+    return '${part(eventId)}-${part(uid)}';
+  }
+
+  /// Paramètres retirés en dernier recours (adresse de base démesurée), du
+  /// moins au plus important. L'identifiant du billet n'est jamais retiré.
+  static const List<String> _dropOrder = ['p', 'n', 't', 'c', 'x', 'e', 'd', 'k', 'r'];
+
   /// Adresse complète du billet de [uid] pour [event].
   static String build(EventModel event, String uid, String holderName,
       {String baseUrl = TicketRules.billetBaseUrl}) {
@@ -54,27 +71,22 @@ class TicketLink {
       'c': (event.category, categoryMax),
       'p': (event.location, placeMax),
     };
-    final values = <String, String>{for (final e in source.entries) e.key: cut(e.value.$1, e.value.$2)};
-    final fixed = <String, String>{
+    // Ordre des paramètres dans l'adresse.
+    final values = <String, String>{
+      't': cut(event.title, titleMax),
+      'n': cut(holderName, holderMax),
+      'c': cut(event.category, categoryMax),
       'k': colorHex(EventStyle.categoryColor(event.category)),
       'd': isoUtc(event.startDate),
       'e': isoUtc(event.endDate),
+      'p': cut(event.location, placeMax),
       'x': cut(EventRules.priceLabel(event), priceMax),
+      'r': referenceCode(event.id, uid),
     };
     final head = '$baseUrl#${Uri.encodeComponent(TicketRules.buildTicketPayload(event.id, uid))}';
 
     String compose() {
-      final all = {
-        't': values['t']!,
-        'n': values['n']!,
-        'c': values['c']!,
-        'k': fixed['k']!,
-        'd': fixed['d']!,
-        'e': fixed['e']!,
-        'p': values['p']!,
-        'x': fixed['x']!,
-      };
-      final query = all.entries
+      final query = values.entries
           .where((e) => e.value.isNotEmpty)
           .map((e) => '${e.key}=${Uri.encodeQueryComponent(e.value)}')
           .join('&');
@@ -92,9 +104,9 @@ class TicketLink {
         link = compose();
       }
     }
-    // Encore trop long (adresse de base très longue) : on retire les textes,
-    // l'identifiant du billet reste toujours.
-    for (final key in ['p', 'n', 't', 'c']) {
+    // Encore trop long (adresse de base très longue) : on retire les
+    // paramètres d'affichage ; l'identifiant du billet reste toujours.
+    for (final key in _dropOrder) {
       if (link.length <= maxLength) break;
       values[key] = '';
       link = compose();
