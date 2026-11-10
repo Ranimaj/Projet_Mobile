@@ -29,8 +29,12 @@ class TicketRules {
   /// --dart-define=BILLET_BASE_URL=https://…/billet/
   static const String billetBaseUrl = String.fromEnvironment(
     'BILLET_BASE_URL',
-    defaultValue: 'https://ranimaj.github.io/Projet_Mobile/billet/',
+    defaultValue: 'https://abdelaziz-belkhiria.github.io/campus-billet/',
   );
+
+  /// Anciennes adresses de la page : les billets créés avant le changement
+  /// d'hébergement (écran ouvert, capture) restent lisibles au scan.
+  static const List<String> legacyBilletBaseUrls = ['https://ranimaj.github.io/Projet_Mobile/billet/'];
 
   /// Identifiant vérifié du billet : « CC1|<eventId>|<uid> ». C'est la seule
   /// partie du QR utilisée au pointage (voir ticket_link.dart pour l'adresse
@@ -58,12 +62,18 @@ class TicketRules {
   /// à l'intérieur rend le billet invalide. Renvoie null si invalide.
   ///
   /// Deux formes acceptées : le texte « CC1|… » des anciens billets, et
-  /// l'adresse web des nouveaux, seulement si elle commence par [baseUrl] et
-  /// que son fragment est un « CC1|… » valide.
+  /// l'adresse web des nouveaux, seulement si elle commence par [baseUrl]
+  /// (ou une des [legacyBilletBaseUrls]) et que son fragment est un
+  /// « CC1|… » valide.
   static ({String eventId, String uid})? parseTicketPayload(String? raw, {String baseUrl = billetBaseUrl}) {
     if (raw == null) return null;
     final text = raw.trim();
-    final parts = (payloadFromLink(text, baseUrl: baseUrl) ?? text).split('|');
+    String? fromLink;
+    for (final base in [baseUrl, ...legacyBilletBaseUrls]) {
+      fromLink = payloadFromLink(text, baseUrl: base);
+      if (fromLink != null) break;
+    }
+    final parts = (fromLink ?? text).split('|');
     if (parts.length != 3 || parts[0] != prefix) return null;
     if (!_id.hasMatch(parts[1]) || !_id.hasMatch(parts[2])) return null;
     return (eventId: parts[1], uid: parts[2]);

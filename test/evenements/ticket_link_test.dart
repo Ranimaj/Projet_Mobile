@@ -48,7 +48,7 @@ void main() {
   group('adresse du billet', () {
     test('forme exacte : base, fragment CC1 encodé, paramètres', () {
       final link = TicketLink.build(ev(), uid, 'Yasmine Ben Salah');
-      expect(base, 'https://ranimaj.github.io/Projet_Mobile/billet/');
+      expect(base, 'https://abdelaziz-belkhiria.github.io/campus-billet/');
       expect(link, startsWith('$base#CC1%7C$eventId%7C$uid?t='));
       expect(params(link), {
         't': 'Atelier photo',
@@ -183,6 +183,7 @@ void main() {
       final worst = TicketLink.build(
           ev(title: accents, location: accents, category: accents, price: 123456.78), uid, accents);
       expect(TicketLink.maxLength, 512);
+      expect(worst, startsWith('https://abdelaziz-belkhiria.github.io/campus-billet/#CC1%7C'));
       expect(worst.length, lessThanOrEqualTo(TicketLink.maxLength));
       expect(TicketRules.parseTicketPayload(worst)?.eventId, eventId);
       expect(params(worst)['t'], isNotEmpty);
@@ -204,8 +205,30 @@ void main() {
       expect(TicketRules.parseTicketPayload('$base#CC1|evt-123|stud1\n')?.uid, 'stud1');
     });
 
+    test('nouvelle adresse campus-billet et ancienne adresse ranimaj acceptées', () {
+      const fresh = 'https://abdelaziz-belkhiria.github.io/campus-billet/';
+      const old = 'https://ranimaj.github.io/Projet_Mobile/billet/';
+      expect(TicketRules.legacyBilletBaseUrls, [old]);
+      for (final b in [fresh, old]) {
+        final ticket = TicketRules.parseTicketPayload('$b#CC1%7Cdemo-evt%7Cdemo-amel?t=x&r=DEMO-DEMO');
+        expect((ticket?.eventId, ticket?.uid), ('demo-evt', 'demo-amel'), reason: b);
+      }
+      // Billet généré avec l'ancienne adresse : même verdict qu'avec la nouvelle.
+      final now = start.add(const Duration(minutes: 10));
+      final link = TicketLink.build(ev(), uid, 'Yasmine');
+      final oldLink = TicketLink.build(ev(), uid, 'Yasmine', baseUrl: old);
+      expect(oldLink, startsWith('$old#'));
+      expect(TicketRules.scanVerdict(ev(), oldLink, now).verdict, ScanVerdict.markPresent);
+      expect(TicketRules.scanVerdict(ev(), link, now).verdict, ScanVerdict.markPresent);
+    });
+
     test('autre site ou adresse voisine : refusé', () {
       for (final raw in [
+        'http://abdelaziz-belkhiria.github.io/campus-billet/#CC1%7Cevt-123%7Cstud1',
+        'https://abdelaziz-belkhiria.github.io/campus-billet.evil.com/#CC1%7Cevt-123%7Cstud1',
+        'https://abdelaziz-belkhiria.github.io/campus-billetX#CC1%7Cevt-123%7Cstud1',
+        'https://autre.github.io/campus-billet/#CC1%7Cevt-123%7Cstud1',
+        'https://abdelaziz-belkhiria.github.io/#CC1%7Cevt-123%7Cstud1',
         'https://exemple.com/billet/#CC1%7Cevt-123%7Cstud1',
         'http://ranimaj.github.io/Projet_Mobile/billet/#CC1%7Cevt-123%7Cstud1',
         'https://ranimaj.github.io/Projet_Mobile/billet.evil.com/#CC1%7Cevt-123%7Cstud1',
