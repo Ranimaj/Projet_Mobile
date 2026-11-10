@@ -36,6 +36,7 @@ class AuthFailure implements Exception {
     'biometric-denied': 'Authentification biométrique refusée ou indisponible.',
     'no-session': 'Aucune session active. Reconnectez-vous.',
     'otp-not-sent': "Aucun code n'a été envoyé. Demandez-en un d'abord.",
+    'email-send-failed': "Le code n'a pas pu être envoyé par email. Vérifiez la connexion internet puis réessayez.",
     'password-required': 'Saisissez votre mot de passe pour confirmer.',
     'same-password': "Le nouveau mot de passe doit être différent de l'actuel.",
     'invalid-file': 'Fichier invalide ou trop volumineux (5 Mo max.).',

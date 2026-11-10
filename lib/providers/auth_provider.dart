@@ -64,6 +64,19 @@ class AuthProvider extends ChangeNotifier {
   /// Code du dernier « SMS » : sans serveur, l'app l'affiche elle-même.
   String? get demoSmsCode => _authService.demoSmsCode;
 
+  /// Le code de double authentification part par email (SMTP configuré).
+  /// Sinon, il reste affiché dans l'app comme avant.
+  bool get twoFactorByEmail {
+    try {
+      return _authService.twoFactorByEmail;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Dernier code de double authentification envoyé par email, ou `null`.
+  TwoFactorEmailSent? twoFactorEmail;
+
   /// Biométrie utilisable sur cet appareil (voir [checkBiometrics]).
   bool biometricsAvailable = false;
 
@@ -110,6 +123,7 @@ class AuthProvider extends ChangeNotifier {
     if (account == null) {
       _stopProfileWatch();
       twoFactorRequired = false;
+      twoFactorEmail = null;
       status = AuthStatus.visitor;
       currentUser = null;
     } else {
@@ -289,6 +303,27 @@ class AuthProvider extends ChangeNotifier {
         twoFactorRequired = false;
       });
 
+  // --- Double authentification par email -------------------------------------------
+
+  /// Envoie le code par email (voir [AuthService.sendTwoFactorEmail]).
+  Future<bool> sendTwoFactorEmail({bool resend = false}) => _run(() async {
+        try {
+          twoFactorEmail = await _authService.sendTwoFactorEmail(resend: resend);
+        } on AuthFailure catch (e) {
+          // L'ancien code a été remplacé avant l'échec : il ne vaut plus rien.
+          if (e.code == 'email-send-failed') twoFactorEmail = null;
+          rethrow;
+        }
+      });
+
+  /// Vérifie le code reçu par email : la connexion est validée.
+  Future<bool> verifyTwoFactorEmail(String code) => _run(() async {
+        if (Validators.otp(code) != null) throw AuthFailure.fromCode('invalid-verification-code');
+        await _authService.verifyTwoFactorEmail(code);
+        twoFactorEmail = null;
+        twoFactorRequired = false;
+      });
+
   // --- Session / compte ----------------------------------------------------------
 
   Future<bool> logout() => _run(() async {
@@ -301,6 +336,7 @@ class AuthProvider extends ChangeNotifier {
         await _authService.signOut();
         _stopProfileWatch();
         twoFactorRequired = false;
+        twoFactorEmail = null;
         currentUser = null;
         status = AuthStatus.visitor;
       });

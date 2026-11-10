@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
 
+import 'package:crypto/crypto.dart';
 import 'package:local_auth/local_auth.dart';
 
 import '../core/constants/app_constants.dart';
@@ -10,6 +12,18 @@ import '../core/utils/validators.dart';
 import '../models/user_model.dart';
 import 'local_store.dart';
 import 'storage_service.dart';
+import 'two_factor_mailer.dart';
+
+/// Code de double authentification envoyé par email.
+class TwoFactorEmailSent {
+  /// Adresse du compte, à qui le code a été envoyé.
+  final String email;
+
+  /// Délai avant de pouvoir demander un nouveau code (zéro : tout de suite).
+  final Duration resendIn;
+  final DateTime expiresAt;
+  const TwoFactorEmailSent({required this.email, required this.resendIn, required this.expiresAt});
+}
 
 /// Compte connecté sur ce téléphone.
 class AuthAccount {
@@ -34,10 +48,11 @@ class AuthAccount {
 /// - la session ouverte est mémorisée dans les réglages ([sessionKey]) et
 ///   survit au redémarrage de l'app.
 ///
-/// Sans serveur, il n'y a ni email ni SMS : les codes de vérification du
+/// Sans serveur, il n'y a pas de SMS : les codes de vérification du
 /// téléphone sont affichés dans l'app ([demoSmsCode], « SMS simulé ») et un
 /// mot de passe oublié est réinitialisé par un admin
-/// ([resetPasswordByAdmin]).
+/// ([resetPasswordByAdmin]). Avec un SMTP configuré, le code de double
+/// authentification part par email ([sendTwoFactorEmail]).
 ///
 /// Toutes les méthodes lèvent une [AuthFailure] avec un message prêt à
 /// afficher.
@@ -52,6 +67,13 @@ class AuthService {
   static const int maxFailedAttempts = 5;
   static const Duration lockout = Duration(minutes: 5);
 
+  /// Délai minimum entre deux codes de double authentification par email.
+  static const Duration resendCooldown = Duration(seconds: 30);
+
+  /// Réglage qui garde l'empreinte du code email du compte [uid], son
+  /// expiration et les essais ratés (jamais le code lui-même).
+  static String twoFactorEmailKey(String uid) => 'auth.two_factor_email.$uid';
+
   AuthService({
     LocalStore? store,
     LocalAuthentication Function()? localAuthFactory,
@@ -59,13 +81,16 @@ class AuthService {
     PasswordHasher? hasher,
     Random? random,
     DateTime Function()? clock,
+    TwoFactorMailer? mailer,
   })  : _store = store ?? LocalStore(),
         _localAuthFactory = localAuthFactory ?? LocalAuthentication.new,
         _injectedStorage = storage,
         _hasher = hasher ?? PasswordHasher(),
         _random = random ?? Random.secure(),
-        _now = clock ?? DateTime.now;
+        _now = clock ?? DateTime.now,
+        _mailer = mailer ?? SmtpTwoFactorMailer();
 
+  final TwoFactorMailer _mailer;
   final LocalStore _store;
   final LocalAuthentication Function() _localAuthFactory;
   final StorageService? _injectedStorage;
@@ -136,6 +161,8 @@ class AuthService {
 
   Future<void> signOut() => _guard(() async {
         _clearOtp();
+        final uid = _store.getValue(sessionKey);
+        if (uid != null) await _dropEmailCode(uid);
         await _store.setValue(sessionKey, null);
         await _store.setValue(twoFactorPendingKey, null);
         _changes.add(null);
@@ -368,6 +395,131 @@ class AuthService {
     _codeSentAt = null;
   }
 
+  // --- Double authentification par email ---------------------------------------
+
+  /// Le code de double authentification part par email : SMTP configuré et
+  /// compte réel. Les comptes de démonstration (`demo-…`) n'ont pas de vraie
+  /// boîte mail et gardent le code affiché dans l'app, comme sans SMTP.
+  bool get twoFactorByEmail {
+    final account = currentAccount;
+    return account != null && _mailer.isConfigured && !account.uid.startsWith('demo-');
+  }
+
+  _EmailCode? _readEmailCode(String uid) => _EmailCode.read(_store.getValue(twoFactorEmailKey(uid)));
+
+  Future<void> _writeEmailCode(String uid, _EmailCode? code) =>
+      _store.setValue(twoFactorEmailKey(uid), code == null ? null : jsonEncode(code.toMap()));
+
+  /// Envoie un code à 6 chiffres à l'adresse du compte, pendant une
+  /// connexion en attente de double authentification.
+  ///
+  /// Un code encore valide n'est pas renvoyé (réouverture de l'écran,
+  /// redémarrage), sauf avec [resend] : le nouveau code remplace alors
+  /// l'ancien, au plus une fois toutes les [resendCooldown]. Seule une
+  /// empreinte du code est stockée.
+  Future<TwoFactorEmailSent> sendTwoFactorEmail({bool resend = false}) => _guard(() async {
+        final account = _requireAccount();
+        if (!twoFactorPending || !twoFactorByEmail) throw AuthFailure.fromCode('otp-not-sent');
+        final now = _now();
+        final previous = _readEmailCode(account.uid);
+        _throwIfLocked(previous, now);
+        if (!resend && previous != null && previous.isLive(now)) {
+          return _sentInfo(account.email, previous, now);
+        }
+        final wait = previous?.resendWait(now) ?? Duration.zero;
+        if (wait > Duration.zero) {
+          throw AuthFailure('otp-cooldown', 'Patiente ${_ceil(wait, 1)} s avant de demander un nouveau code.');
+        }
+
+        final code = List.generate(Validators.otpLength, (_) => _random.nextInt(10)).join();
+        final salt = base64Encode(List<int>.generate(16, (_) => _random.nextInt(256)));
+        final expiresAt = now.add(otpValidity);
+        final record = _EmailCode(
+          salt: salt,
+          hash: _EmailCode.digest(account.uid, code, salt),
+          sentAt: now,
+          expiresAt: expiresAt,
+          // Redemander un code ne remet pas les essais ratés à zéro.
+          failures: previous?.carriedFailures(now) ?? 0,
+        );
+        // Écrit avant l'envoi : l'ancien code ne vaut plus rien.
+        await _writeEmailCode(account.uid, record);
+        try {
+          await _mailer.send(
+            to: account.email,
+            subject: TwoFactorEmail.subject,
+            body: TwoFactorEmail.body(
+              code: code,
+              name: _profile(account.uid)?.fullName ?? '',
+              expiresAt: expiresAt,
+              validity: otpValidity,
+            ),
+          );
+        } catch (_) {
+          // Jamais l'erreur d'origine : elle pourrait citer la configuration SMTP.
+          await _writeEmailCode(account.uid, record.withoutCode());
+          throw AuthFailure.fromCode('email-send-failed');
+        }
+        return _sentInfo(account.email, record, now);
+      });
+
+  TwoFactorEmailSent _sentInfo(String email, _EmailCode code, DateTime now) =>
+      TwoFactorEmailSent(email: email, resendIn: code.resendWait(now), expiresAt: code.expiresAt!);
+
+  /// Vérifie le code reçu par email et valide la connexion. Après
+  /// [maxFailedAttempts] codes faux, le compte est bloqué pendant [lockout].
+  Future<void> verifyTwoFactorEmail(String code) => _guard(() async {
+        final account = _requireAccount();
+        final now = _now();
+        final stored = _readEmailCode(account.uid);
+        _throwIfLocked(stored, now);
+        if (stored == null || !stored.hasCode) throw AuthFailure.fromCode('otp-not-sent');
+        if (!stored.expiresAt!.isAfter(now)) {
+          await _writeEmailCode(account.uid, stored.withoutCode());
+          throw AuthFailure.fromCode('session-expired');
+        }
+        if (Validators.otp(code) != null || !stored.matches(account.uid, code.trim())) {
+          final failures = stored.failures + 1;
+          if (failures >= maxFailedAttempts) {
+            final until = now.add(lockout);
+            await _writeEmailCode(account.uid, stored.withoutCode(failures: failures, lockedUntil: until));
+            throw _lockedFailure(until, now);
+          }
+          await _writeEmailCode(account.uid, stored.copyWith(failures: failures));
+          final left = maxFailedAttempts - failures;
+          throw AuthFailure(
+            'invalid-verification-code',
+            left == 1
+                ? 'Code incorrect. Dernier essai avant un blocage de ${lockout.inMinutes} minutes.'
+                : 'Code incorrect. Encore $left essais.',
+          );
+        }
+        await _writeEmailCode(account.uid, null);
+        await _store.setValue(twoFactorPendingKey, null);
+      });
+
+  void _throwIfLocked(_EmailCode? code, DateTime now) {
+    final until = code?.lockedUntil;
+    if (until != null && until.isAfter(now)) throw _lockedFailure(until, now);
+  }
+
+  static AuthFailure _lockedFailure(DateTime until, DateTime now) => AuthFailure(
+        'otp-locked',
+        "Trop d'essais. Nouvel essai possible dans ${_ceil(until.difference(now), 60)} min.",
+      );
+
+  /// [d] en unités de [unitSeconds] secondes, arrondi au-dessus.
+  static int _ceil(Duration d, int unitSeconds) => (d.inMilliseconds / (unitSeconds * 1000)).ceil();
+
+  /// Déconnexion : le code ne sert plus, mais les essais ratés et un blocage
+  /// restent (se reconnecter ne redonne pas d'essais).
+  Future<void> _dropEmailCode(String uid) async {
+    final code = _readEmailCode(uid);
+    if (code == null) return;
+    final keep = code.failures > 0 || code.lockedUntil != null;
+    await _writeEmailCode(uid, keep ? code.withoutCode() : null);
+  }
+
   // --- Compte ------------------------------------------------------------------
 
   /// Export RGPD des données personnelles (BNF2), sérialisable en JSON.
@@ -403,6 +555,7 @@ class AuthService {
         await _store.delete(AppConstants.usersCollection, account.uid);
         await _store.delete(accountsCollection, account.uid);
         await signOut();
+        await _writeEmailCode(account.uid, null);
       });
 
   /// Rend une valeur stockée sérialisable en JSON (dates en ISO 8601).
@@ -411,5 +564,94 @@ class AuthService {
     if (value is Map) return {for (final e in value.entries) e.key.toString(): jsonSafe(e.value)};
     if (value is Iterable) return value.map(jsonSafe).toList();
     return value;
+  }
+}
+
+/// Code email de double authentification tel qu'il est stocké : une
+/// empreinte salée (HMAC-SHA256), jamais le code lui-même, avec son
+/// expiration, les essais ratés et un éventuel blocage.
+class _EmailCode {
+  final String? salt;
+  final String? hash;
+  final DateTime? sentAt;
+  final DateTime? expiresAt;
+  final int failures;
+  final DateTime? lockedUntil;
+
+  const _EmailCode({this.salt, this.hash, this.sentAt, this.expiresAt, this.failures = 0, this.lockedUntil});
+
+  bool get hasCode => salt != null && hash != null && expiresAt != null;
+
+  bool isLive(DateTime now) => hasCode && expiresAt!.isAfter(now);
+
+  Duration resendWait(DateTime now) {
+    final sent = sentAt;
+    if (sent == null) return Duration.zero;
+    final wait = sent.add(AuthService.resendCooldown).difference(now);
+    return wait.isNegative ? Duration.zero : wait;
+  }
+
+  /// Essais ratés repris par le code suivant : ceux de la fenêtre de
+  /// validité en cours, remis à zéro après un blocage écoulé.
+  int carriedFailures(DateTime now) =>
+      lockedUntil == null && expiresAt != null && expiresAt!.isAfter(now) ? failures : 0;
+
+  static String digest(String uid, String code, String salt) =>
+      base64Encode(Hmac(sha256, base64Decode(salt)).convert(utf8.encode('$uid:$code')).bytes);
+
+  /// Comparaison en temps constant.
+  bool matches(String uid, String code) {
+    final expected = base64Decode(hash!);
+    final actual = base64Decode(digest(uid, code, salt!));
+    if (actual.length != expected.length) return false;
+    var diff = 0;
+    for (var i = 0; i < actual.length; i++) {
+      diff |= actual[i] ^ expected[i];
+    }
+    return diff == 0;
+  }
+
+  /// Plus de code valide, mais les essais ratés et le blocage restent.
+  _EmailCode withoutCode({int? failures, DateTime? lockedUntil}) => _EmailCode(
+        expiresAt: expiresAt,
+        failures: failures ?? this.failures,
+        lockedUntil: lockedUntil ?? this.lockedUntil,
+      );
+
+  _EmailCode copyWith({required int failures}) => _EmailCode(
+        salt: salt,
+        hash: hash,
+        sentAt: sentAt,
+        expiresAt: expiresAt,
+        failures: failures,
+        lockedUntil: lockedUntil,
+      );
+
+  Map<String, dynamic> toMap() => {
+        'salt': salt,
+        'hash': hash,
+        'sentAt': sentAt?.toIso8601String(),
+        'expiresAt': expiresAt?.toIso8601String(),
+        'failures': failures,
+        'lockedUntil': lockedUntil?.toIso8601String(),
+      };
+
+  /// Valeur illisible : traitée comme absente.
+  static _EmailCode? read(String? raw) {
+    if (raw == null) return null;
+    try {
+      final m = jsonDecode(raw) as Map<String, dynamic>;
+      DateTime? date(String key) => m[key] == null ? null : DateTime.parse(m[key] as String);
+      return _EmailCode(
+        salt: m['salt'] as String?,
+        hash: m['hash'] as String?,
+        sentAt: date('sentAt'),
+        expiresAt: date('expiresAt'),
+        failures: (m['failures'] as num?)?.toInt() ?? 0,
+        lockedUntil: date('lockedUntil'),
+      );
+    } catch (_) {
+      return null;
+    }
   }
 }
